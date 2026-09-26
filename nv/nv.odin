@@ -2,7 +2,8 @@ package nv
 
 // Shared public API. Platform backends: *_macos.odin / *_ios.odin (`#+build darwin`,
 // split by `when IS_IOS` since build tags can't select the iOS subtarget),
-// *_android.odin (`#+build linux:android`) and *_linux.odin (`#+build linux:default`, GTK4).
+// *_android.odin (`#+build linux:android`), *_linux.odin (`#+build linux:default`, GTK4) and
+// *_windows.odin (`#+build windows`, Win32).
 //
 // Widgets: a scrolling list (`list_create`), a text label (`label_create`) and Flutter-style
 // Row / Column stacks (`row_create`, `column_create`, `flex_create`).
@@ -12,7 +13,8 @@ import "base:runtime"
 IS_IOS     :: ODIN_PLATFORM_SUBTARGET_IOS
 IS_ANDROID :: ODIN_PLATFORM_SUBTARGET == .Android
 
-// Opaque native view: NSView* on macOS, UIView* on iOS, global jobject on Android, GtkWidget* on Linux.
+// Opaque native view: NSView* on macOS, UIView* on iOS, global jobject on Android, GtkWidget* on Linux,
+// HWND on Windows.
 View :: distinct rawptr
 
 Item :: struct {
@@ -32,9 +34,9 @@ List_Handle :: struct {
 	list:          List,
 	ctx:           runtime.Context,
 	root:          View,   // view embedded by the app
-	table:         rawptr, // NSTableView* / UITableView* / ListView / GtkListView*
+	table:         rawptr, // NSTableView* / UITableView* / ListView / GtkListView* / SysListView32 HWND
 	data_source:   rawptr,
-	cells_created: int,    // debug: proves reuse
+	cells_created: int,    // debug: proves reuse (always 0 on Windows: the virtual ListView has no row objects)
 }
 
 Build_Proc :: proc(user: rawptr) -> View
@@ -65,12 +67,13 @@ list_reload :: proc(h: ^List_Handle) {
 ROW_ID :: "nv_row"
 
 // Main axis of a Row / Column. The values match GtkOrientation, NSUserInterfaceLayoutOrientation,
-// UILayoutConstraintAxis and LinearLayout.HORIZONTAL / VERTICAL, so backends cast directly.
+// UILayoutConstraintAxis and LinearLayout.HORIZONTAL / VERTICAL, so backends cast directly. Windows
+// lays out by hand and uses the value as the main-axis index (x = 0, y = 1).
 Axis :: enum { Horizontal, Vertical }
 
 // One child of a Row / Column. `flex` 0 keeps the natural size; `flex` > 0 shares the space left
 // on the main axis in proportion to the other flex children (Flutter's Expanded). The cross axis
-// always stretches. Weights other than 1 are exact on Apple and Android; GTK shares equally.
+// always stretches. Weights other than 1 are exact on Apple, Android and Windows; GTK shares equally.
 Flex_Child :: struct {
 	view: View,
 	flex: int,

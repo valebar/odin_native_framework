@@ -1,6 +1,6 @@
 package main
 
-// Shared app code: identical on macOS, iOS, Android and Linux.
+// Shared app code: identical on macOS, iOS, Android, Linux and Windows.
 //
 //   Column [ label, Expanded( Row [ Expanded(list, 1), Expanded(list2, 2) ] ) ]
 
