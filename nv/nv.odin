@@ -6,8 +6,8 @@ package nv
 // *_windows.odin (`#+build windows`, Win32).
 //
 // Widgets: a scrolling list (`list_create`), a text label (`label_create`), a text input
-// (`input_create`), a push button (`button_create`) and Flutter-style Row / Column stacks
-// (`row_create`, `column_create`, `flex_create`).
+// (`input_create`), a push button (`button_create`), a custom-drawn canvas (`canvas_create`) and
+// Flutter-style Row / Column stacks (`row_create`, `column_create`, `flex_create`).
 
 import "base:runtime"
 
@@ -213,4 +213,95 @@ button_notify :: proc(h: ^Button_Handle) {
 	callback_enter()
 	defer callback_exit()
 	h.button.on_click(h.button.user)
+}
+
+// RGBA, each 0..1.
+Color :: [4]f32
+
+Pointer :: enum { Down, Move, Up }
+
+// Custom-drawn view. `on_draw` runs whenever the platform repaints; call `canvas_redraw` after
+// the state it draws changed. Units are points / dp with the origin top-left. The canvas has no
+// natural size, so give it `flex` > 0 in a Row / Column.
+Canvas :: struct {
+	on_draw:    proc(user: rawptr, p: ^Painter, width, height: f64),
+	on_pointer: proc(user: rawptr, kind: Pointer, x, y: f64), // optional; Move only while pressed
+	user:       rawptr,
+}
+
+Canvas_Handle :: struct {
+	canvas: Canvas,
+	ctx:    runtime.Context,
+	root:   View,   // view embedded by the app
+	view:   rawptr, // NVCanvasView* / NvCanvasView / GtkDrawingArea* / NVCanvas HWND
+	fill:   rawptr, // Android: fill and stroke Paint global refs
+	stroke: rawptr,
+}
+
+// Drawing target, valid only during `on_draw`.
+Painter :: struct {
+	h:      ^Canvas_Handle,
+	native: rawptr, // CGContextRef / android.graphics.Canvas / cairo_t* / GpGraphics*
+	dc:     rawptr, // Windows: the HDC behind `native`
+}
+
+canvas_create :: proc(c: Canvas) -> ^Canvas_Handle {
+	h := new(Canvas_Handle)
+	h.canvas = c
+	h.ctx = context
+	_canvas_init(h)
+	return h
+}
+
+canvas_view :: proc(h: ^Canvas_Handle) -> View {
+	return h.root
+}
+
+// Schedules a repaint; `on_draw` runs later from the event loop.
+canvas_redraw :: proc(h: ^Canvas_Handle) {
+	_canvas_redraw(h)
+}
+
+fill_rect :: proc(p: ^Painter, x, y, w, h: f64, color: Color) {
+	_fill_rect(p, x, y, w, h, color)
+}
+
+stroke_rect :: proc(p: ^Painter, x, y, w, h: f64, color: Color, width: f64 = 1) {
+	_stroke_rect(p, x, y, w, h, color, width)
+}
+
+draw_line :: proc(p: ^Painter, x0, y0, x1, y1: f64, color: Color, width: f64 = 1) {
+	_draw_line(p, x0, y0, x1, y1, color, width)
+}
+
+// The ellipse inscribed in the rect.
+fill_ellipse :: proc(p: ^Painter, x, y, w, h: f64, color: Color) {
+	_fill_ellipse(p, x, y, w, h, color)
+}
+
+stroke_ellipse :: proc(p: ^Painter, x, y, w, h: f64, color: Color, width: f64 = 1) {
+	_stroke_ellipse(p, x, y, w, h, color, width)
+}
+
+// One line of text in the system font; (x, y) is the top-left of its line box.
+draw_text :: proc(p: ^Painter, text: string, x, y: f64, size: f64, color: Color) {
+	_draw_text(p, text, x, y, size, color)
+}
+
+// Called by the backends on repaint; `native` / `dc` as in Painter.
+@(private)
+canvas_draw_notify :: proc(h: ^Canvas_Handle, native: rawptr, width, height: f64, dc: rawptr = nil) {
+	if h.canvas.on_draw == nil do return
+	callback_enter()
+	defer callback_exit()
+	p := Painter{h, native, dc}
+	h.canvas.on_draw(h.canvas.user, &p, width, height)
+}
+
+@(private)
+canvas_pointer_notify :: proc(h: ^Canvas_Handle, kind: Pointer, x, y: f64) {
+	if h.canvas.on_pointer == nil do return
+	callback_enter()
+	defer callback_exit()
+	h.canvas.on_pointer(h.canvas.user, kind, x, y)
 }

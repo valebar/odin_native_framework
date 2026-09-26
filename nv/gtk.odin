@@ -7,6 +7,7 @@ package nv
 foreign import gtk  "system:gtk-4"
 foreign import gobj "system:gobject-2.0"
 foreign import gio  "system:gio-2.0"
+foreign import cairo "system:cairo"
 
 GType    :: distinct uint
 gboolean :: b32
@@ -21,6 +22,14 @@ GtkApplication   :: struct {}
 GtkListItem      :: struct {}
 GtkSingleSelection :: struct {}
 GtkListItemFactory :: struct {}
+GtkEventController :: struct {}
+cairo_t            :: struct {}
+
+cairo_font_extents_t :: struct {
+	ascent, descent, height, max_x_advance, max_y_advance: f64,
+}
+
+CAIRO_LINE_CAP_ROUND :: i32(1)
 
 GTypeQuery :: struct {
 	type:          GType,
@@ -116,6 +125,35 @@ foreign gtk {
 	gtk_single_selection_set_autoselect :: proc(self: ^GtkSingleSelection, autoselect: gboolean) ---
 	gtk_single_selection_set_selected   :: proc(self: ^GtkSingleSelection, position: guint) ---
 	gtk_single_selection_set_can_unselect :: proc(self: ^GtkSingleSelection, can_unselect: gboolean) ---
+
+	gtk_drawing_area_new           :: proc() -> ^GtkWidget ---
+	gtk_drawing_area_set_draw_func :: proc(area: ^GtkWidget, draw_func: rawptr, user_data: gpointer, destroy: rawptr) ---
+	gtk_widget_queue_draw          :: proc(widget: ^GtkWidget) ---
+	gtk_widget_add_controller      :: proc(widget: ^GtkWidget, controller: ^GtkEventController) ---
+	gtk_gesture_drag_new           :: proc() -> ^GtkEventController ---
+	gtk_gesture_drag_get_start_point :: proc(gesture: ^GtkEventController, x, y: ^f64) -> gboolean ---
+}
+
+@(default_calling_convention="c")
+foreign cairo {
+	cairo_save             :: proc(cr: ^cairo_t) ---
+	cairo_restore          :: proc(cr: ^cairo_t) ---
+	cairo_translate        :: proc(cr: ^cairo_t, tx, ty: f64) ---
+	cairo_scale            :: proc(cr: ^cairo_t, sx, sy: f64) ---
+	cairo_set_source_rgba  :: proc(cr: ^cairo_t, r, g, b, a: f64) ---
+	cairo_set_line_width   :: proc(cr: ^cairo_t, width: f64) ---
+	cairo_set_line_cap     :: proc(cr: ^cairo_t, cap: i32) ---
+	cairo_new_path         :: proc(cr: ^cairo_t) ---
+	cairo_move_to          :: proc(cr: ^cairo_t, x, y: f64) ---
+	cairo_line_to          :: proc(cr: ^cairo_t, x, y: f64) ---
+	cairo_rectangle        :: proc(cr: ^cairo_t, x, y, w, h: f64) ---
+	cairo_arc              :: proc(cr: ^cairo_t, xc, yc, radius, angle1, angle2: f64) ---
+	cairo_fill             :: proc(cr: ^cairo_t) ---
+	cairo_stroke           :: proc(cr: ^cairo_t) ---
+	cairo_select_font_face :: proc(cr: ^cairo_t, family: cstring, slant, weight: i32) ---
+	cairo_set_font_size    :: proc(cr: ^cairo_t, size: f64) ---
+	cairo_font_extents     :: proc(cr: ^cairo_t, extents: ^cairo_font_extents_t) ---
+	cairo_show_text        :: proc(cr: ^cairo_t, utf8: cstring) ---
 }
 
 g_signal_connect :: proc "c" (instance: gpointer, signal: cstring, handler: rawptr, data: gpointer) -> gulong {

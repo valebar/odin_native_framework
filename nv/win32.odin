@@ -36,6 +36,7 @@ foreign user32 {
 @(private) CLASS_LIST   :: "NVList"
 @(private) CLASS_INPUT  :: "NVInput"
 @(private) CLASS_BUTTON :: "NVButton"
+@(private) CLASS_CANVAS :: "NVCanvas"
 
 @(private)
 wstr :: proc(s: string) -> win.wstring {
@@ -66,6 +67,7 @@ register_classes :: proc() {
 	register(CLASS_LIST, list_proc)
 	register(CLASS_INPUT, input_proc)
 	register(CLASS_BUTTON, button_proc)
+	register(CLASS_CANVAS, canvas_proc)
 }
 
 // Fonts follow the user's message font (Settings > Accessibility > Text size included) at `dpi`.

@@ -85,6 +85,9 @@ Button_View :: struct { using _: NS.View }
 @(objc_class="NSFont")
 Font :: struct { using _: NS.Object }
 
+@(objc_class="NSGraphicsContext")
+Graphics_Context :: struct { using _: NS.Object }
+
 view_set_frame :: proc "c" (v: ^NS.View, frame: NS.Rect) {
 	send(nil, v, "setFrame:", frame)
 }

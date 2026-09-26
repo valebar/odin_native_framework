@@ -109,7 +109,7 @@ flex_relayout_ancestors :: proc(hwnd: win.HWND) {
 }
 
 // Natural size of a view in px: text extent for labels, one line for inputs, the title for buttons,
-// the stacked children for Row / Column, and 0 for anything else (a list has no natural size).
+// the stacked children for Row / Column, and 0 for anything else (a list or canvas has no natural size).
 @(private)
 measure :: proc(hwnd: win.HWND) -> [2]i32 {
 	switch class_name(hwnd) {

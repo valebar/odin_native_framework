@@ -33,6 +33,7 @@ JNI_Env :: ^[^]rawptr
 @(private) JNI_GET_OBJECT_CLASS      :: 31
 @(private) JNI_GET_METHOD_ID         :: 33
 @(private) JNI_CALL_OBJECT_METHOD_A  :: 36
+@(private) JNI_CALL_FLOAT_METHOD_A   :: 57
 @(private) JNI_CALL_VOID_METHOD_A    :: 63
 @(private) JNI_GET_FIELD_ID          :: 94
 @(private) JNI_GET_FLOAT_FIELD       :: 102
@@ -100,6 +101,15 @@ jni_call_void :: proc "contextless" (env: JNI_Env, obj: jobject, name, sig: cstr
 	jni_delete_local_ref(env, cls)
 	jni_fn(env, proc "c" (JNI_Env, jobject, jmethodID, [^]jvalue), JNI_CALL_VOID_METHOD_A)(env, obj, m, raw_data(args))
 	jni_check(env)
+}
+
+jni_call_float :: proc "contextless" (env: JNI_Env, obj: jobject, name, sig: cstring, args: ..jvalue) -> f32 {
+	cls := jni_get_object_class(env, obj)
+	m := jni_method(env, cls, name, sig)
+	jni_delete_local_ref(env, cls)
+	res := jni_fn(env, proc "c" (JNI_Env, jobject, jmethodID, [^]jvalue) -> f32, JNI_CALL_FLOAT_METHOD_A)(env, obj, m, raw_data(args))
+	jni_check(env)
+	return res
 }
 
 jni_call_static_object :: proc "contextless" (env: JNI_Env, cls_name, name, sig: cstring, args: ..jvalue) -> jobject {

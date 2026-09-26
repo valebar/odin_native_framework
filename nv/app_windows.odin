@@ -15,6 +15,7 @@ _run :: proc(title: string, build: Build_Proc, user: rawptr) {
 	icc := win.INITCOMMONCONTROLSEX{size_of(win.INITCOMMONCONTROLSEX), win.ICC_LISTVIEW_CLASSES | win.ICC_STANDARD_CLASSES}
 	win.InitCommonControlsEx(&icc)
 	register_classes()
+	gdiplus_init()
 
 	style := win.WS_OVERLAPPEDWINDOW | win.WS_CLIPCHILDREN
 	wnd := win.CreateWindowExW(0, wstr(CLASS_WINDOW), wstr(title), style,

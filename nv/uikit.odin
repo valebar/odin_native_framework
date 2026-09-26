@@ -11,6 +11,7 @@ when IS_IOS {
 
 foreign uikit {
 	UIApplicationMain :: proc "c" (argc: i32, argv: [^]cstring, principal: ^NS.String, delegate: ^NS.String) -> i32 ---
+	UIGraphicsGetCurrentContext :: proc "c" () -> CGContextRef ---
 }
 
 @(objc_class="UIView")
@@ -60,6 +61,8 @@ UI_Layout_Guide :: struct { using _: NS.Object }
 
 @(objc_class="NSLayoutAnchor")
 Layout_Anchor :: struct { using _: NS.Object }
+
+UI_VIEW_CONTENT_MODE_REDRAW :: NS.Integer(3)
 
 UI_TABLE_VIEW_STYLE_PLAIN        :: NS.Integer(0)
 UI_TABLE_VIEW_AUTOMATIC_DIMENSION :: NS.Float(-1)

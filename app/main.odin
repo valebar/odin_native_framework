@@ -2,10 +2,10 @@ package main
 
 // Shared app code: identical on macOS, iOS, Android, Linux and Windows.
 //
-//   Column [ label, Row [ Expanded(input), button ], Expanded( Row [ Expanded(list, 1), Expanded(list2, 2) ] ) ]
+//   Column [ label, Row [ Expanded(input), button ], Expanded( Row [ Expanded(list, 1), Expanded(list2, 2) ], 2 ), Expanded(canvas, 1) ]
 //
-// Typing in the input filters both lists down to the items whose number contains the text;
-// the button clears the filter.
+// Typing in the input filters both lists down to the items whose number contains the text.
+// Dragging on the canvas draws strokes; the button clears the filter and the strokes.
 
 import "core:fmt"
 import "core:strconv"
@@ -19,6 +19,8 @@ State :: struct {
 	list2:   ^nv.List_Handle,
 	filter:  ^nv.Input_Handle,
 	clear:   ^nv.Button_Handle,
+	canvas:  ^nv.Canvas_Handle,
+	strokes: [dynamic][dynamic][2]f64,
 }
 
 state := State{items = 10_000}
@@ -70,6 +72,20 @@ build :: proc(user: rawptr) -> nv.View {
 			s := (^State)(user)
 			nv.input_set_text(s.filter, "")
 			set_filter(s, "")
+			for st in s.strokes do delete(st)
+			clear(&s.strokes)
+			nv.canvas_redraw(s.canvas)
+		},
+		user = s,
+	})
+
+	s.canvas = nv.canvas_create({
+		on_draw = draw_canvas,
+		on_pointer = proc(user: rawptr, kind: nv.Pointer, x, y: f64) {
+			s := (^State)(user)
+			if kind == .Down do append(&s.strokes, [dynamic][2]f64{})
+			if len(s.strokes) > 0 do append(&s.strokes[len(s.strokes) - 1], [2]f64{x, y})
+			nv.canvas_redraw(s.canvas)
 		},
 		user = s,
 	})
@@ -77,7 +93,19 @@ build :: proc(user: rawptr) -> nv.View {
 	header := nv.label_create(fmt.tprintf("%d items, twice", s.items))
 	lists := nv.row_create({{nv.list_view(s.list), 1}, {nv.list_view(s.list2), 2}}, spacing = 8)
 	search := nv.row_create({{nv.input_view(s.filter), 1}, {nv.button_view(s.clear), 0}}, spacing = 8)
-	return nv.column_create({{header, 0}, {search, 0}, {lists, 1}}, spacing = 8)
+	return nv.column_create({{header, 0}, {search, 0}, {lists, 2}, {nv.canvas_view(s.canvas), 1}}, spacing = 8)
+}
+
+draw_canvas :: proc(user: rawptr, p: ^nv.Painter, w, h: f64) {
+	s := (^State)(user)
+	nv.fill_rect(p, 0, 0, w, h, {0.96, 0.96, 0.98, 1})
+	nv.stroke_rect(p, 0.5, 0.5, w - 1, h - 1, {0.7, 0.7, 0.75, 1})
+	nv.fill_ellipse(p, w - 60, 12, 44, 44, {1, 0.6, 0.2, 1})
+	nv.stroke_ellipse(p, w - 60, 12, 44, 44, {0.6, 0.3, 0, 1}, 2)
+	nv.draw_text(p, fmt.tprintf("Draw here (%d strokes)", len(s.strokes)), 12, 12, 15, {0.3, 0.3, 0.35, 1})
+	for st in s.strokes {
+		for i in 1..<len(st) do nv.draw_line(p, st[i-1].x, st[i-1].y, st[i].x, st[i].y, {0.1, 0.3, 0.9, 1}, 3)
+	}
 }
 
 set_filter :: proc(s: ^State, text: string) {
