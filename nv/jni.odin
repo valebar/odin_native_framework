@@ -38,6 +38,9 @@ JNI_Env :: ^[^]rawptr
 @(private) JNI_GET_STATIC_METHOD_ID  :: 113
 @(private) JNI_CALL_STATIC_OBJECT_A  :: 116
 @(private) JNI_NEW_STRING_UTF        :: 167
+@(private) JNI_GET_STRING_UTF_LENGTH :: 168
+@(private) JNI_GET_STRING_UTF_CHARS  :: 169
+@(private) JNI_RELEASE_STRING_UTF_CHARS :: 170
 @(private) JNI_EXCEPTION_CHECK       :: 228
 
 @(private)
@@ -115,6 +118,17 @@ jni_get_float_field :: proc "contextless" (env: JNI_Env, obj: jobject, name: cst
 
 jni_string :: proc "contextless" (env: JNI_Env, s: cstring) -> jstring {
 	return jni_fn(env, proc "c" (JNI_Env, cstring) -> jstring, JNI_NEW_STRING_UTF)(env, s)
+}
+
+// Copies a Java string (as modified UTF-8, which only differs from UTF-8 for NUL and
+// characters outside the BMP).
+jni_string_clone :: proc(env: JNI_Env, s: jstring, allocator := context.allocator) -> string {
+	n := jni_fn(env, proc "c" (JNI_Env, jstring) -> jint, JNI_GET_STRING_UTF_LENGTH)(env, s)
+	chars := jni_fn(env, proc "c" (JNI_Env, jstring, ^jboolean) -> [^]u8, JNI_GET_STRING_UTF_CHARS)(env, s, nil)
+	defer jni_fn(env, proc "c" (JNI_Env, jstring, [^]u8), JNI_RELEASE_STRING_UTF_CHARS)(env, s, chars)
+	out := make([]u8, n, allocator)
+	copy(out, chars[:n])
+	return string(out)
 }
 
 // Logs and clears a pending Java exception so later JNI calls stay valid.

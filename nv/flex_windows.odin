@@ -99,8 +99,8 @@ flex_layout :: proc(hwnd: win.HWND) {
 	}
 }
 
-// Natural size of a view in px: text extent for labels, the stacked children for Row / Column,
-// and 0 for anything else (a list has no natural size).
+// Natural size of a view in px: text extent for labels, one line for inputs, the stacked children
+// for Row / Column, and 0 for anything else (a list has no natural size).
 @(private)
 measure :: proc(hwnd: win.HWND) -> [2]i32 {
 	switch class_name(hwnd) {
@@ -114,6 +114,8 @@ measure :: proc(hwnd: win.HWND) -> [2]i32 {
 			out[1 - main] = max(out[1 - main], m[1 - main])
 		}
 		return out
+	case CLASS_INPUT:
+		return input_measure()
 	case "Static":
 		buf: [256]u16
 		n := win.GetWindowTextW(hwnd, &buf[0], len(buf))

@@ -224,6 +224,23 @@ text_field_set_tag :: proc "c" (tf: ^Text_Field, tag: NS.Integer) {
 	send(nil, tf, "setTag:", tag)
 }
 
+// Autoreleased editable field: single line, non-wrapping, scrolls horizontally.
+text_field_editable :: proc "c" (s: ^NS.String) -> ^Text_Field {
+	return send(^Text_Field, Text_Field, "textFieldWithString:", s)
+}
+
+text_field_set_placeholder :: proc "c" (tf: ^Text_Field, s: ^NS.String) {
+	send(nil, tf, "setPlaceholderString:", s)
+}
+
+text_field_set_delegate :: proc "c" (tf: ^Text_Field, d: NS.id) {
+	send(nil, tf, "setDelegate:", d)
+}
+
+text_field_string :: proc "c" (tf: ^Text_Field) -> ^NS.String {
+	return send(^NS.String, tf, "stringValue")
+}
+
 font_system :: proc "c" (size: NS.Float) -> ^Font {
 	return send(^Font, Font, "systemFontOfSize:", size)
 }

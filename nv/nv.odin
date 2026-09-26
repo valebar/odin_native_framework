@@ -5,8 +5,8 @@ package nv
 // *_android.odin (`#+build linux:android`), *_linux.odin (`#+build linux:default`, GTK4) and
 // *_windows.odin (`#+build windows`, Win32).
 //
-// Widgets: a scrolling list (`list_create`), a text label (`label_create`) and Flutter-style
-// Row / Column stacks (`row_create`, `column_create`, `flex_create`).
+// Widgets: a scrolling list (`list_create`), a text label (`label_create`), a text input
+// (`input_create`) and Flutter-style Row / Column stacks (`row_create`, `column_create`, `flex_create`).
 
 import "base:runtime"
 
@@ -101,4 +101,54 @@ column_create :: proc(children: []Flex_Child, spacing: f64 = 0) -> View {
 // Single-line bold text. `text` is copied.
 label_create :: proc(text: string) -> View {
 	return _label_create(text)
+}
+
+// Single-line text input. Callbacks get the current text, valid only during the call.
+Input :: struct {
+	text:        string, // initial text
+	placeholder: string,
+	on_change:   proc(user: rawptr, text: string), // optional; on every edit by the user
+	on_submit:   proc(user: rawptr, text: string), // optional; Return / Enter / the keyboard's Done key
+	user:        rawptr,
+}
+
+Input_Handle :: struct {
+	input:    Input,
+	ctx:      runtime.Context,
+	root:     View,   // view embedded by the app
+	field:    rawptr, // NSTextField* / UITextField* / EditText / GtkEntry* / Edit HWND
+	delegate: rawptr, // delegate / target / listener object, where the platform needs one
+	silent:   bool,   // set during input_set_text, which never reports a change
+}
+
+input_create :: proc(i: Input) -> ^Input_Handle {
+	h := new(Input_Handle)
+	h.input = i
+	h.ctx = context
+	_input_init(h)
+	return h
+}
+
+input_view :: proc(h: ^Input_Handle) -> View {
+	return h.root
+}
+
+// Returns a copy of the current text.
+input_text :: proc(h: ^Input_Handle, allocator := context.allocator) -> string {
+	return _input_text(h, allocator)
+}
+
+// Replaces the text without calling `on_change`.
+input_set_text :: proc(h: ^Input_Handle, text: string) {
+	h.silent = true
+	_input_set_text(h, text)
+	h.silent = false
+}
+
+// Called by the backends when the text changed or was submitted; `cb` is on_change or on_submit.
+@(private)
+input_notify :: proc(h: ^Input_Handle, cb: proc(user: rawptr, text: string)) {
+	if h.silent || cb == nil do return
+	cb(h.input.user, _input_text(h, context.temp_allocator))
+	free_all(context.temp_allocator)
 }

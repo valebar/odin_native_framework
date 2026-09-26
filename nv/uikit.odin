@@ -46,9 +46,17 @@ UI_Label :: struct { using _: UI_View }
 @(objc_class="UIFont")
 UI_Font :: struct { using _: NS.Object }
 
+@(objc_class="UITextField")
+UI_Text_Field :: struct { using _: UI_View }
+
 UI_TABLE_VIEW_STYLE_PLAIN        :: NS.Integer(0)
 UI_TABLE_VIEW_AUTOMATIC_DIMENSION :: NS.Float(-1)
 UI_TABLE_VIEW_CELL_STYLE_DEFAULT  :: NS.Integer(0)
+
+UI_TEXT_BORDER_STYLE_ROUNDED_RECT       :: NS.Integer(3)
+UI_RETURN_KEY_DONE                      :: NS.Integer(9)
+UI_CONTROL_EVENT_EDITING_CHANGED        :: NS.UInteger(1 << 17)
+UI_CONTROL_EVENT_EDITING_DID_END_ON_EXIT :: NS.UInteger(1 << 19) // Return; also dismisses the keyboard
 
 // Returns an owned (+1) window.
 ui_window_new :: proc "c" (scene: NS.id) -> ^UI_Window {
@@ -186,6 +194,36 @@ ui_label_set_font :: proc "c" (l: ^UI_Label, f: ^UI_Font) {
 
 ui_font_bold_system :: proc "c" (size: NS.Float) -> ^UI_Font {
 	return send(^UI_Font, UI_Font, "boldSystemFontOfSize:", size)
+}
+
+// Returns an owned (+1) text field.
+ui_text_field_new :: proc "c" () -> ^UI_Text_Field {
+	return send(^UI_Text_Field, UI_Text_Field, "new")
+}
+
+ui_text_field_set_text :: proc "c" (tf: ^UI_Text_Field, s: ^NS.String) {
+	send(nil, tf, "setText:", s)
+}
+
+ui_text_field_text :: proc "c" (tf: ^UI_Text_Field) -> ^NS.String {
+	return send(^NS.String, tf, "text")
+}
+
+ui_text_field_set_placeholder :: proc "c" (tf: ^UI_Text_Field, s: ^NS.String) {
+	send(nil, tf, "setPlaceholder:", s)
+}
+
+ui_text_field_set_border_style :: proc "c" (tf: ^UI_Text_Field, style: NS.Integer) {
+	send(nil, tf, "setBorderStyle:", style)
+}
+
+ui_text_field_set_return_key_type :: proc "c" (tf: ^UI_Text_Field, t: NS.Integer) {
+	send(nil, tf, "setReturnKeyType:", t)
+}
+
+// UIControl target-action; the control does not retain `target`.
+ui_control_add_target :: proc "c" (c: ^UI_View, target: NS.id, action: NS.SEL, events: NS.UInteger) {
+	send(nil, c, "addTarget:action:forControlEvents:", target, action, events)
 }
 
 }

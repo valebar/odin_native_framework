@@ -97,6 +97,11 @@ foreign gtk {
 	gtk_label_set_xalign    :: proc(label: ^GtkWidget, xalign: f32) ---
 	gtk_label_set_ellipsize :: proc(label: ^GtkWidget, mode: PangoEllipsizeMode) ---
 
+	gtk_entry_new                  :: proc() -> ^GtkWidget ---
+	gtk_entry_set_placeholder_text :: proc(entry: ^GtkWidget, text: cstring) ---
+	gtk_editable_get_text          :: proc(editable: ^GtkWidget) -> cstring ---
+	gtk_editable_set_text          :: proc(editable: ^GtkWidget, text: cstring) ---
+
 	gtk_list_view_new                :: proc(model: ^GtkSingleSelection, factory: ^GtkListItemFactory) -> ^GtkWidget ---
 	gtk_signal_list_item_factory_new :: proc() -> ^GtkListItemFactory ---
 	gtk_list_item_get_position       :: proc(self: ^GtkListItem) -> guint ---

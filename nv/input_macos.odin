@@ -1,0 +1,74 @@
+#+build darwin
+package nv
+
+// macOS input backend: an editable NSTextField. Its delegate (NVInputDelegate) gets
+// controlTextDidChange: for every edit and control:textView:doCommandBySelector: for Return
+// (insertNewline:). setStringValue: sends no change notification.
+
+import "base:intrinsics"
+import "core:strings"
+import NS "core:sys/darwin/Foundation"
+
+when !IS_IOS {
+
+@(private) input_class: NS.Class
+
+@(private)
+_input_init :: proc(h: ^Input_Handle) {
+	field := text_field_editable(ns_string(h.input.text)) // autoreleased; *_create returns owned views
+	field->retain()
+	if h.input.placeholder != "" do text_field_set_placeholder(field, ns_string(h.input.placeholder))
+
+	d := input_delegate_alloc(h)
+	text_field_set_delegate(field, d) // weak; the delegate lives as long as the handle
+
+	h.root = View(field)
+	h.field = field
+	h.delegate = d
+}
+
+@(private)
+_input_text :: proc(h: ^Input_Handle, allocator := context.allocator) -> string {
+	return strings.clone(text_field_string((^Text_Field)(h.field))->odinString(), allocator)
+}
+
+@(private)
+_input_set_text :: proc(h: ^Input_Handle, text: string) {
+	text_field_set_string((^Text_Field)(h.field), ns_string(text))
+}
+
+@(private)
+input_delegate_alloc :: proc(h: ^Input_Handle) -> NS.id {
+	if input_class == nil {
+		input_class = NS.objc_allocateClassPair(intrinsics.objc_find_class("NSObject"), "NVInputDelegate", 0)
+		NS.class_addMethod(input_class, intrinsics.objc_find_selector("controlTextDidChange:"), auto_cast input_did_change, "v@:@")
+		NS.class_addMethod(input_class, intrinsics.objc_find_selector("control:textView:doCommandBySelector:"), auto_cast input_do_command, "B@:@@:")
+		NS.objc_registerClassPair(input_class)
+	}
+	obj := NS.class_createInstance(input_class, size_of(^Input_Handle))
+	(^^Input_Handle)(NS.object_getIndexedIvars(obj))^ = h
+	return obj
+}
+
+@(private)
+input_handle_of :: #force_inline proc "c" (self: NS.id) -> ^Input_Handle {
+	return (^^Input_Handle)(NS.object_getIndexedIvars(self))^
+}
+
+@(private)
+input_did_change :: proc "c" (self: NS.id, _: NS.SEL, _: ^NS.Notification) {
+	h := input_handle_of(self)
+	context = h.ctx
+	input_notify(h, h.input.on_change)
+}
+
+// Returns false so the field still handles the command (Return ends editing and selects the text).
+@(private)
+input_do_command :: proc "c" (self: NS.id, _: NS.SEL, _: NS.id, _: NS.id, command: NS.SEL) -> NS.BOOL {
+	h := input_handle_of(self)
+	context = h.ctx
+	if command == intrinsics.objc_find_selector("insertNewline:") do input_notify(h, h.input.on_submit)
+	return false
+}
+
+}
