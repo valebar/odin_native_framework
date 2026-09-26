@@ -21,7 +21,9 @@ _run :: proc(title: string, build: Build_Proc, user: rawptr) {
 		false,
 	)
 	wnd->setTitle(ns_string(title))
+	callback_enter()
 	root := (^NS.View)(build(user))
+	callback_exit()
 	view_set_autoresizing(root, RESIZE_WIDTH | RESIZE_HEIGHT)
 	wnd->setContentView(root)
 	wnd->center()

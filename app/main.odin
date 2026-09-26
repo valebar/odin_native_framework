@@ -2,9 +2,10 @@ package main
 
 // Shared app code: identical on macOS, iOS, Android, Linux and Windows.
 //
-//   Column [ label, input, Expanded( Row [ Expanded(list, 1), Expanded(list2, 2) ] ) ]
+//   Column [ label, Row [ Expanded(input), button ], Expanded( Row [ Expanded(list, 1), Expanded(list2, 2) ] ) ]
 //
-// Typing in the input filters both lists down to the items whose number contains the text.
+// Typing in the input filters both lists down to the items whose number contains the text;
+// the button clears the filter.
 
 import "core:fmt"
 import "core:strconv"
@@ -17,6 +18,7 @@ State :: struct {
 	list:    ^nv.List_Handle,
 	list2:   ^nv.List_Handle,
 	filter:  ^nv.Input_Handle,
+	clear:   ^nv.Button_Handle,
 }
 
 state := State{items = 10_000}
@@ -53,10 +55,7 @@ build :: proc(user: rawptr) -> nv.View {
 	s.filter = nv.input_create({
 		placeholder = "Filter by number",
 		on_change = proc(user: rawptr, text: string) {
-			s := (^State)(user)
-			apply_filter(s, text)
-			nv.list_reload(s.list)
-			nv.list_reload(s.list2)
+			set_filter((^State)(user), text)
 		},
 		on_submit = proc(user: rawptr, text: string) {
 			s := (^State)(user)
@@ -65,9 +64,26 @@ build :: proc(user: rawptr) -> nv.View {
 		user = s,
 	})
 
+	s.clear = nv.button_create({
+		title = "Clear",
+		on_click = proc(user: rawptr) {
+			s := (^State)(user)
+			nv.input_set_text(s.filter, "")
+			set_filter(s, "")
+		},
+		user = s,
+	})
+
 	header := nv.label_create(fmt.tprintf("%d items, twice", s.items))
 	lists := nv.row_create({{nv.list_view(s.list), 1}, {nv.list_view(s.list2), 2}}, spacing = 8)
-	return nv.column_create({{header, 0}, {nv.input_view(s.filter), 0}, {lists, 1}}, spacing = 8)
+	search := nv.row_create({{nv.input_view(s.filter), 1}, {nv.button_view(s.clear), 0}}, spacing = 8)
+	return nv.column_create({{header, 0}, {search, 0}, {lists, 1}}, spacing = 8)
+}
+
+set_filter :: proc(s: ^State, text: string) {
+	apply_filter(s, text)
+	nv.list_reload(s.list)
+	nv.list_reload(s.list2)
 }
 
 apply_filter :: proc(s: ^State, text: string) {

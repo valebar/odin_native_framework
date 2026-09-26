@@ -24,7 +24,7 @@ foreign user32 {
 	parking:    win.HWND, // main window; parent of every control until it is re-parented
 	root:       win.HWND,
 	dpi:        u32,
-	font:       win.HFONT, // message font (Segoe UI 9pt): list subtitles, inputs
+	font:       win.HFONT, // message font (Segoe UI 9pt): list subtitles, inputs, buttons
 	bold:       win.HFONT, // bold message font: list titles
 	title:      win.HFONT, // larger bold font: labels
 	font_h:     i32,       // line heights of the fonts above, in px
@@ -35,6 +35,7 @@ foreign user32 {
 @(private) CLASS_FLEX   :: "NVFlex"
 @(private) CLASS_LIST   :: "NVList"
 @(private) CLASS_INPUT  :: "NVInput"
+@(private) CLASS_BUTTON :: "NVButton"
 
 @(private)
 wstr :: proc(s: string) -> win.wstring {
@@ -64,6 +65,7 @@ register_classes :: proc() {
 	register(CLASS_FLEX, flex_proc)
 	register(CLASS_LIST, list_proc)
 	register(CLASS_INPUT, input_proc)
+	register(CLASS_BUTTON, button_proc)
 }
 
 // Fonts follow the user's message font (Settings > Accessibility > Text size included) at `dpi`.

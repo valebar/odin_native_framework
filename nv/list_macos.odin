@@ -83,6 +83,8 @@ height_of_row :: proc "c" (self: NS.id, _: NS.SEL, _: ^Table_View, _: NS.Integer
 selection_did_change :: proc "c" (self: NS.id, _: NS.SEL, _: ^NS.Notification) {
 	h := handle_of(self)
 	context = h.ctx
+	callback_enter()
+	defer callback_exit()
 	if h.list.on_select == nil do return
 	row := table_view_selected_row((^Table_View)(h.table))
 	if row >= 0 do h.list.on_select(h.list.user, int(row))
@@ -92,6 +94,8 @@ selection_did_change :: proc "c" (self: NS.id, _: NS.SEL, _: ^NS.Notification) {
 view_for_row :: proc "c" (self: NS.id, _: NS.SEL, tv: ^Table_View, _: ^Table_Column, row: NS.Integer) -> ^NS.View {
 	h := handle_of(self)
 	context = h.ctx
+	callback_enter()
+	defer callback_exit()
 
 	cell := table_view_make_view(tv, NS.AT(ROW_ID))
 	if cell == nil {
@@ -101,7 +105,6 @@ view_for_row :: proc "c" (self: NS.id, _: NS.SEL, tv: ^Table_View, _: ^Table_Col
 	r := h.list.item(h.list.user, int(row))
 	text_field_set_string(cast(^Text_Field)view_with_tag(cell, TAG_TITLE), ns_string(r.title))
 	text_field_set_string(cast(^Text_Field)view_with_tag(cell, TAG_SUBTITLE), ns_string(r.subtitle))
-	free_all(context.temp_allocator)
 	return cell
 }
 

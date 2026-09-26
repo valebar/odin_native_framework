@@ -98,6 +98,8 @@ model_iface_init :: proc "c" (iface: gpointer, _: gpointer) {
 on_selection_changed :: proc "c" (sel: ^GtkSingleSelection, _, _: guint, user: gpointer) {
 	h := (^List_Handle)(user)
 	context = h.ctx
+	callback_enter()
+	defer callback_exit()
 	if h.list.on_select == nil do return
 	row := gtk_single_selection_get_selected(sel)
 	if row != GTK_INVALID_LIST_POSITION do h.list.on_select(h.list.user, int(row))
@@ -140,6 +142,8 @@ on_setup :: proc "c" (_: ^GtkListItemFactory, item: ^GtkListItem, user: gpointer
 on_bind :: proc "c" (_: ^GtkListItemFactory, item: ^GtkListItem, user: gpointer) {
 	h := (^List_Handle)(user)
 	context = h.ctx
+	callback_enter()
+	defer callback_exit()
 
 	cell := gtk_list_item_get_child(item)
 	title := gtk_widget_get_first_child(cell)
@@ -148,5 +152,4 @@ on_bind :: proc "c" (_: ^GtkListItemFactory, item: ^GtkListItem, user: gpointer)
 	r := h.list.item(h.list.user, int(gtk_list_item_get_position(item)))
 	gtk_label_set_text(title, strings.clone_to_cstring(r.title, context.temp_allocator))
 	gtk_label_set_text(subtitle, strings.clone_to_cstring(r.subtitle, context.temp_allocator))
-	free_all(context.temp_allocator)
 }

@@ -51,9 +51,17 @@ scene_window :: proc "c" (self: NS.id, _: NS.SEL) -> ^UI_Window {
 @(private)
 scene_will_connect :: proc "c" (self: NS.id, _: NS.SEL, scene: NS.id, _: NS.id, _: NS.id) {
 	context = g_app.ctx
+	callback_enter()
+	defer callback_exit()
 
+	// The app's view sits in a plain container, pinned to its safe area: a stack view doesn't
+	// inset itself like a table view does, so it would slide under the navigation bar.
+	container := ui_view_new()
+	ui_view_set_background_color(container, ui_color_system_background())
+	ui_view_pin_to_safe_area((^UI_View)(g_app.build(g_app.user)), container)
 	root := ui_view_controller_new()
-	ui_view_controller_set_view(root, (^UI_View)(g_app.build(g_app.user)))
+	ui_view_controller_set_view(root, container)
+	container->release()
 	ui_view_controller_set_title(root, ns_string(g_app.title))
 	nav := ui_navigation_controller_new(root)
 	root->release()

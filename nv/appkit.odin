@@ -79,6 +79,9 @@ Table_Column :: struct { using _: NS.Object }
 @(objc_class="NSTextField")
 Text_Field :: struct { using _: NS.View }
 
+@(objc_class="NSButton")
+Button_View :: struct { using _: NS.View }
+
 @(objc_class="NSFont")
 Font :: struct { using _: NS.Object }
 
@@ -239,6 +242,15 @@ text_field_set_delegate :: proc "c" (tf: ^Text_Field, d: NS.id) {
 
 text_field_string :: proc "c" (tf: ^Text_Field) -> ^NS.String {
 	return send(^NS.String, tf, "stringValue")
+}
+
+// Autoreleased bezel push button; `target` is weak.
+button_push :: proc "c" (title: ^NS.String, target: NS.id, action: NS.SEL) -> ^Button_View {
+	return send(^Button_View, Button_View, "buttonWithTitle:target:action:", title, target, action)
+}
+
+button_set_title_ns :: proc "c" (b: ^Button_View, title: ^NS.String) {
+	send(nil, b, "setTitle:", title)
 }
 
 font_system :: proc "c" (size: NS.Float) -> ^Font {

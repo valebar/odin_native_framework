@@ -49,12 +49,27 @@ UI_Font :: struct { using _: NS.Object }
 @(objc_class="UITextField")
 UI_Text_Field :: struct { using _: UI_View }
 
+@(objc_class="UIButton")
+UI_Button :: struct { using _: UI_View }
+
+@(objc_class="UIColor")
+UI_Color :: struct { using _: NS.Object }
+
+@(objc_class="UILayoutGuide")
+UI_Layout_Guide :: struct { using _: NS.Object }
+
+@(objc_class="NSLayoutAnchor")
+Layout_Anchor :: struct { using _: NS.Object }
+
 UI_TABLE_VIEW_STYLE_PLAIN        :: NS.Integer(0)
 UI_TABLE_VIEW_AUTOMATIC_DIMENSION :: NS.Float(-1)
 UI_TABLE_VIEW_CELL_STYLE_DEFAULT  :: NS.Integer(0)
 
 UI_TEXT_BORDER_STYLE_ROUNDED_RECT       :: NS.Integer(3)
 UI_RETURN_KEY_DONE                      :: NS.Integer(9)
+UI_BUTTON_TYPE_SYSTEM                   :: NS.Integer(1)
+UI_CONTROL_STATE_NORMAL                 :: NS.UInteger(0)
+UI_CONTROL_EVENT_TOUCH_UP_INSIDE        :: NS.UInteger(1 << 6)
 UI_CONTROL_EVENT_EDITING_CHANGED        :: NS.UInteger(1 << 17)
 UI_CONTROL_EVENT_EDITING_DID_END_ON_EXIT :: NS.UInteger(1 << 19) // Return; also dismisses the keyboard
 
@@ -70,6 +85,36 @@ ui_window_set_root_view_controller :: proc "c" (w: ^UI_Window, vc: ^UI_View_Cont
 
 ui_window_make_key_and_visible :: proc "c" (w: ^UI_Window) {
 	send(nil, w, "makeKeyAndVisible")
+}
+
+// Returns an owned (+1) view.
+ui_view_new :: proc "c" () -> ^UI_View {
+	return send(^UI_View, UI_View, "new")
+}
+
+ui_view_set_background_color :: proc "c" (v: ^UI_View, c: ^UI_Color) {
+	send(nil, v, "setBackgroundColor:", c)
+}
+
+ui_color_system_background :: proc "c" () -> ^UI_Color {
+	return send(^UI_Color, UI_Color, "systemBackgroundColor")
+}
+
+// Adds `child` to `parent` and pins its edges to the parent's safe area.
+ui_view_pin_to_safe_area :: proc "c" (child, parent: ^UI_View) {
+	send(nil, child, "setTranslatesAutoresizingMaskIntoConstraints:", NS.BOOL(false))
+	send(nil, parent, "addSubview:", child)
+	guide := send(^UI_Layout_Guide, parent, "safeAreaLayoutGuide")
+	layout_anchor_equal(send(^Layout_Anchor, child, "topAnchor"), send(^Layout_Anchor, guide, "topAnchor"))
+	layout_anchor_equal(send(^Layout_Anchor, child, "bottomAnchor"), send(^Layout_Anchor, guide, "bottomAnchor"))
+	layout_anchor_equal(send(^Layout_Anchor, child, "leadingAnchor"), send(^Layout_Anchor, guide, "leadingAnchor"))
+	layout_anchor_equal(send(^Layout_Anchor, child, "trailingAnchor"), send(^Layout_Anchor, guide, "trailingAnchor"))
+}
+
+// Activates `a == b`.
+layout_anchor_equal :: proc "c" (a, b: ^Layout_Anchor) {
+	c := send(^Layout_Constraint, a, "constraintEqualToAnchor:", b)
+	send(nil, c, "setActive:", NS.BOOL(true))
 }
 
 // Returns an owned (+1) controller.
@@ -219,6 +264,15 @@ ui_text_field_set_border_style :: proc "c" (tf: ^UI_Text_Field, style: NS.Intege
 
 ui_text_field_set_return_key_type :: proc "c" (tf: ^UI_Text_Field, t: NS.Integer) {
 	send(nil, tf, "setReturnKeyType:", t)
+}
+
+// Autoreleased.
+ui_button_system :: proc "c" () -> ^UI_Button {
+	return send(^UI_Button, UI_Button, "buttonWithType:", UI_BUTTON_TYPE_SYSTEM)
+}
+
+ui_button_set_title :: proc "c" (b: ^UI_Button, title: ^NS.String) {
+	send(nil, b, "setTitle:forState:", title, UI_CONTROL_STATE_NORMAL)
 }
 
 // UIControl target-action; the control does not retain `target`.

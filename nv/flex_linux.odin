@@ -28,6 +28,5 @@ _label_create :: proc(text: string) -> View {
 	label := gtk_label_new(strings.clone_to_cstring(text, context.temp_allocator))
 	gtk_label_set_xalign(label, 0)
 	gtk_widget_add_css_class(label, "title-4")
-	free_all(context.temp_allocator)
 	return View(label)
 }

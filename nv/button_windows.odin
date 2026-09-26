@@ -1,0 +1,63 @@
+#+build windows
+package nv
+
+// Windows button backend: a "Button" push button inside an "NVButton" container window, which
+// gets its BN_CLICKED. Like the list and the input, the control keeps a parent that Row / Column
+// never re-parents, so its notifications always reach the handle.
+
+import win "core:sys/windows"
+
+@(private)
+_button_init :: proc(h: ^Button_Handle) {
+	container := win.CreateWindowExW(0, wstr(CLASS_BUTTON), nil, win.WS_CHILD | win.WS_VISIBLE | win.WS_CLIPCHILDREN,
+		0, 0, 0, 0, g_windows.parking, nil, g_windows.hinstance, h)
+
+	button := win.CreateWindowExW(0, wstr("Button"), wstr(h.button.title),
+		win.WS_CHILD | win.WS_VISIBLE | win.WS_TABSTOP | win.BS_PUSHBUTTON,
+		0, 0, 0, 0, container, nil, g_windows.hinstance, nil)
+	win.SendMessageW(button, win.WM_SETFONT, win.WPARAM(uintptr(g_windows.font)), 0)
+
+	h.root = View(container)
+	h.control = rawptr(button)
+}
+
+@(private)
+_button_set_title :: proc(h: ^Button_Handle, title: string) {
+	win.SetWindowTextW(win.HWND(h.control), wstr(title))
+	flex_relayout_ancestors(win.HWND(h.root)) // the natural width follows the title
+}
+
+// Natural size in px: the themed ideal size plus some horizontal padding, at least the 75px of a
+// dialog button, and the 23px dialog button height at 96 DPI.
+@(private)
+button_measure :: proc "contextless" (container: win.HWND) -> [2]i32 {
+	h := (^Button_Handle)(uintptr(win.GetWindowLongPtrW(container, win.GWLP_USERDATA)))
+	ideal: win.SIZE
+	win.Button_GetIdealSize(win.HWND(h.control), &ideal)
+	return {max(ideal.cx + px(16), px(75)), g_windows.font_h + px(8)}
+}
+
+@(private)
+button_proc :: proc "system" (hwnd: win.HWND, msg: win.UINT, wparam: win.WPARAM, lparam: win.LPARAM) -> win.LRESULT {
+	if msg == win.WM_NCCREATE {
+		cs := (^win.CREATESTRUCTW)(uintptr(lparam))
+		win.SetWindowLongPtrW(hwnd, win.GWLP_USERDATA, win.LONG_PTR(uintptr(cs.lpCreateParams)))
+	}
+	h := (^Button_Handle)(uintptr(win.GetWindowLongPtrW(hwnd, win.GWLP_USERDATA)))
+	if h == nil || h.control == nil do return win.DefWindowProcW(hwnd, msg, wparam, lparam)
+	context = h.ctx
+
+	switch msg {
+	case win.WM_SIZE:
+		rc: win.RECT
+		win.GetClientRect(hwnd, &rc)
+		win.MoveWindow(win.HWND(h.control), 0, 0, rc.right, rc.bottom, true)
+		return 0
+	case win.WM_COMMAND:
+		if win.HWND(uintptr(lparam)) == win.HWND(h.control) && win.HIWORD(u32(wparam)) == win.BN_CLICKED {
+			button_notify(h)
+			return 0
+		}
+	}
+	return win.DefWindowProcW(hwnd, msg, wparam, lparam)
+}

@@ -27,6 +27,7 @@ JNI_Env :: ^[^]rawptr
 @(private) JNI_EXCEPTION_DESCRIBE    :: 16
 @(private) JNI_EXCEPTION_CLEAR       :: 17
 @(private) JNI_NEW_GLOBAL_REF        :: 21
+@(private) JNI_DELETE_GLOBAL_REF     :: 22
 @(private) JNI_DELETE_LOCAL_REF      :: 23
 @(private) JNI_NEW_OBJECT_A          :: 30
 @(private) JNI_GET_OBJECT_CLASS      :: 31
@@ -54,6 +55,10 @@ jni_find_class :: proc "contextless" (env: JNI_Env, name: cstring) -> jclass {
 
 jni_new_global_ref :: proc "contextless" (env: JNI_Env, obj: jobject) -> jobject {
 	return jni_fn(env, proc "c" (JNI_Env, jobject) -> jobject, JNI_NEW_GLOBAL_REF)(env, obj)
+}
+
+jni_delete_global_ref :: proc "contextless" (env: JNI_Env, obj: jobject) {
+	jni_fn(env, proc "c" (JNI_Env, jobject), JNI_DELETE_GLOBAL_REF)(env, obj)
 }
 
 jni_delete_local_ref :: proc "contextless" (env: JNI_Env, obj: jobject) {

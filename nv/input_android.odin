@@ -32,7 +32,6 @@ _input_init :: proc(h: ^Input_Handle) {
 	jni_delete_local_ref(env, l_cls)
 	jni_delete_local_ref(env, et)
 	jni_delete_local_ref(env, et_cls)
-	free_all(context.temp_allocator)
 }
 
 @(private)
@@ -49,7 +48,6 @@ _input_text :: proc(h: ^Input_Handle, allocator := context.allocator) -> string 
 @(private)
 _input_set_text :: proc(h: ^Input_Handle, text: string) {
 	set_char_sequence(g_android.env, jobject(h.field), "setText", text)
-	free_all(context.temp_allocator)
 }
 
 // Calls a TextView `(CharSequence)V` setter such as setText or setHint.

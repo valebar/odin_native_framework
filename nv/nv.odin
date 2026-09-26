@@ -6,7 +6,8 @@ package nv
 // *_windows.odin (`#+build windows`, Win32).
 //
 // Widgets: a scrolling list (`list_create`), a text label (`label_create`), a text input
-// (`input_create`) and Flutter-style Row / Column stacks (`row_create`, `column_create`, `flex_create`).
+// (`input_create`), a push button (`button_create`) and Flutter-style Row / Column stacks
+// (`row_create`, `column_create`, `flex_create`).
 
 import "base:runtime"
 
@@ -40,6 +41,25 @@ List_Handle :: struct {
 }
 
 Build_Proc :: proc(user: rawptr) -> View
+
+// Temp memory belongs to the callback in progress and is freed when the outermost one returns.
+// Callbacks nest: an on_click that calls input_set_text or list_reload can trigger a change
+// notification or a row callback, and a Win32 layout re-enters the procs of nested views. An inner
+// callback that freed would wipe strings the outer one (and the app) still holds. So every entry
+// from the platform into Odin code that allocates or calls the app is bracketed by these, and
+// procs the app calls never free.
+@(private) g_callback_depth: int
+
+@(private)
+callback_enter :: proc "contextless" () {
+	g_callback_depth += 1
+}
+
+@(private)
+callback_exit :: proc() {
+	g_callback_depth -= 1
+	if g_callback_depth == 0 do free_all(context.temp_allocator)
+}
 
 // Opens a window and blocks in the platform event loop.
 // `build` runs once the platform is ready to create views.
@@ -149,6 +169,48 @@ input_set_text :: proc(h: ^Input_Handle, text: string) {
 @(private)
 input_notify :: proc(h: ^Input_Handle, cb: proc(user: rawptr, text: string)) {
 	if h.silent || cb == nil do return
+	callback_enter()
+	defer callback_exit()
 	cb(h.input.user, _input_text(h, context.temp_allocator))
-	free_all(context.temp_allocator)
+}
+
+// Push button with a text title.
+Button :: struct {
+	title:    string,
+	on_click: proc(user: rawptr), // optional
+	user:     rawptr,
+}
+
+Button_Handle :: struct {
+	button:  Button,
+	ctx:     runtime.Context,
+	root:    View,   // view embedded by the app
+	control: rawptr, // NSButton* / UIButton* / Button / GtkButton* / Button HWND
+	target:  rawptr, // target / listener object, where the platform needs one
+}
+
+button_create :: proc(b: Button) -> ^Button_Handle {
+	h := new(Button_Handle)
+	h.button = b
+	h.ctx = context
+	_button_init(h)
+	return h
+}
+
+button_view :: proc(h: ^Button_Handle) -> View {
+	return h.root
+}
+
+// Replaces the title; `title` is copied. The size of a flex-0 button follows on the next layout.
+button_set_title :: proc(h: ^Button_Handle, title: string) {
+	_button_set_title(h, title)
+}
+
+// Called by the backends when the button was clicked.
+@(private)
+button_notify :: proc(h: ^Button_Handle) {
+	if h.button.on_click == nil do return
+	callback_enter()
+	defer callback_exit()
+	h.button.on_click(h.button.user)
 }

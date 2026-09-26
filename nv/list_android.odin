@@ -44,6 +44,8 @@ jni_list_count :: proc "c" (env: JNI_Env, _: jclass, handle: jlong) -> jint {
 jni_list_on_select :: proc "c" (env: JNI_Env, _: jclass, handle: jlong, position: jint) {
 	h := (^List_Handle)(uintptr(handle))
 	context = h.ctx
+	callback_enter()
+	defer callback_exit()
 	g_android.env = env
 	if h.list.on_select != nil do h.list.on_select(h.list.user, int(position))
 }
@@ -52,6 +54,8 @@ jni_list_on_select :: proc "c" (env: JNI_Env, _: jclass, handle: jlong, position
 jni_list_get_view :: proc "c" (env: JNI_Env, _: jclass, handle: jlong, position: jint, convert, parent: jobject) -> jobject {
 	h := (^List_Handle)(uintptr(handle))
 	context = h.ctx
+	callback_enter()
+	defer callback_exit()
 	g_android.env = env
 
 	cell := convert
@@ -69,7 +73,6 @@ jni_list_get_view :: proc "c" (env: JNI_Env, _: jclass, handle: jlong, position:
 	r := h.list.item(h.list.user, int(position))
 	set_text(env, cell, ANDROID_ID_TEXT1, r.title)
 	set_text(env, cell, ANDROID_ID_TEXT2, r.subtitle)
-	free_all(context.temp_allocator)
 	return cell
 }
 

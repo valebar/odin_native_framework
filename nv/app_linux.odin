@@ -26,10 +26,11 @@ _run :: proc(title: string, build: Build_Proc, user: rawptr) {
 @(private)
 on_activate :: proc "c" (app: ^GtkApplication, _: gpointer) {
 	context = g_linux.ctx
+	callback_enter()
+	defer callback_exit()
 	wnd := gtk_application_window_new(app)
 	gtk_window_set_title(wnd, strings.clone_to_cstring(g_linux.title, context.temp_allocator))
 	gtk_window_set_default_size(wnd, 400, 600)
 	gtk_window_set_child(wnd, (^GtkWidget)(g_linux.build(g_linux.user)))
 	gtk_window_present(wnd)
-	free_all(context.temp_allocator)
 }

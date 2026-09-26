@@ -22,7 +22,6 @@ _input_init :: proc(h: ^Input_Handle) {
 
 	h.root = View(container)
 	h.field = rawptr(edit)
-	free_all(context.temp_allocator)
 }
 
 @(private)
@@ -37,7 +36,6 @@ _input_text :: proc(h: ^Input_Handle, allocator := context.allocator) -> string 
 @(private)
 _input_set_text :: proc(h: ^Input_Handle, text: string) {
 	win.SetWindowTextW(win.HWND(h.field), wstr(text)) // sends EN_CHANGE, muted by h.silent
-	free_all(context.temp_allocator)
 }
 
 // Natural size in px: one line of the message font plus the client edge and a little padding,

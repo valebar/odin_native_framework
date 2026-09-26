@@ -29,8 +29,9 @@ _run :: proc(title: string, build: Build_Proc, user: rawptr) {
 	win.AdjustWindowRectExForDpi(&rc, style, false, 0, g_windows.dpi)
 	win.SetWindowPos(wnd, nil, 0, 0, rc.right - rc.left, rc.bottom - rc.top, win.SWP_NOMOVE | win.SWP_NOZORDER | win.SWP_NOACTIVATE)
 
+	callback_enter()
 	g_windows.root = win.HWND(build(user)) // already a child of `wnd`
-	free_all(context.temp_allocator)
+	callback_exit()
 	layout_root(wnd)
 	win.ShowWindow(wnd, win.SW_SHOW)
 

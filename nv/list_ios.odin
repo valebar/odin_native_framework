@@ -61,6 +61,8 @@ number_of_rows :: proc "c" (self: NS.id, _: NS.SEL, _: ^UI_Table_View, _: NS.Int
 cell_for_row :: proc "c" (self: NS.id, _: NS.SEL, tv: ^UI_Table_View, ip: ^Index_Path) -> ^UI_Table_View_Cell {
 	h := handle_of(self)
 	context = h.ctx
+	callback_enter()
+	defer callback_exit()
 
 	cell := ui_table_view_dequeue_cell(tv, NS.AT(ROW_ID))
 	if cell == nil {
@@ -73,7 +75,6 @@ cell_for_row :: proc "c" (self: NS.id, _: NS.SEL, tv: ^UI_Table_View, ip: ^Index
 	ui_list_content_set_text(cfg, ns_string(r.title))
 	ui_list_content_set_secondary_text(cfg, ns_string(r.subtitle))
 	ui_table_view_cell_set_content_configuration(cell, cfg)
-	free_all(context.temp_allocator)
 	return cell
 }
 
@@ -81,6 +82,8 @@ cell_for_row :: proc "c" (self: NS.id, _: NS.SEL, tv: ^UI_Table_View, ip: ^Index
 did_select_row :: proc "c" (self: NS.id, _: NS.SEL, tv: ^UI_Table_View, ip: ^Index_Path) {
 	h := handle_of(self)
 	context = h.ctx
+	callback_enter()
+	defer callback_exit()
 	ui_table_view_deselect_row(tv, ip, true)
 	if h.list.on_select != nil {
 		h.list.on_select(h.list.user, int(index_path_row(ip)))

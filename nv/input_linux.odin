@@ -15,7 +15,6 @@ _input_init :: proc(h: ^Input_Handle) {
 	}
 	g_signal_connect(entry, "changed", rawptr(on_input_changed), h)
 	g_signal_connect(entry, "activate", rawptr(on_input_activate), h)
-	free_all(context.temp_allocator)
 
 	h.root = View(entry)
 	h.field = entry
@@ -29,7 +28,6 @@ _input_text :: proc(h: ^Input_Handle, allocator := context.allocator) -> string 
 @(private)
 _input_set_text :: proc(h: ^Input_Handle, text: string) {
 	gtk_editable_set_text((^GtkWidget)(h.field), strings.clone_to_cstring(text, context.temp_allocator))
-	free_all(context.temp_allocator)
 }
 
 @(private)

@@ -97,6 +97,9 @@ foreign gtk {
 	gtk_label_set_xalign    :: proc(label: ^GtkWidget, xalign: f32) ---
 	gtk_label_set_ellipsize :: proc(label: ^GtkWidget, mode: PangoEllipsizeMode) ---
 
+	gtk_button_new_with_label :: proc(label: cstring) -> ^GtkWidget ---
+	gtk_button_set_label      :: proc(button: ^GtkWidget, label: cstring) ---
+
 	gtk_entry_new                  :: proc() -> ^GtkWidget ---
 	gtk_entry_set_placeholder_text :: proc(entry: ^GtkWidget, text: cstring) ---
 	gtk_editable_get_text          :: proc(editable: ^GtkWidget) -> cstring ---

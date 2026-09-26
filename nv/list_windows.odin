@@ -37,7 +37,6 @@ _list_init :: proc(h: ^List_Handle) {
 
 	h.root = View(container)
 	h.table = rawptr(lv)
-	free_all(context.temp_allocator)
 }
 
 @(private)
@@ -75,7 +74,11 @@ list_proc :: proc "system" (hwnd: win.HWND, msg: win.UINT, wparam: win.WPARAM, l
 		case win.LVN_ITEMCHANGED:
 			nm := (^win.NMLISTVIEW)(uintptr(lparam))
 			selected := nm.uNewState & win.LVIS_SELECTED != 0 && nm.uOldState & win.LVIS_SELECTED == 0
-			if selected && nm.iItem >= 0 && h.list.on_select != nil do h.list.on_select(h.list.user, int(nm.iItem))
+			if selected && nm.iItem >= 0 && h.list.on_select != nil {
+				callback_enter()
+				defer callback_exit()
+				h.list.on_select(h.list.user, int(nm.iItem))
+			}
 			return 0
 		case NM_CUSTOMDRAW:
 			return list_custom_draw(h, (^win.NMLVCUSTOMDRAW)(uintptr(lparam)))
@@ -92,6 +95,8 @@ list_custom_draw :: proc(h: ^List_Handle, cd: ^win.NMLVCUSTOMDRAW) -> win.LRESUL
 	case win.CDDS_ITEMPREPAINT:
 		return win.CDRF_NOTIFYPOSTPAINT
 	case win.CDDS_ITEMPOSTPAINT:
+		callback_enter()
+		defer callback_exit()
 		row := i32(cd.nmcd.dwItemSpec)
 		rc: win.RECT
 		win.ListView_GetItemRect(win.HWND(h.table), row, &rc, win.LVIR_BOUNDS)
@@ -113,7 +118,6 @@ list_custom_draw :: proc(h: ^List_Handle, cd: ^win.NMLVCUSTOMDRAW) -> win.LRESUL
 		win.SetTextColor(dc, win.COLORREF(win.GetSysColor(win.COLOR_GRAYTEXT)))
 		win.DrawTextW(dc, wstr(r.subtitle), -1, &line, DT_ROW)
 		win.SelectObject(dc, old)
-		free_all(context.temp_allocator)
 	}
 	return win.CDRF_DODEFAULT
 }

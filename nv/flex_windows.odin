@@ -22,7 +22,6 @@ _flex_create :: proc(f: Flex) -> View {
 	d^ = {f.axis, px(f.spacing), slice.clone(f.children)}
 	for c in f.children do win.SetParent(win.HWND(c.view), box)
 	win.SetWindowLongPtrW(box, win.GWLP_USERDATA, win.LONG_PTR(uintptr(d)))
-	free_all(context.temp_allocator)
 	return View(box)
 }
 
@@ -32,7 +31,6 @@ _label_create :: proc(text: string) -> View {
 		win.WS_CHILD | win.WS_VISIBLE | win.SS_LEFT | win.SS_NOPREFIX | win.SS_ENDELLIPSIS,
 		0, 0, 0, 0, g_windows.parking, nil, g_windows.hinstance, nil)
 	win.SendMessageW(label, win.WM_SETFONT, win.WPARAM(uintptr(g_windows.title)), 0)
-	free_all(context.temp_allocator)
 	return View(label)
 }
 
@@ -46,8 +44,10 @@ flex_proc :: proc "system" (hwnd: win.HWND, msg: win.UINT, wparam: win.WPARAM, l
 	context = g_windows.ctx
 	switch msg {
 	case win.WM_SIZE:
+		// Nested Row / Column get their WM_SIZE inside this layout's MoveWindow calls.
+		callback_enter()
+		defer callback_exit()
 		flex_layout(hwnd)
-		free_all(context.temp_allocator)
 		return 0
 	case win.WM_CTLCOLORSTATIC:
 		return ctlcolor_static(wparam)
@@ -99,8 +99,17 @@ flex_layout :: proc(hwnd: win.HWND) {
 	}
 }
 
-// Natural size of a view in px: text extent for labels, one line for inputs, the stacked children
-// for Row / Column, and 0 for anything else (a list has no natural size).
+// Lays out again every Row / Column that contains `hwnd`, innermost first, after its natural size
+// changed. Layout only runs on WM_SIZE, and nothing sends one when a control's content changes.
+@(private)
+flex_relayout_ancestors :: proc(hwnd: win.HWND) {
+	for p := win.GetParent(hwnd); p != nil; p = win.GetParent(p) {
+		if class_name(p) == CLASS_FLEX do flex_layout(p)
+	}
+}
+
+// Natural size of a view in px: text extent for labels, one line for inputs, the title for buttons,
+// the stacked children for Row / Column, and 0 for anything else (a list has no natural size).
 @(private)
 measure :: proc(hwnd: win.HWND) -> [2]i32 {
 	switch class_name(hwnd) {
@@ -116,6 +125,8 @@ measure :: proc(hwnd: win.HWND) -> [2]i32 {
 		return out
 	case CLASS_INPUT:
 		return input_measure()
+	case CLASS_BUTTON:
+		return button_measure(hwnd)
 	case "Static":
 		buf: [256]u16
 		n := win.GetWindowTextW(hwnd, &buf[0], len(buf))

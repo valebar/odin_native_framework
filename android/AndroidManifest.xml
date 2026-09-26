@@ -12,7 +12,9 @@
         android:hasCode="true"
         android:extractNativeLibs="true"
         android:theme="@android:style/Theme.Material.Light.DarkActionBar">
-        <activity android:name="nv.NvActivity" android:exported="true">
+        <!-- configChanges: rotation and resizing re-layout the existing views instead of recreating the Activity -->
+        <activity android:name="nv.NvActivity" android:exported="true"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
