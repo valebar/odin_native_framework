@@ -2,7 +2,7 @@
 package nv
 
 // Minimal hand-written AppKit bindings not covered by core:sys/darwin/Foundation.
-// `send` and `ns_string` are shared with the iOS backend.
+// `send`, `ns_string` and the Auto Layout helpers are shared with the iOS backend.
 
 import "base:intrinsics"
 import NS "core:sys/darwin/Foundation"
@@ -17,6 +17,41 @@ ns_string :: proc "c" (s: string) -> ^NS.String {
 	return str
 }
 
+// NSLayoutConstraint exists in both AppKit and UIKit.
+@(objc_class="NSLayoutConstraint")
+Layout_Constraint :: struct { using _: NS.Object }
+
+// NSLayoutAttribute / NSLayoutRelation
+LAYOUT_ATTRIBUTE_WIDTH  :: NS.Integer(7)
+LAYOUT_ATTRIBUTE_HEIGHT :: NS.Integer(8)
+LAYOUT_RELATION_EQUAL   :: NS.Integer(0)
+
+// NSLayoutPriority / UILayoutPriority
+LAYOUT_PRIORITY_REQUIRED :: f32(1000)
+LAYOUT_PRIORITY_FLEX     :: f32(1)
+
+// Activates `a.attr == b.attr * multiplier`.
+layout_constraint_equal :: proc "c" (a: NS.id, b: NS.id, attr: NS.Integer, multiplier: NS.Float) {
+	c := send(^Layout_Constraint, Layout_Constraint, "constraintWithItem:attribute:relatedBy:toItem:attribute:multiplier:constant:",
+		a, attr, LAYOUT_RELATION_EQUAL, b, attr, multiplier, NS.Float(0))
+	send(nil, c, "setActive:", NS.BOOL(true))
+}
+
+// Ties the main-axis size of every flex child to the first flex child, in the ratio of their
+// weights. Together with a low hugging priority this gives exact Flutter weights in a stack view.
+flex_link_sizes :: proc(children: []Flex_Child, axis: Axis) {
+	attr := axis == .Vertical ? LAYOUT_ATTRIBUTE_HEIGHT : LAYOUT_ATTRIBUTE_WIDTH
+	first: Flex_Child
+	for c in children {
+		if c.flex <= 0 do continue
+		if first.view == nil {
+			first = c
+			continue
+		}
+		layout_constraint_equal(NS.id(c.view), NS.id(first.view), attr, NS.Float(c.flex) / NS.Float(first.flex))
+	}
+}
+
 when !IS_IOS {
 
 // NSAutoresizingMaskOptions
@@ -28,6 +63,12 @@ Table_View_Style_Plain :: 4
 
 @(objc_class="NSScrollView")
 Scroll_View :: struct { using _: NS.View }
+
+@(objc_class="NSStackView")
+Stack_View :: struct { using _: NS.View }
+
+// NSStackViewDistribution (GravityAreas is -1, so Fill is 0 like UIStackViewDistributionFill).
+STACK_DISTRIBUTION_FILL :: NS.Integer(0)
 
 @(objc_class="NSTableView")
 Table_View :: struct { using _: NS.View }
@@ -55,6 +96,43 @@ view_with_tag :: proc "c" (v: ^NS.View, tag: NS.Integer) -> ^NS.View {
 
 view_set_identifier :: proc "c" (v: ^NS.View, ident: ^NS.String) {
 	send(nil, v, "setIdentifier:", ident)
+}
+
+view_set_translates_autoresizing_mask :: proc "c" (v: ^NS.View, translates: NS.BOOL) {
+	send(nil, v, "setTranslatesAutoresizingMaskIntoConstraints:", translates)
+}
+
+// orientation: NSLayoutConstraintOrientation, same values as Axis.
+view_set_content_hugging_priority :: proc "c" (v: ^NS.View, priority: f32, orientation: NS.Integer) {
+	send(nil, v, "setContentHuggingPriority:forOrientation:", priority, orientation)
+}
+
+// Returns an owned (+1) stack view.
+stack_view_new :: proc "c" (frame: NS.Rect) -> ^Stack_View {
+	sv := send(^Stack_View, Stack_View, "alloc")
+	return send(^Stack_View, sv, "initWithFrame:", frame)
+}
+
+// NSUserInterfaceLayoutOrientation, same values as Axis.
+stack_view_set_orientation :: proc "c" (sv: ^Stack_View, orientation: NS.Integer) {
+	send(nil, sv, "setOrientation:", orientation)
+}
+
+stack_view_set_spacing :: proc "c" (sv: ^Stack_View, spacing: NS.Float) {
+	send(nil, sv, "setSpacing:", spacing)
+}
+
+stack_view_set_distribution :: proc "c" (sv: ^Stack_View, distribution: NS.Integer) {
+	send(nil, sv, "setDistribution:", distribution)
+}
+
+// NSLayoutAttribute; Width / Height stretch children across the cross axis.
+stack_view_set_alignment :: proc "c" (sv: ^Stack_View, alignment: NS.Integer) {
+	send(nil, sv, "setAlignment:", alignment)
+}
+
+stack_view_add_arranged_subview :: proc "c" (sv: ^Stack_View, v: ^NS.View) {
+	send(nil, sv, "addArrangedSubview:", v)
 }
 
 scroll_view_new :: proc "c" (frame: NS.Rect) -> ^Scroll_View {

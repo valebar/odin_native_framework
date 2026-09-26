@@ -1,4 +1,4 @@
-#+build linux
+#+build linux:android
 package nv
 
 // Minimal JNI binding. Function indices follow `struct JNINativeInterface` in the NDK's jni.h.
@@ -33,6 +33,8 @@ JNI_Env :: ^[^]rawptr
 @(private) JNI_GET_METHOD_ID         :: 33
 @(private) JNI_CALL_OBJECT_METHOD_A  :: 36
 @(private) JNI_CALL_VOID_METHOD_A    :: 63
+@(private) JNI_GET_FIELD_ID          :: 94
+@(private) JNI_GET_FLOAT_FIELD       :: 102
 @(private) JNI_GET_STATIC_METHOD_ID  :: 113
 @(private) JNI_CALL_STATIC_OBJECT_A  :: 116
 @(private) JNI_NEW_STRING_UTF        :: 167
@@ -101,6 +103,16 @@ jni_call_static_object :: proc "contextless" (env: JNI_Env, cls_name, name, sig:
 	return res
 }
 
+// Reads a float instance field, looked up on the object's runtime class.
+jni_get_float_field :: proc "contextless" (env: JNI_Env, obj: jobject, name: cstring) -> f32 {
+	cls := jni_get_object_class(env, obj)
+	id := jni_fn(env, proc "c" (JNI_Env, jclass, cstring, cstring) -> rawptr, JNI_GET_FIELD_ID)(env, cls, name, "F")
+	jni_delete_local_ref(env, cls)
+	res := jni_fn(env, proc "c" (JNI_Env, jobject, rawptr) -> f32, JNI_GET_FLOAT_FIELD)(env, obj, id)
+	jni_check(env)
+	return res
+}
+
 jni_string :: proc "contextless" (env: JNI_Env, s: cstring) -> jstring {
 	return jni_fn(env, proc "c" (JNI_Env, cstring) -> jstring, JNI_NEW_STRING_UTF)(env, s)
 }
@@ -116,4 +128,5 @@ jni_check :: proc "contextless" (env: JNI_Env) {
 jv_obj  :: #force_inline proc "contextless" (o: jobject) -> jvalue { return {l = o} }
 jv_int  :: #force_inline proc "contextless" (i: int) -> jvalue { return {i = jint(i)} }
 jv_long :: #force_inline proc "contextless" (i: i64) -> jvalue { return {j = jlong(i)} }
+jv_float :: #force_inline proc "contextless" (f: f32) -> jvalue { return {f = f} }
 jv_bool :: #force_inline proc "contextless" (b: bool) -> jvalue { return {z = jboolean(b)} }

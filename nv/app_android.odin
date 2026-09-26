@@ -1,4 +1,4 @@
-#+build linux
+#+build linux:android
 package nv
 
 // Android app backend. The Java embedder (nv/android/java/nv/NvActivity.java) loads
@@ -24,6 +24,7 @@ foreign liblog {
 	env:      JNI_Env,  // UI-thread env, refreshed on every JNI callback
 	activity: jobject,  // global ref
 	ctx:      runtime.Context,
+	density:  f32,      // DisplayMetrics.density, read lazily by android_dp
 }
 
 @(export, link_name="Java_nv_NvActivity_nativeOnCreate")
@@ -54,6 +55,20 @@ _run :: proc(title: string, build: Build_Proc, user: rawptr) {
 	jni_call_void(env, g_android.activity, "setTitle", "(Ljava/lang/CharSequence;)V",
 		jv_obj(jni_string(env, strings.clone_to_cstring(title, context.temp_allocator))))
 	jni_call_void(env, g_android.activity, "setContentView", "(Landroid/view/View;)V", jv_obj(jobject(root)))
+}
+
+// Converts density-independent pixels to device pixels, rounding to the nearest pixel.
+android_dp :: proc "contextless" (dp: f64) -> int {
+	if g_android.density == 0 {
+		env := g_android.env
+		res := jni_call_object(env, g_android.activity, "getResources", "()Landroid/content/res/Resources;")
+		metrics := jni_call_object(env, res, "getDisplayMetrics", "()Landroid/util/DisplayMetrics;")
+		g_android.density = jni_get_float_field(env, metrics, "density")
+		jni_delete_local_ref(env, metrics)
+		jni_delete_local_ref(env, res)
+		if g_android.density == 0 do g_android.density = 1
+	}
+	return int(dp * f64(g_android.density) + 0.5)
 }
 
 // stdout/stderr go nowhere on Android; pipe them into logcat (tag "nv").

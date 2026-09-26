@@ -68,7 +68,7 @@ cell_for_row :: proc "c" (self: NS.id, _: NS.SEL, tv: ^UI_Table_View, ip: ^Index
 		cell = ui_table_view_cell_new(UI_TABLE_VIEW_CELL_STYLE_DEFAULT, NS.AT(ROW_ID))
 	}
 
-	r := h.list.row(h.list.user, int(index_path_row(ip)))
+	r := h.list.item(h.list.user, int(index_path_row(ip)))
 	cfg := ui_list_content_subtitle()
 	ui_list_content_set_text(cfg, ns_string(r.title))
 	ui_list_content_set_secondary_text(cfg, ns_string(r.subtitle))

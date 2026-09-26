@@ -37,6 +37,15 @@ UI_List_Content_Configuration :: struct { using _: NS.Object }
 @(objc_class="NSIndexPath")
 Index_Path :: struct { using _: NS.Object }
 
+@(objc_class="UIStackView")
+UI_Stack_View :: struct { using _: UI_View }
+
+@(objc_class="UILabel")
+UI_Label :: struct { using _: UI_View }
+
+@(objc_class="UIFont")
+UI_Font :: struct { using _: NS.Object }
+
 UI_TABLE_VIEW_STYLE_PLAIN        :: NS.Integer(0)
 UI_TABLE_VIEW_AUTOMATIC_DIMENSION :: NS.Float(-1)
 UI_TABLE_VIEW_CELL_STYLE_DEFAULT  :: NS.Integer(0)
@@ -135,6 +144,48 @@ ui_list_content_set_secondary_text :: proc "c" (cfg: ^UI_List_Content_Configurat
 
 index_path_row :: proc "c" (ip: ^Index_Path) -> NS.Integer {
 	return send(NS.Integer, ip, "row")
+}
+
+// axis: UILayoutConstraintAxis, same values as Axis.
+ui_view_set_content_hugging_priority :: proc "c" (v: ^UI_View, priority: f32, axis: NS.Integer) {
+	send(nil, v, "setContentHuggingPriority:forAxis:", priority, axis)
+}
+
+// Returns an owned (+1) stack view. Distribution and alignment default to Fill.
+ui_stack_view_new :: proc "c" () -> ^UI_Stack_View {
+	sv := send(^UI_Stack_View, UI_Stack_View, "alloc")
+	return send(^UI_Stack_View, sv, "initWithFrame:", NS.Rect{})
+}
+
+// UILayoutConstraintAxis, same values as Axis.
+ui_stack_view_set_axis :: proc "c" (sv: ^UI_Stack_View, axis: NS.Integer) {
+	send(nil, sv, "setAxis:", axis)
+}
+
+ui_stack_view_set_spacing :: proc "c" (sv: ^UI_Stack_View, spacing: NS.Float) {
+	send(nil, sv, "setSpacing:", spacing)
+}
+
+// Also clears translatesAutoresizingMaskIntoConstraints on the child.
+ui_stack_view_add_arranged_subview :: proc "c" (sv: ^UI_Stack_View, v: ^UI_View) {
+	send(nil, sv, "addArrangedSubview:", v)
+}
+
+// Returns an owned (+1) label.
+ui_label_new :: proc "c" () -> ^UI_Label {
+	return send(^UI_Label, UI_Label, "new")
+}
+
+ui_label_set_text :: proc "c" (l: ^UI_Label, s: ^NS.String) {
+	send(nil, l, "setText:", s)
+}
+
+ui_label_set_font :: proc "c" (l: ^UI_Label, f: ^UI_Font) {
+	send(nil, l, "setFont:", f)
+}
+
+ui_font_bold_system :: proc "c" (size: NS.Float) -> ^UI_Font {
+	return send(^UI_Font, UI_Font, "boldSystemFontOfSize:", size)
 }
 
 }

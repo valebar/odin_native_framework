@@ -98,7 +98,7 @@ view_for_row :: proc "c" (self: NS.id, _: NS.SEL, tv: ^Table_View, _: ^Table_Col
 		cell = make_row_cell(h)
 	}
 
-	r := h.list.row(h.list.user, int(row))
+	r := h.list.item(h.list.user, int(row))
 	text_field_set_string(cast(^Text_Field)view_with_tag(cell, TAG_TITLE), ns_string(r.title))
 	text_field_set_string(cast(^Text_Field)view_with_tag(cell, TAG_SUBTITLE), ns_string(r.subtitle))
 	free_all(context.temp_allocator)

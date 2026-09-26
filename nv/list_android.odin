@@ -1,4 +1,4 @@
-#+build linux
+#+build linux:android
 package nv
 
 // Android list backend: ListView + nv.NvListAdapter (Java shim), rows reused via convertView.
@@ -66,7 +66,7 @@ jni_list_get_view :: proc "c" (env: JNI_Env, _: jclass, handle: jlong, position:
 		jni_delete_local_ref(env, ctx)
 	}
 
-	r := h.list.row(h.list.user, int(position))
+	r := h.list.item(h.list.user, int(position))
 	set_text(env, cell, ANDROID_ID_TEXT1, r.title)
 	set_text(env, cell, ANDROID_ID_TEXT2, r.subtitle)
 	free_all(context.temp_allocator)
