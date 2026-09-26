@@ -1,0 +1,14 @@
+# Build output (binaries, .app/.apk bundles, stubs, screenshots)
+build/
+
+# Debug symbols
+*.dSYM/
+
+# Java/Android intermediates
+*.class
+*.dex
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/

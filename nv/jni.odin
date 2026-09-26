@@ -1,0 +1,119 @@
+#+build linux
+package nv
+
+// Minimal JNI binding. Function indices follow `struct JNINativeInterface` in the NDK's jni.h.
+
+jobject   :: distinct rawptr
+jclass    :: jobject
+jstring   :: jobject
+jmethodID :: distinct rawptr
+jint      :: i32
+jlong     :: i64
+jboolean  :: u8
+
+jvalue :: struct #raw_union {
+	z: jboolean,
+	i: jint,
+	j: jlong,
+	f: f32,
+	d: f64,
+	l: jobject,
+}
+
+// JNIEnv* = pointer to the function table pointer.
+JNI_Env :: ^[^]rawptr
+
+@(private) JNI_FIND_CLASS            :: 6
+@(private) JNI_EXCEPTION_DESCRIBE    :: 16
+@(private) JNI_EXCEPTION_CLEAR       :: 17
+@(private) JNI_NEW_GLOBAL_REF        :: 21
+@(private) JNI_DELETE_LOCAL_REF      :: 23
+@(private) JNI_NEW_OBJECT_A          :: 30
+@(private) JNI_GET_OBJECT_CLASS      :: 31
+@(private) JNI_GET_METHOD_ID         :: 33
+@(private) JNI_CALL_OBJECT_METHOD_A  :: 36
+@(private) JNI_CALL_VOID_METHOD_A    :: 63
+@(private) JNI_GET_STATIC_METHOD_ID  :: 113
+@(private) JNI_CALL_STATIC_OBJECT_A  :: 116
+@(private) JNI_NEW_STRING_UTF        :: 167
+@(private) JNI_EXCEPTION_CHECK       :: 228
+
+@(private)
+jni_fn :: #force_inline proc "contextless" (env: JNI_Env, $T: typeid, index: int) -> T {
+	return cast(T)env^[index]
+}
+
+jni_find_class :: proc "contextless" (env: JNI_Env, name: cstring) -> jclass {
+	return jni_fn(env, proc "c" (JNI_Env, cstring) -> jclass, JNI_FIND_CLASS)(env, name)
+}
+
+jni_new_global_ref :: proc "contextless" (env: JNI_Env, obj: jobject) -> jobject {
+	return jni_fn(env, proc "c" (JNI_Env, jobject) -> jobject, JNI_NEW_GLOBAL_REF)(env, obj)
+}
+
+jni_delete_local_ref :: proc "contextless" (env: JNI_Env, obj: jobject) {
+	jni_fn(env, proc "c" (JNI_Env, jobject), JNI_DELETE_LOCAL_REF)(env, obj)
+}
+
+jni_get_object_class :: proc "contextless" (env: JNI_Env, obj: jobject) -> jclass {
+	return jni_fn(env, proc "c" (JNI_Env, jobject) -> jclass, JNI_GET_OBJECT_CLASS)(env, obj)
+}
+
+jni_method :: proc "contextless" (env: JNI_Env, cls: jclass, name, sig: cstring) -> jmethodID {
+	return jni_fn(env, proc "c" (JNI_Env, jclass, cstring, cstring) -> jmethodID, JNI_GET_METHOD_ID)(env, cls, name, sig)
+}
+
+jni_static_method :: proc "contextless" (env: JNI_Env, cls: jclass, name, sig: cstring) -> jmethodID {
+	return jni_fn(env, proc "c" (JNI_Env, jclass, cstring, cstring) -> jmethodID, JNI_GET_STATIC_METHOD_ID)(env, cls, name, sig)
+}
+
+jni_new_object :: proc "contextless" (env: JNI_Env, cls: jclass, ctor_sig: cstring, args: ..jvalue) -> jobject {
+	ctor := jni_method(env, cls, "<init>", ctor_sig)
+	obj := jni_fn(env, proc "c" (JNI_Env, jclass, jmethodID, [^]jvalue) -> jobject, JNI_NEW_OBJECT_A)(env, cls, ctor, raw_data(args))
+	jni_check(env)
+	return obj
+}
+
+// Looks up the method on the object's runtime class, then calls it.
+jni_call_object :: proc "contextless" (env: JNI_Env, obj: jobject, name, sig: cstring, args: ..jvalue) -> jobject {
+	cls := jni_get_object_class(env, obj)
+	m := jni_method(env, cls, name, sig)
+	jni_delete_local_ref(env, cls)
+	res := jni_fn(env, proc "c" (JNI_Env, jobject, jmethodID, [^]jvalue) -> jobject, JNI_CALL_OBJECT_METHOD_A)(env, obj, m, raw_data(args))
+	jni_check(env)
+	return res
+}
+
+jni_call_void :: proc "contextless" (env: JNI_Env, obj: jobject, name, sig: cstring, args: ..jvalue) {
+	cls := jni_get_object_class(env, obj)
+	m := jni_method(env, cls, name, sig)
+	jni_delete_local_ref(env, cls)
+	jni_fn(env, proc "c" (JNI_Env, jobject, jmethodID, [^]jvalue), JNI_CALL_VOID_METHOD_A)(env, obj, m, raw_data(args))
+	jni_check(env)
+}
+
+jni_call_static_object :: proc "contextless" (env: JNI_Env, cls_name, name, sig: cstring, args: ..jvalue) -> jobject {
+	cls := jni_find_class(env, cls_name)
+	m := jni_static_method(env, cls, name, sig)
+	res := jni_fn(env, proc "c" (JNI_Env, jclass, jmethodID, [^]jvalue) -> jobject, JNI_CALL_STATIC_OBJECT_A)(env, cls, m, raw_data(args))
+	jni_delete_local_ref(env, cls)
+	jni_check(env)
+	return res
+}
+
+jni_string :: proc "contextless" (env: JNI_Env, s: cstring) -> jstring {
+	return jni_fn(env, proc "c" (JNI_Env, cstring) -> jstring, JNI_NEW_STRING_UTF)(env, s)
+}
+
+// Logs and clears a pending Java exception so later JNI calls stay valid.
+jni_check :: proc "contextless" (env: JNI_Env) {
+	if jni_fn(env, proc "c" (JNI_Env) -> jboolean, JNI_EXCEPTION_CHECK)(env) != 0 {
+		jni_fn(env, proc "c" (JNI_Env), JNI_EXCEPTION_DESCRIBE)(env)
+		jni_fn(env, proc "c" (JNI_Env), JNI_EXCEPTION_CLEAR)(env)
+	}
+}
+
+jv_obj  :: #force_inline proc "contextless" (o: jobject) -> jvalue { return {l = o} }
+jv_int  :: #force_inline proc "contextless" (i: int) -> jvalue { return {i = jint(i)} }
+jv_long :: #force_inline proc "contextless" (i: i64) -> jvalue { return {j = jlong(i)} }
+jv_bool :: #force_inline proc "contextless" (b: bool) -> jvalue { return {z = jboolean(b)} }
