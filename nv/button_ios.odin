@@ -2,7 +2,8 @@
 package nv
 
 // iOS button backend: a system UIButton; target-action delivers TouchUpInside to an
-// NVButtonTarget object.
+// NVButtonTarget object. A custom font goes on the title label (a system button has no
+// UIButtonConfiguration, so the label's font is honoured).
 
 import "base:intrinsics"
 import NS "core:sys/darwin/Foundation"
@@ -16,6 +17,10 @@ _button_init :: proc(h: ^Button_Handle) {
 	button := ui_button_system() // autoreleased
 	button->retain() // *_create returns owned views
 	ui_button_set_title(button, ns_string(h.button.title))
+	if h.button.font != nil || h.button.size != 0 { // else the button's own 15pt system font
+		title_label := send(^NS.Object, button, "titleLabel")
+		send(nil, title_label, "setFont:", text_font(h.button.font, h.button.size != 0 ? h.button.size : 15, false))
+	}
 
 	t := button_target_alloc(h) // not retained by the button; lives as long as the handle
 	ui_control_add_target(button, t, intrinsics.objc_find_selector("nvClick:"), UI_CONTROL_EVENT_TOUCH_UP_INSIDE)

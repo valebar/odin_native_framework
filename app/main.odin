@@ -11,7 +11,8 @@ package main
 // an input that sets the filter) and Info actions; a detail page's Edit action swaps itself for a
 // Done action and marks the title. The header label follows the filter. The canvas draws an image
 // embedded in the binary; a detail page shows the same image as an asset file and a photo
-// downloaded from the network.
+// downloaded from the network. The header, the Tip button, the Ask dialog's input and the canvas
+// text use a font loaded from an asset file (Tuffy Bold, public domain).
 
 import "core:fmt"
 import "core:strconv"
@@ -30,6 +31,7 @@ State :: struct {
 	ask:     ^nv.Input_Handle, // the input inside the Ask dialog, while it is open
 	canvas:  ^nv.Canvas_Handle,
 	logo:    ^nv.Bitmap, // decoded from the bytes embedded below, drawn on the canvas
+	font:    ^nv.Font,   // loaded from an asset file; nil if it is missing, which means the system font
 	strokes: [dynamic][dynamic][2]f64,
 }
 
@@ -57,7 +59,7 @@ main :: proc() {
 // close through the handle their callback gets; on_close runs after either.
 ask_filter :: proc(user: rawptr) {
 	s := (^State)(user)
-	s.ask = nv.input_create({placeholder = "Digits", text = nv.input_text(s.filter, context.temp_allocator)})
+	s.ask = nv.input_create({placeholder = "Digits", text = nv.input_text(s.filter, context.temp_allocator), font = s.font, size = 18})
 	nv.dialog_show({
 		title   = "Filter items",
 		content = nv.input_view(s.ask),
@@ -156,10 +158,14 @@ build :: proc(page: ^nv.Page_Handle, user: rawptr) -> nv.View {
 		user = s,
 	})
 
-	s.tip = nv.button_create({title = "Tip", on_click = show_tip, user = s})
 	if s.logo == nil do s.logo = nv.bitmap_from_bytes(#load("assets/sample.png")) // kept across Android relaunches
+	if s.font == nil {
+		s.font = nv.font_from_file("tuffy_bold.ttf")
+		if s.font == nil do fmt.println("tuffy_bold.ttf not found; using the system font")
+	}
+	s.tip = nv.button_create({title = "Tip", on_click = show_tip, user = s, font = s.font})
 
-	s.header = nv.label_create({text = header_text(s), bold = true})
+	s.header = nv.label_create({text = header_text(s), bold = true, font = s.font, size = 22})
 	lists := nv.row_create({{nv.list_view(s.list), 1}, {nv.list_view(s.list2), 2}}, spacing = 8)
 	search := nv.row_create({{nv.input_view(s.filter), 1}, {nv.button_view(s.clear), 0}, {nv.button_view(s.tip), 0}}, spacing = 8)
 	return nv.column_create({{nv.label_view(s.header), 0}, {search, 0}, {lists, 2}, {nv.canvas_view(s.canvas), 1}}, spacing = 8)
@@ -262,7 +268,7 @@ draw_canvas :: proc(user: rawptr, p: ^nv.Painter, w, h: f64) {
 	nv.fill_ellipse(p, w - 60, 12, 44, 44, {1, 0.6, 0.2, 1})
 	nv.stroke_ellipse(p, w - 60, 12, 44, 44, {0.6, 0.3, 0, 1}, 2)
 	nv.draw_image(p, s.logo, w - 76, h - 57, 64, 48)
-	nv.draw_text(p, fmt.tprintf("Draw here (%d strokes)", len(s.strokes)), 12, 12, 15, {0.3, 0.3, 0.35, 1})
+	nv.draw_text(p, fmt.tprintf("Draw here (%d strokes)", len(s.strokes)), 12, 12, 15, {0.3, 0.3, 0.35, 1}, s.font)
 	for st in s.strokes {
 		for i in 1..<len(st) do nv.draw_line(p, st[i-1].x, st[i-1].y, st[i].x, st[i].y, {0.1, 0.3, 0.9, 1}, 3)
 	}

@@ -132,7 +132,7 @@ measure :: proc(hwnd: win.HWND) -> [2]i32 {
 		}
 		return out
 	case CLASS_INPUT:
-		return input_measure()
+		return input_measure(hwnd)
 	case CLASS_BUTTON:
 		return button_measure(hwnd)
 	case CLASS_IMAGE:

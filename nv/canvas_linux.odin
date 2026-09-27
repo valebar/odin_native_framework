@@ -87,11 +87,17 @@ _stroke_ellipse :: proc(p: ^Painter, x, y, w, h: f64, color: Color, width: f64) 
 	cairo_stroke(cr)
 }
 
-// Cairo's toy text API; show_text starts at the baseline, so it moves down by the ascent.
+// Cairo's toy text API; show_text starts at the baseline, so it moves down by the ascent. A loaded
+// font is selected by family: cairo-ft resolves it through the fontconfig config it was added to.
 @(private)
-_draw_text :: proc(p: ^Painter, text: string, x, y: f64, size: f64, color: Color) {
+_draw_text :: proc(p: ^Painter, text: string, x, y: f64, size: f64, color: Color, font: ^Font) {
 	cr := cairo_of(p, color)
-	cairo_select_font_face(cr, "sans-serif", 0, 0)
+	if font != nil {
+		cairo_select_font_face(cr, strings.clone_to_cstring(font.family, context.temp_allocator),
+			font.italic ? CAIRO_FONT_SLANT_ITALIC : 0, font.weight >= 600 ? CAIRO_FONT_WEIGHT_BOLD : 0)
+	} else {
+		cairo_select_font_face(cr, "sans-serif", 0, 0)
+	}
 	cairo_set_font_size(cr, size)
 	ext: cairo_font_extents_t
 	cairo_font_extents(cr, &ext)

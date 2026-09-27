@@ -15,7 +15,7 @@ _button_init :: proc(h: ^Button_Handle) {
 	button := win.CreateWindowExW(0, wstr("Button"), wstr(h.button.title),
 		win.WS_CHILD | win.WS_VISIBLE | win.WS_TABSTOP | win.BS_PUSHBUTTON,
 		0, 0, 0, 0, container, nil, g_windows.hinstance, nil)
-	win.SendMessageW(button, win.WM_SETFONT, win.WPARAM(uintptr(g_windows.font)), 0)
+	win.SendMessageW(button, win.WM_SETFONT, win.WPARAM(uintptr(windows_font(h.button.font, h.button.size, false))), 0)
 
 	h.root = View(container)
 	h.control = rawptr(button)
@@ -29,7 +29,7 @@ _button_set_title :: proc(h: ^Button_Handle, title: string) {
 }
 
 // Natural size in px: the themed ideal size plus some horizontal padding, at least the 75px of a
-// dialog button, and the 23px dialog button height at 96 DPI.
+// dialog button, and the 23px dialog button height at 96 DPI (a line of the button's font + 8px).
 @(private)
 button_measure :: proc "contextless" (container: win.HWND) -> [2]i32 {
 	h := (^Button_Handle)(uintptr(win.GetWindowLongPtrW(container, win.GWLP_USERDATA)))
@@ -41,7 +41,7 @@ button_measure :: proc "contextless" (container: win.HWND) -> [2]i32 {
 button_ideal_size :: proc "contextless" (button: win.HWND) -> [2]i32 {
 	ideal: win.SIZE
 	win.Button_GetIdealSize(button, &ideal)
-	return {max(ideal.cx + px(16), px(75)), g_windows.font_h + px(8)}
+	return {max(ideal.cx + px(16), px(75)), font_height(button) + px(8)}
 }
 
 @(private)

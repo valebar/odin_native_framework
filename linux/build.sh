@@ -17,6 +17,11 @@ link_runtime() { # pkg-config name, library name, runtime soname
 }
 link_runtime gtk4 gtk-4 libgtk-4.so.1
 link_runtime libcurl curl libcurl.so.4
+# Loaded fonts (font_linux.odin) go through fontconfig and Pango, which GTK4 itself depends on.
+link_runtime pango pango-1.0 libpango-1.0.so.0
+link_runtime pangocairo pangocairo-1.0 libpangocairo-1.0.so.0
+link_runtime pangoft2 pangoft2-1.0 libpangoft2-1.0.so.0
+link_runtime fontconfig fontconfig libfontconfig.so.1
 
 odin build app -debug -extra-linker-flags:"-L$PWD/$OUT/libs" -out:"$OUT/example"
 # Relative paths in bitmap_from_file resolve against the assets directory next to the executable.

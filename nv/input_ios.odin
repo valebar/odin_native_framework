@@ -20,6 +20,9 @@ _input_init :: proc(h: ^Input_Handle) {
 	ui_text_field_set_return_key_type(field, UI_RETURN_KEY_DONE)
 	ui_text_field_set_text(field, ns_string(h.input.text))
 	if h.input.placeholder != "" do ui_text_field_set_placeholder(field, ns_string(h.input.placeholder))
+	if h.input.font != nil || h.input.size != 0 { // else the field's own 17pt system font
+		send(nil, field, "setFont:", text_font(h.input.font, h.input.size != 0 ? h.input.size : 17, false))
+	}
 
 	t := input_target_alloc(h) // not retained by the field; lives as long as the handle
 	ui_control_add_target(field, t, intrinsics.objc_find_selector("nvChanged:"), UI_CONTROL_EVENT_EDITING_CHANGED)

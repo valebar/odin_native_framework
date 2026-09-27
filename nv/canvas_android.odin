@@ -105,12 +105,17 @@ _stroke_ellipse :: proc(p: ^Painter, x, y, w, h: f64, color: Color, width: f64) 
 	canvas_call4(p, "drawOval", x, y, x + w, y + h, paint(p, color, true, width))
 }
 
-// drawText takes the baseline; ascent() is negative, so baseline = top - ascent.
+// drawText takes the baseline; ascent() is negative, so baseline = top - ascent. The typeface is
+// set on every call (null for the system font), since the Paint is shared; setTypeface returns
+// the Typeface, hence the object call.
 @(private)
-_draw_text :: proc(p: ^Painter, text: string, x, y: f64, size: f64, color: Color) {
+_draw_text :: proc(p: ^Painter, text: string, x, y: f64, size: f64, color: Color, font: ^Font) {
 	env := g_android.env
 	pt := paint(p, color)
 	jni_call_void(env, pt, "setTextSize", "(F)V", jv_float(f32(size)))
+	tf := jni_call_object(env, pt, "setTypeface", "(Landroid/graphics/Typeface;)Landroid/graphics/Typeface;",
+		jv_obj(font != nil ? jobject(font.native) : nil))
+	if tf != nil do jni_delete_local_ref(env, tf)
 	ascent := jni_call_float(env, pt, "ascent", "()F")
 	s := jni_string(env, strings.clone_to_cstring(text, context.temp_allocator))
 	defer jni_delete_local_ref(env, s)

@@ -16,7 +16,7 @@ _input_init :: proc(h: ^Input_Handle) {
 	edit := win.CreateWindowExW(win.WS_EX_CLIENTEDGE, wstr("Edit"), wstr(h.input.text),
 		win.WS_CHILD | win.WS_VISIBLE | win.WS_TABSTOP | win.ES_AUTOHSCROLL,
 		0, 0, 0, 0, container, nil, g_windows.hinstance, nil)
-	win.SendMessageW(edit, win.WM_SETFONT, win.WPARAM(uintptr(g_windows.font)), 0)
+	win.SendMessageW(edit, win.WM_SETFONT, win.WPARAM(uintptr(windows_font(h.input.font, h.input.size, false))), 0)
 	if h.input.placeholder != "" do win.Edit_SetCueBannerText(edit, wstr(h.input.placeholder))
 	win.SetWindowSubclass(edit, edit_subclass_proc, 0, win.DWORD_PTR(uintptr(h)))
 
@@ -38,11 +38,12 @@ _input_set_text :: proc(h: ^Input_Handle, text: string) {
 	win.SetWindowTextW(win.HWND(h.field), wstr(text)) // sends EN_CHANGE, muted by h.silent
 }
 
-// Natural size in px: one line of the message font plus the client edge and a little padding,
+// Natural size in px: one line of the edit's font plus the client edge and a little padding,
 // the height of a dialog edit box. The width is just a sensible default for a flex-0 input.
 @(private)
-input_measure :: proc "contextless" () -> [2]i32 {
-	return {px(200), g_windows.font_h + px(7)}
+input_measure :: proc "contextless" (container: win.HWND) -> [2]i32 {
+	h := (^Input_Handle)(uintptr(win.GetWindowLongPtrW(container, win.GWLP_USERDATA)))
+	return {px(200), font_height(win.HWND(h.field)) + px(7)}
 }
 
 @(private)

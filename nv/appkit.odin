@@ -214,7 +214,7 @@ Text_Field :: struct { using _: NS.View }
 Button_View :: struct { using _: NS.View }
 
 @(objc_class="NSFont")
-Font :: struct { using _: NS.Object }
+NS_Font :: struct { using _: NS.Object } // `Font` is the public loaded-font type
 
 @(objc_class="NSGraphicsContext")
 Graphics_Context :: struct { using _: NS.Object }
@@ -396,7 +396,7 @@ text_field_set_string :: proc "c" (tf: ^Text_Field, s: ^NS.String) {
 	send(nil, tf, "setStringValue:", s)
 }
 
-text_field_set_font :: proc "c" (tf: ^Text_Field, f: ^Font) {
+text_field_set_font :: proc "c" (tf: ^Text_Field, f: ^NS_Font) {
 	send(nil, tf, "setFont:", f)
 }
 
@@ -479,12 +479,12 @@ window_remove_titlebar_accessory :: proc "c" (w: ^NS.Window, vc: ^Titlebar_Acces
 	send(nil, w, "removeTitlebarAccessoryViewControllerAtIndex:", NS.Integer(index))
 }
 
-font_system :: proc "c" (size: NS.Float) -> ^Font {
-	return send(^Font, Font, "systemFontOfSize:", size)
+font_system :: proc "c" (size: NS.Float) -> ^NS_Font {
+	return send(^NS_Font, NS_Font, "systemFontOfSize:", size)
 }
 
-font_bold_system :: proc "c" (size: NS.Float) -> ^Font {
-	return send(^Font, Font, "boldSystemFontOfSize:", size)
+font_bold_system :: proc "c" (size: NS.Float) -> ^NS_Font {
+	return send(^NS_Font, NS_Font, "boldSystemFontOfSize:", size)
 }
 
 color_secondary_label :: proc "c" () -> ^NS.Color {

@@ -37,8 +37,8 @@ _canvas_redraw :: proc(h: ^Canvas_Handle) {
 }
 
 @(private)
-canvas_font :: proc "c" (size: f64) -> ^NS.Object {
-	return send(^UI_Font, UI_Font, "systemFontOfSize:", NS.Float(size))
+system_font :: proc "c" (size: f64, bold: bool) -> ^NS.Object {
+	return bold ? ui_font_bold_system(NS.Float(size)) : ui_font_system(NS.Float(size))
 }
 
 @(private)

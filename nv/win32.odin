@@ -28,6 +28,7 @@ foreign comctl32 {
 @(default_calling_convention="system")
 foreign gdi32 {
 	GetTextFaceW :: proc(hdc: win.HDC, c: i32, lpName: win.LPWSTR) -> i32 ---
+	RemoveFontMemResourceEx :: proc(h: win.HANDLE) -> win.BOOL ---
 	CreateRoundRectRgn :: proc(x1, y1, x2, y2, w, h: i32) -> win.HRGN ---
 }
 
@@ -47,6 +48,13 @@ foreign gdi32 {
 	font_h:     i32,       // line heights of the fonts above, in px
 	bold_h:     i32,
 	title_h:    i32,
+	sized_fonts: [dynamic]Win_Font, // the message / title font at sizes the app asked for (windows_font)
+}
+
+// One HFONT of a face at a size (font_windows.odin); `height` is the LOGFONT's, negative.
+@(private) Win_Font :: struct {
+	height, weight: i32,
+	hfont:          win.HFONT,
 }
 
 @(private) CLASS_WINDOW :: "NVWindow"
@@ -132,6 +140,20 @@ create_fonts :: proc() {
 	} else {
 		win.DeleteObject(win.HGDIOBJ(icon))
 	}
+}
+
+// The line height in px of the font a control was given, for its natural size.
+@(private)
+font_height :: proc "contextless" (hwnd: win.HWND) -> i32 {
+	font := win.HFONT(uintptr(win.SendMessageW(hwnd, win.WM_GETFONT, 0, 0)))
+	if font == nil do return g_windows.font_h
+	dc := win.GetDC(hwnd)
+	defer win.ReleaseDC(hwnd, dc)
+	old := win.SelectObject(dc, win.HGDIOBJ(font))
+	defer win.SelectObject(dc, old)
+	tm: win.TEXTMETRICW
+	win.GetTextMetricsW(dc, &tm)
+	return tm.tmHeight
 }
 
 @(private)

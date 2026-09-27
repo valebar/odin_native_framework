@@ -12,7 +12,9 @@ package nv
 // `bitmap_from_file`, `bitmap_fetch`), which the canvas can draw too (`draw_image`). Pages stack
 // with `push` / `pop`; `run` shows the root page. A page's bar carries its title, a back button
 // and its `actions` (`page_set_title`, `page_set_actions`). A dialog (`dialog_show`,
-// `dialog_close`) is a card drawn over the page inside the window, modal or not.
+// `dialog_close`) is a card drawn over the page inside the window, modal or not. A Font loaded
+// from bytes or an asset file (`font_from_bytes`, `font_from_file`) can replace the system font in
+// labels, inputs, buttons and canvas text.
 //
 // Every widget follows one shape: `X :: struct` describes it, `x_create(X) -> ^X_Handle` makes it,
 // `x_view(h)` is the view to embed, `x_set_y(h, ..)` changes it. Row / Column return a plain View:
@@ -359,10 +361,14 @@ column_create :: proc(children: []Flex_Child, spacing: f64 = 0) -> View {
 	return _flex_create({axis = .Vertical, spacing = spacing, children = children})
 }
 
-// Single-line text; `bold` makes it a heading (bold and a little larger).
+// Single-line text; `bold` makes it a heading (bold and a little larger). `font` replaces the
+// system font (then `bold` only picks the heading size: load a bold face for bold text) and
+// `size` the default size, in points / dp like `draw_text`.
 Label :: struct {
 	text: string, // copied
 	bold: bool,
+	font: ^Font,  // optional; the label keeps its own reference
+	size: f64,    // 0 = the platform default
 }
 
 Label_Handle :: struct {
@@ -374,6 +380,7 @@ label_create :: proc(l: Label) -> ^Label_Handle {
 	h := new(Label_Handle)
 	h.label = l
 	h.label.text = strings.clone(l.text)
+	font_retain(l.font)
 	_label_init(h)
 	return h
 }
@@ -390,13 +397,16 @@ label_set_text :: proc(h: ^Label_Handle, text: string) {
 	_label_set_text(h, text)
 }
 
-// Single-line text input. Callbacks get the current text, valid only during the call.
+// Single-line text input. Callbacks get the current text, valid only during the call. `font` and
+// `size` are as on Label.
 Input :: struct {
 	text:        string, // initial text
 	placeholder: string,
 	on_change:   proc(user: rawptr, text: string), // optional; on every edit by the user
 	on_submit:   proc(user: rawptr, text: string), // optional; Return / Enter / the keyboard's Done key
 	user:        rawptr,
+	font:        ^Font, // optional; the input keeps its own reference
+	size:        f64,   // 0 = the platform default
 }
 
 Input_Handle :: struct {
@@ -412,6 +422,7 @@ input_create :: proc(i: Input) -> ^Input_Handle {
 	h := new(Input_Handle)
 	h.input = i
 	h.ctx = context
+	font_retain(i.font)
 	_input_init(h)
 	return h
 }
@@ -441,11 +452,13 @@ input_notify :: proc(h: ^Input_Handle, cb: proc(user: rawptr, text: string)) {
 	cb(h.input.user, _input_text(h, context.temp_allocator))
 }
 
-// Push button with a text title.
+// Push button with a text title. `font` and `size` are as on Label.
 Button :: struct {
 	title:    string, // copied
 	on_click: proc(user: rawptr), // optional
 	user:     rawptr,
+	font:     ^Font, // optional; the button keeps its own reference
+	size:     f64,   // 0 = the platform default
 }
 
 Button_Handle :: struct {
@@ -461,6 +474,7 @@ button_create :: proc(b: Button) -> ^Button_Handle {
 	h.button = b
 	h.button.title = strings.clone(b.title)
 	h.ctx = context
+	font_retain(b.font)
 	_button_init(h)
 	return h
 }
@@ -554,9 +568,9 @@ stroke_ellipse :: proc(p: ^Painter, x, y, w, h: f64, color: Color, width: f64 = 
 	_stroke_ellipse(p, x, y, w, h, color, width)
 }
 
-// One line of text in the system font; (x, y) is the top-left of its line box.
-draw_text :: proc(p: ^Painter, text: string, x, y: f64, size: f64, color: Color) {
-	_draw_text(p, text, x, y, size, color)
+// One line of text in the system font, or in `font`; (x, y) is the top-left of its line box.
+draw_text :: proc(p: ^Painter, text: string, x, y: f64, size: f64, color: Color, font: ^Font = nil) {
+	_draw_text(p, text, x, y, size, color, font)
 }
 
 // Called by the backends on repaint; `native` / `dc` as in Painter.
@@ -635,8 +649,59 @@ bitmap_retain :: proc(b: ^Bitmap) -> ^Bitmap {
 	return b
 }
 
-// Reads a file for bitmap_from_file; a relative path resolves against the `assets` directory next
-// to the executable (inside the .app on iOS). Android overrides this with the APK's assets.
+// A loaded font face, for Label / Input / Button `font` and `draw_text`. Reference counted like
+// Bitmap: `font_free` drops the caller's reference and every widget using the font holds its own,
+// so the app can free a font right after handing it over. Each Font is one face: load a bold file
+// for bold text.
+Font :: struct {
+	native: rawptr, // CGFontRef / android.graphics.Typeface global ref / unused (fontconfig) / AddFontMemResourceEx handle
+	extra:  rawptr, // Windows: the sized HFONT cache
+	family: string, // the face's family name, from its `name` table; Linux and Windows select it by this
+	weight: int,    // the face's weight, 100..900 (400 regular, 700 bold), from its OS/2 table
+	italic: bool,
+	refs:   int,
+}
+
+// Loads a TrueType / OpenType font from its bytes; nil if they are not one. `data` is not kept.
+font_from_bytes :: proc(data: []u8) -> ^Font {
+	family, weight, italic, ok := opentype_info(data)
+	if !ok do return nil
+	f := new(Font)
+	f.family = family
+	f.weight = weight
+	f.italic = italic
+	f.refs = 1
+	if !_font_load(f, data) {
+		delete(f.family)
+		free(f)
+		return nil
+	}
+	return f
+}
+
+// Loads a font file; a relative path names an asset, as for bitmap_from_file.
+font_from_file :: proc(path: string) -> ^Font {
+	return font_from_bytes(_asset_read(path, context.temp_allocator))
+}
+
+font_free :: proc(f: ^Font) {
+	if f == nil do return
+	f.refs -= 1
+	if f.refs > 0 do return
+	_font_free(f)
+	delete(f.family)
+	free(f)
+}
+
+@(private)
+font_retain :: proc(f: ^Font) -> ^Font {
+	if f != nil do f.refs += 1
+	return f
+}
+
+// Reads a file for bitmap_from_file / font_from_file; a relative path resolves against the
+// `assets` directory next to the executable (inside the .app on iOS). Android overrides this with
+// the APK's assets.
 @(private)
 asset_read_file :: proc(path: string, allocator := context.allocator) -> []u8 {
 	full := path

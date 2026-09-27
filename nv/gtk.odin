@@ -9,6 +9,10 @@ foreign import gobj "system:gobject-2.0"
 foreign import gio  "system:gio-2.0"
 foreign import cairo "system:cairo"
 foreign import glib "system:glib-2.0"
+foreign import pango "system:pango-1.0"
+foreign import pangocairo "system:pangocairo-1.0"
+foreign import pangoft2 "system:pangoft2-1.0"
+foreign import fontconfig "system:fontconfig"
 
 GType    :: distinct uint
 gboolean :: b32
@@ -32,6 +36,15 @@ cairo_surface_t    :: struct {}
 GBytes             :: struct {}
 GError             :: struct {}
 GdkTexture         :: struct {}
+PangoAttrList      :: struct {}
+PangoAttribute     :: struct {}
+PangoFontMap       :: struct {}
+FcConfig           :: struct {}
+
+PANGO_SCALE :: 1024
+PANGO_STYLE_ITALIC :: i32(2)
+CAIRO_FONT_SLANT_ITALIC :: i32(1)
+CAIRO_FONT_WEIGHT_BOLD  :: i32(1)
 
 cairo_font_extents_t :: struct {
 	ascent, descent, height, max_x_advance, max_y_advance: f64,
@@ -158,10 +171,13 @@ foreign gtk {
 	gtk_label_set_text      :: proc(label: ^GtkWidget, str: cstring) ---
 	gtk_label_set_xalign    :: proc(label: ^GtkWidget, xalign: f32) ---
 	gtk_label_set_ellipsize :: proc(label: ^GtkWidget, mode: PangoEllipsizeMode) ---
+	gtk_label_set_attributes :: proc(label: ^GtkWidget, attrs: ^PangoAttrList) ---
+	gtk_entry_set_attributes :: proc(entry: ^GtkWidget, attrs: ^PangoAttrList) ---
 
 	gtk_button_new_with_label :: proc(label: cstring) -> ^GtkWidget ---
 	gtk_button_set_label      :: proc(button: ^GtkWidget, label: cstring) ---
 	gtk_button_new_from_icon_name :: proc(icon_name: cstring) -> ^GtkWidget ---
+	gtk_button_get_child      :: proc(button: ^GtkWidget) -> ^GtkWidget ---
 
 	gtk_entry_new                  :: proc() -> ^GtkWidget ---
 	gtk_entry_set_placeholder_text :: proc(entry: ^GtkWidget, text: cstring) ---
@@ -220,6 +236,34 @@ foreign cairo {
 	cairo_image_surface_get_stride :: proc(surface: ^cairo_surface_t) -> i32 ---
 	cairo_surface_mark_dirty     :: proc(surface: ^cairo_surface_t) ---
 	cairo_surface_destroy        :: proc(surface: ^cairo_surface_t) ---
+}
+
+// Pango text attributes (font_linux.odin) and the fontconfig registration of loaded fonts.
+@(default_calling_convention="c")
+foreign pango {
+	pango_attr_list_new          :: proc() -> ^PangoAttrList ---
+	pango_attr_list_insert       :: proc(list: ^PangoAttrList, attr: ^PangoAttribute) --- // takes the attribute
+	pango_attr_list_unref        :: proc(list: ^PangoAttrList) ---
+	pango_attr_family_new        :: proc(family: cstring) -> ^PangoAttribute ---
+	pango_attr_size_new_absolute :: proc(size: i32) -> ^PangoAttribute --- // device units × PANGO_SCALE
+	pango_attr_weight_new        :: proc(weight: i32) -> ^PangoAttribute ---
+	pango_attr_style_new         :: proc(style: i32) -> ^PangoAttribute ---
+}
+
+@(default_calling_convention="c")
+foreign pangocairo {
+	pango_cairo_font_map_get_default :: proc() -> ^PangoFontMap ---
+}
+
+@(default_calling_convention="c")
+foreign pangoft2 {
+	pango_fc_font_map_config_changed :: proc(fcfontmap: ^PangoFontMap) ---
+}
+
+@(default_calling_convention="c")
+foreign fontconfig {
+	FcConfigGetCurrent     :: proc() -> ^FcConfig ---
+	FcConfigAppFontAddFile :: proc(config: ^FcConfig, file: cstring) -> i32 ---
 }
 
 g_signal_connect :: proc "c" (instance: gpointer, signal: cstring, handler: rawptr, data: gpointer) -> gulong {

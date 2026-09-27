@@ -30,6 +30,7 @@ foreign liblog {
 	activity: jobject,  // global ref
 	ctx:      runtime.Context,
 	density:  f32,      // DisplayMetrics.density, read lazily by android_dp
+	cache_dir: string,  // Context.getCacheDir(), read lazily by _font_load
 }
 
 @(export, link_name="Java_nv_NvActivity_nativeOnCreate")

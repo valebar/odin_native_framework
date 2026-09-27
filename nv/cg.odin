@@ -3,8 +3,10 @@ package nv
 
 // CoreGraphics drawing shared by the macOS and iOS canvas backends. Both hand drawRect: a
 // top-left-origin CGContext (the macOS view is flipped), so the primitives are identical.
-// Only canvas_font / canvas_color differ (NSFont / UIFont, NSColor / UIColor). The image decode
-// (ImageIO → CGImage), draw_image and the download helpers are shared the same way.
+// Only system_font / canvas_color differ (NSFont / UIFont, NSColor / UIColor). The image decode
+// (ImageIO → CGImage), draw_image, the download helpers and the loaded fonts (a CGFont from the
+// bytes, sized into a CTFont, which is toll-free bridged to NSFont and UIFont) are shared the
+// same way.
 
 import "base:runtime"
 import NS "core:sys/darwin/Foundation"
@@ -38,14 +40,22 @@ foreign cg {
 	CGImageGetWidth            :: proc(image: CGImageRef) -> uint ---
 	CGImageGetHeight           :: proc(image: CGImageRef) -> uint ---
 	CGImageRelease             :: proc(image: CGImageRef) ---
+	CGDataProviderCreateWithCFData :: proc(data: ^NS.Data) -> CGDataProviderRef --- // CFDataRef: toll-free bridged
+	CGDataProviderRelease          :: proc(provider: CGDataProviderRef) ---
+	CGFontCreateWithDataProvider   :: proc(provider: CGDataProviderRef) -> CGFontRef ---
+	CGFontRelease                  :: proc(font: CGFontRef) ---
 }
 
-CGImageRef       :: distinct rawptr
-CGImageSourceRef :: distinct rawptr
+CGImageRef        :: distinct rawptr
+CGImageSourceRef  :: distinct rawptr
+CGDataProviderRef :: distinct rawptr
+CGFontRef         :: distinct rawptr
+CTFontRef         :: distinct rawptr
 
 CG_INTERPOLATION_HIGH :: i32(3)
 
 foreign import imageio "system:ImageIO.framework"
+foreign import coretext "system:CoreText.framework"
 foreign import corefoundation "system:CoreFoundation.framework"
 foreign import libsystem "system:System"
 
@@ -56,8 +66,45 @@ foreign imageio {
 }
 
 @(default_calling_convention="c")
+foreign coretext {
+	CTFontCreateWithGraphicsFont :: proc(font: CGFontRef, size: NS.Float, matrix: rawptr, attributes: rawptr) -> CTFontRef ---
+}
+
+@(default_calling_convention="c")
 foreign corefoundation {
-	CFRelease :: proc(cf: rawptr) ---
+	CFRelease     :: proc(cf: rawptr) ---
+	CFAutorelease :: proc(cf: rawptr) -> rawptr ---
+}
+
+// Fonts: the bytes become a CGFont, kept for the Font's lifetime; no CTFontManager registration
+// is needed to use it directly.
+@(private)
+_font_load :: proc(f: ^Font, data: []u8) -> bool {
+	ns_data := send(^NS.Data, NS.Data, "dataWithBytes:length:", raw_data(data), NS.UInteger(len(data)))
+	provider := CGDataProviderCreateWithCFData(ns_data)
+	if provider == nil do return false
+	defer CGDataProviderRelease(provider)
+	font := CGFontCreateWithDataProvider(provider)
+	if font == nil do return false
+	f.native = rawptr(font)
+	return true
+}
+
+@(private)
+_font_free :: proc(f: ^Font) {
+	CGFontRelease(CGFontRef(f.native))
+}
+
+// An autoreleased CTFont of the loaded face at `size`, usable wherever an NSFont / UIFont is.
+@(private)
+ct_font :: proc "c" (f: ^Font, size: f64) -> ^NS.Object {
+	return (^NS.Object)(CFAutorelease(rawptr(CTFontCreateWithGraphicsFont(CGFontRef(f.native), NS.Float(size), nil, nil))))
+}
+
+// The font for a widget or for draw_text: the loaded face, or the system font, bold when asked.
+@(private)
+text_font :: proc "c" (font: ^Font, size: f64, bold: bool) -> ^NS.Object {
+	return font != nil ? ct_font(font, size) : system_font(size, bold)
 }
 
 // libdispatch: the _f variants take a function pointer instead of a block.
@@ -180,9 +227,9 @@ _stroke_ellipse :: proc(p: ^Painter, x, y, w, h: f64, color: Color, width: f64) 
 // during drawRect:. "NSFont" / "NSColor" are the values of NSFontAttributeName /
 // NSForegroundColorAttributeName in both AppKit and UIKit.
 @(private)
-_draw_text :: proc(p: ^Painter, text: string, x, y: f64, size: f64, color: Color) {
+_draw_text :: proc(p: ^Painter, text: string, x, y: f64, size: f64, color: Color, font: ^Font) {
 	keys := [2]^NS.Object{NS.AT("NSFont"), NS.AT("NSColor")}
-	values := [2]^NS.Object{canvas_font(size), canvas_color(color)}
+	values := [2]^NS.Object{text_font(font, size, false), canvas_color(color)}
 	attrs := NS.Dictionary.dictionaryWithObjects(&values[0], &keys[0], 2)
 	send(nil, ns_string(text), "drawAtPoint:withAttributes:", NS.Point{NS.Float(x), NS.Float(y)}, attrs)
 }

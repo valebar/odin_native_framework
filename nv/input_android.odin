@@ -19,6 +19,7 @@ _input_init :: proc(h: ^Input_Handle) {
 	jni_call_void(env, et, "setImeOptions", "(I)V", jv_int(ANDROID_IME_ACTION_DONE))
 	set_char_sequence(env, et, "setText", h.input.text)
 	if h.input.placeholder != "" do set_char_sequence(env, et, "setHint", h.input.placeholder)
+	android_apply_font(env, et, h.input.font, h.input.size)
 
 	l_cls := jni_find_class(env, "nv/NvInputListener")
 	listener := jni_new_object(env, l_cls, "(J)V", jv_long(i64(uintptr(h))))

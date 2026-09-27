@@ -18,6 +18,9 @@ _input_init :: proc(h: ^Input_Handle) {
 	field := text_field_editable(ns_string(h.input.text)) // autoreleased; *_create returns owned views
 	field->retain()
 	if h.input.placeholder != "" do text_field_set_placeholder(field, ns_string(h.input.placeholder))
+	if h.input.font != nil || h.input.size != 0 { // else the control's own 13pt system font
+		text_field_set_font(field, (^NS_Font)(text_font(h.input.font, h.input.size != 0 ? h.input.size : 13, false)))
+	}
 
 	d := input_delegate_alloc(h)
 	text_field_set_delegate(field, d) // weak; the delegate lives as long as the handle

@@ -11,6 +11,7 @@ _button_init :: proc(h: ^Button_Handle) {
 	b_cls := jni_find_class(env, "android/widget/Button")
 	b := jni_new_object(env, b_cls, "(Landroid/content/Context;)V", jv_obj(g_android.activity))
 	set_char_sequence(env, b, "setText", h.button.title)
+	android_apply_font(env, b, h.button.font, h.button.size)
 
 	l_cls := jni_find_class(env, "nv/NvClickListener")
 	listener := jni_new_object(env, l_cls, "(J)V", jv_long(i64(uintptr(h))))

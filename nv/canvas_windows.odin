@@ -3,7 +3,8 @@ package nv
 
 // Windows canvas backend: an "NVCanvas" window painted with GDI+ (plain GDI has no
 // anti-aliasing) into an off-screen bitmap, then blitted. The GDI+ world transform scales dp to
-// px; text goes through GDI on the same bitmap with the message font at the requested size.
+// px; text goes through GDI on the same bitmap in the message font, or a loaded one, at the
+// requested size.
 // The left mouse button is captured while pressed, so a drag keeps reporting outside the window.
 
 import win "core:sys/windows"
@@ -137,19 +138,19 @@ _stroke_ellipse :: proc(p: ^Painter, x, y, w, h: f64, color: Color, width: f64) 
 }
 
 // GDI ignores the GDI+ transform, so text is placed in px. The HDC from GdipGetDC has the
-// default TA_TOP | TA_LEFT alignment, so (x, y) is the top-left of the line.
+// default TA_TOP | TA_LEFT alignment, so (x, y) is the top-left of the line. The HFONT (the
+// message font or the loaded one at `size`) is made per call: an app may draw at any number of
+// sizes, and GDI objects are limited.
 @(private)
-_draw_text :: proc(p: ^Painter, text: string, x, y: f64, size: f64, color: Color) {
-	lf: win.LOGFONTW
-	win.GetObjectW(win.HANDLE(g_windows.font), size_of(lf), &lf)
-	lf.lfHeight = -px(size)
-	font := win.CreateFontIndirectW(&lf)
-	defer win.DeleteObject(win.HGDIOBJ(font))
+_draw_text :: proc(p: ^Painter, text: string, x, y: f64, size: f64, color: Color, font: ^Font) {
+	lf := windows_logfont(font, size, false)
+	hfont := win.CreateFontIndirectW(&lf)
+	defer win.DeleteObject(win.HGDIOBJ(hfont))
 
 	dc: win.HDC
 	GdipGetDC(p.native, &dc)
 	defer GdipReleaseDC(p.native, dc)
-	old := win.SelectObject(dc, win.HGDIOBJ(font))
+	old := win.SelectObject(dc, win.HGDIOBJ(hfont))
 	defer win.SelectObject(dc, old)
 	win.SetBkMode(dc, .TRANSPARENT)
 	c := argb(color)

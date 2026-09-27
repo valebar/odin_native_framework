@@ -2,7 +2,8 @@
 package nv
 
 // macOS button backend: a bezel push button (NSButton buttonWithTitle:target:action:) whose
-// action goes to an NVButtonTarget object.
+// action goes to an NVButtonTarget object. A custom font goes on the button (NSControl setFont:);
+// the push bezel keeps its height, so a large size clips.
 
 import "base:intrinsics"
 import NS "core:sys/darwin/Foundation"
@@ -16,6 +17,9 @@ _button_init :: proc(h: ^Button_Handle) {
 	t := button_target_alloc(h) // weak target; lives as long as the handle
 	button := button_push(ns_string(h.button.title), t, intrinsics.objc_find_selector("nvClick:")) // autoreleased
 	button->retain() // *_create returns owned views
+	if h.button.font != nil || h.button.size != 0 { // else the button's own 13pt system font
+		send(nil, button, "setFont:", text_font(h.button.font, h.button.size != 0 ? h.button.size : 13, false))
+	}
 
 	h.root = View(button)
 	h.control = button
