@@ -13,7 +13,7 @@ import NS "core:sys/darwin/Foundation"
 when !IS_IOS {
 
 @(private)
-_nav_push :: proc(e: ^Nav_Page) {
+_nav_push :: proc(e: ^Page_Handle) {
 	root := (^NS.View)(e.root)
 	view_set_autoresizing(root, RESIZE_WIDTH | RESIZE_HEIGHT)
 	g_macos.window->setContentView(root)
@@ -21,7 +21,7 @@ _nav_push :: proc(e: ^Nav_Page) {
 }
 
 @(private)
-_nav_pop :: proc(top, below: ^Nav_Page) -> bool {
+_nav_pop :: proc(top, below: ^Page_Handle) -> bool {
 	g_macos.window->setContentView((^NS.View)(below.root))
 	nav_update_chrome(below)
 	return true
@@ -31,17 +31,23 @@ _nav_pop :: proc(top, below: ^Nav_Page) -> bool {
 // window already dropped its reference in setContentView: and the button's action is still on
 // the stack. The pool drains once the event is handled.
 @(private)
-_nav_release :: proc(e: ^Nav_Page) {
+_nav_release :: proc(e: ^Page_Handle) {
 	send(nil, (^NS.Object)(e.root), "autorelease")
 }
 
+// The bar shows the top page only; a lower page's changes are picked up when it is shown again.
 @(private)
-_nav_actions_changed :: proc(e: ^Nav_Page) {
-	nav_update_chrome(e)
+_nav_title_changed :: proc(e: ^Page_Handle) {
+	if e == g_nav[len(g_nav) - 1] do g_macos.window->setTitle(ns_string(e.page.title))
 }
 
 @(private)
-nav_update_chrome :: proc(e: ^Nav_Page) {
+_nav_actions_changed :: proc(e: ^Page_Handle) {
+	if e == g_nav[len(g_nav) - 1] do nav_rebuild_actions(e)
+}
+
+@(private)
+nav_update_chrome :: proc(e: ^Page_Handle) {
 	g_macos.window->setTitle(ns_string(e.page.title))
 	titlebar_accessory_set_hidden(g_macos.back, len(g_nav) <= 1)
 	nav_rebuild_actions(e)
@@ -51,7 +57,7 @@ nav_update_chrome :: proc(e: ^Nav_Page) {
 // is added. The old buttons may be inside their own action right now, so their container is
 // autoreleased before it is removed, like a popped page's root.
 @(private)
-nav_rebuild_actions :: proc(e: ^Nav_Page) {
+nav_rebuild_actions :: proc(e: ^Page_Handle) {
 	if g_macos.actions != nil {
 		container := send(^NS.View, g_macos.actions, "view")
 		send(nil, container, "retain")
@@ -131,13 +137,6 @@ nav_back_clicked :: proc "c" (self: NS.id, _: NS.SEL, _: NS.id) {
 	callback_enter()
 	defer callback_exit()
 	pop()
-}
-
-// `sender` is the action's NSButton; its tag is the handle.
-@(private)
-nav_action_clicked :: proc "c" (self: NS.id, _: NS.SEL, sender: NS.id) {
-	context = g_macos.ctx
-	action_notify((^Action_Handle)(uintptr(object_tag((^NS.Object)(sender)))))
 }
 
 }

@@ -7,7 +7,8 @@ package main
 // Typing in the input filters both lists down to the items whose number contains the text.
 // Dragging on the canvas draws strokes; the button clears the filter and the strokes. Selecting
 // a row pushes a detail page, which can push another one or pop itself. The bar of the root page
-// has Add and Info actions; a detail page's Edit action swaps itself for a Done action.
+// has Add and Info actions; a detail page's Edit action swaps itself for a Done action and marks
+// the title. The header label follows the filter.
 
 import "core:fmt"
 import "core:strconv"
@@ -17,6 +18,7 @@ import nv "../nv"
 State :: struct {
 	items:   int,
 	visible: [dynamic]int, // item numbers that match the filter
+	header:  ^nv.Label_Handle,
 	list:    ^nv.List_Handle,
 	list2:   ^nv.List_Handle,
 	filter:  ^nv.Input_Handle,
@@ -28,23 +30,25 @@ State :: struct {
 state := State{items = 10_000}
 
 main :: proc() {
-	nv.run("Native List", build, &state)
+	nv.run({
+		title = "Native List",
+		build = build,
+		user  = &state,
+		actions = {
+			{title = "Add", icon = .Add, user = &state, on_click = proc(user: rawptr) {
+				push_detail((^State)(user), "New item", 1)
+			}},
+			{title = "Info", icon = .Info, user = &state, on_click = proc(user: rawptr) {
+				s := (^State)(user)
+				fmt.printfln("%d of %d items visible, %d strokes", len(s.visible), s.items, len(s.strokes))
+			}},
+		},
+	})
 }
 
-build :: proc(user: rawptr) -> nv.View {
+build :: proc(page: ^nv.Page_Handle, user: rawptr) -> nv.View {
 	s := (^State)(user)
 	apply_filter(s, "")
-
-	// The root page has no Page struct, so its actions are set from its build.
-	nv.page_set_actions({
-		{title = "Add", icon = .Add, user = s, on_click = proc(user: rawptr) {
-			push_detail((^State)(user), "New item", 1)
-		}},
-		{title = "Info", icon = .Info, user = s, on_click = proc(user: rawptr) {
-			s := (^State)(user)
-			fmt.printfln("%d of %d items visible, %d strokes", len(s.visible), s.items, len(s.strokes))
-		}},
-	})
 
 	l := nv.List{
 		count = proc(user: rawptr) -> int {
@@ -63,7 +67,7 @@ build :: proc(user: rawptr) -> nv.View {
 			fmt.printfln("selected %d (cells created: %d + %d)", n, s.list.cells_created, s.list2.cells_created)
 			push_detail(s, fmt.tprintf("Item %d", n), 1)
 		},
-		row_height = 44,
+		item_height = 44,
 		user = s,
 	}
 	s.list = nv.list_create(l)
@@ -105,16 +109,21 @@ build :: proc(user: rawptr) -> nv.View {
 		user = s,
 	})
 
-	header := nv.label_create(fmt.tprintf("%d items, twice", s.items))
+	s.header = nv.label_create({text = header_text(s)})
 	lists := nv.row_create({{nv.list_view(s.list), 1}, {nv.list_view(s.list2), 2}}, spacing = 8)
 	search := nv.row_create({{nv.input_view(s.filter), 1}, {nv.button_view(s.clear), 0}}, spacing = 8)
-	return nv.column_create({{header, 0}, {search, 0}, {lists, 2}, {nv.canvas_view(s.canvas), 1}}, spacing = 8)
+	return nv.column_create({{nv.label_view(s.header), 0}, {search, 0}, {lists, 2}, {nv.canvas_view(s.canvas), 1}}, spacing = 8)
+}
+
+header_text :: proc(s: ^State) -> string {
+	return fmt.tprintf("%d of %d items, twice", len(s.visible), s.items)
 }
 
 // One pushed page. The title is cloned because the page outlives the callback that pushed it.
 // Its widget handles are leaked on pop, like the root page's: handles have no destroy yet.
 Detail :: struct {
 	s:     ^State,
+	page:  ^nv.Page_Handle, // valid until on_pop
 	title: string,
 	level: int,
 	more:  ^nv.Button_Handle,
@@ -126,23 +135,32 @@ push_detail :: proc(s: ^State, title: string, level: int) {
 	d.s = s
 	d.title = strings.clone(title)
 	d.level = level
-	nv.push({title = d.title, build = detail_build, user = d, on_pop = detail_free, actions = edit_actions})
+	nv.push({
+		title = d.title, build = detail_build, user = d, on_pop = detail_free,
+		actions = {{title = "Edit", user = d, on_click = detail_edit}},
+	})
 }
 
-// Edit swaps the bar's action for Done, which swaps it back: the runtime path of page_set_actions.
-edit_actions := []nv.Action{{title = "Edit", on_click = proc(user: rawptr) {
-	fmt.println("editing")
-	nv.page_set_actions(done_actions)
-}}}
-
-done_actions := []nv.Action{{title = "Done", icon = .Done, on_click = proc(user: rawptr) {
-	fmt.println("done editing")
-	nv.page_set_actions(edit_actions)
-}}}
-
-detail_build :: proc(user: rawptr) -> nv.View {
+// Edit swaps the bar's action for Done and marks the title; Done restores both: the runtime path
+// of page_set_actions / page_set_title.
+detail_edit :: proc(user: rawptr) {
 	d := (^Detail)(user)
-	label := nv.label_create(fmt.tprintf("%s, level %d", d.title, d.level))
+	fmt.println("editing")
+	nv.page_set_title(d.page, fmt.tprintf("%s (editing)", d.title))
+	nv.page_set_actions(d.page, {{title = "Done", icon = .Done, user = d, on_click = detail_done}})
+}
+
+detail_done :: proc(user: rawptr) {
+	d := (^Detail)(user)
+	fmt.println("done editing")
+	nv.page_set_title(d.page, d.title)
+	nv.page_set_actions(d.page, {{title = "Edit", user = d, on_click = detail_edit}})
+}
+
+detail_build :: proc(page: ^nv.Page_Handle, user: rawptr) -> nv.View {
+	d := (^Detail)(user)
+	d.page = page
+	label := nv.label_create({text = fmt.tprintf("%s, level %d", d.title, d.level)})
 	d.more = nv.button_create({
 		title = "Push another",
 		on_click = proc(user: rawptr) {
@@ -158,7 +176,7 @@ detail_build :: proc(user: rawptr) -> nv.View {
 		},
 		user = d,
 	})
-	return nv.column_create({{label, 0}, {nv.button_view(d.more), 0}, {nv.button_view(d.back), 0}}, spacing = 8)
+	return nv.column_create({{nv.label_view(label), 0}, {nv.button_view(d.more), 0}, {nv.button_view(d.back), 0}}, spacing = 8)
 }
 
 detail_free :: proc(user: rawptr) {
@@ -184,6 +202,7 @@ set_filter :: proc(s: ^State, text: string) {
 	apply_filter(s, text)
 	nv.list_reload(s.list)
 	nv.list_reload(s.list2)
+	nv.label_set_text(s.header, header_text(s))
 }
 
 apply_filter :: proc(s: ^State, text: string) {

@@ -23,7 +23,7 @@ _list_init :: proc(h: ^List_Handle) {
 	table := table_view_new(frame)
 	table_view_set_style(table, Table_View_Style_Plain)
 	table_view_set_header_view(table, nil)
-	table_view_set_row_height(table, NS.Float(h.list.row_height))
+	table_view_set_row_height(table, NS.Float(h.list.item_height))
 
 	col := table_column_new(NS.AT("main"))
 	table_column_set_resizing_mask(col, 1) // NSTableColumnAutoresizingMask
@@ -76,7 +76,7 @@ number_of_rows :: proc "c" (self: NS.id, _: NS.SEL, _: ^Table_View) -> NS.Intege
 
 @(private)
 height_of_row :: proc "c" (self: NS.id, _: NS.SEL, _: ^Table_View, _: NS.Integer) -> NS.Float {
-	return NS.Float(handle_of(self).list.row_height)
+	return NS.Float(handle_of(self).list.item_height)
 }
 
 @(private)
@@ -113,7 +113,7 @@ view_for_row :: proc "c" (self: NS.id, _: NS.SEL, tv: ^Table_View, _: ^Table_Col
 make_row_cell :: proc(h: ^List_Handle) -> ^NS.View {
 	h.cells_created += 1
 	width := NS.Float(400)
-	height := NS.Float(h.list.row_height)
+	height := NS.Float(h.list.item_height)
 
 	cell := NS.View.alloc()->initWithFrame({{0, 0}, {width, height}})
 	view_set_identifier(cell, NS.AT(ROW_ID))

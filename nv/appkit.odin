@@ -33,6 +33,15 @@ ns_string :: proc "c" (s: string) -> ^NS.String {
 	.Close    = "xmark",
 }
 
+// nvAction: for the bar's action buttons on both platforms. `sender` is the NSButton /
+// UIBarButtonItem; its tag is the ^Action_Handle.
+@(private)
+nav_action_clicked :: proc "c" (self: NS.id, _: NS.SEL, sender: NS.id) {
+	h := (^Action_Handle)(uintptr(object_tag((^NS.Object)(sender))))
+	context = h.ctx
+	action_notify(h)
+}
+
 // NSControl / UIBarItem tag: room for a pointer.
 object_set_tag :: proc "c" (o: ^NS.Object, tag: NS.Integer) {
 	send(nil, o, "setTag:", tag)

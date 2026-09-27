@@ -9,7 +9,11 @@ package nv
 // (`input_create`), a push button (`button_create`), a custom-drawn canvas (`canvas_create`) and
 // Flutter-style Row / Column stacks (`row_create`, `column_create`, `flex_create`). Pages stack
 // with `push` / `pop`; `run` shows the root page. A page's bar carries its title, a back button
-// and its `actions` (`page_set_actions`).
+// and its `actions` (`page_set_title`, `page_set_actions`).
+//
+// Every widget follows one shape: `X :: struct` describes it, `x_create(X) -> ^X_Handle` makes it,
+// `x_view(h)` is the view to embed, `x_set_y(h, ..)` changes it. Row / Column return a plain View:
+// their children are fixed at creation, like Flutter.
 
 import "base:builtin"
 import "base:runtime"
@@ -30,9 +34,9 @@ Item :: struct {
 List :: struct {
 	count:      proc(user: rawptr) -> int,
 	item:       proc(user: rawptr, index: int) -> Item,
-	on_select:  proc(user: rawptr, index: int), // optional
-	row_height: f64,
-	user:       rawptr,
+	on_select:   proc(user: rawptr, index: int), // optional
+	item_height: f64, // points / dp; 44 when 0
+	user:        rawptr,
 }
 
 List_Handle :: struct {
@@ -43,8 +47,6 @@ List_Handle :: struct {
 	data_source:   rawptr,
 	cells_created: int,    // debug: proves reuse (always 0 on Windows: the virtual ListView has no row objects)
 }
-
-Build_Proc :: proc(user: rawptr) -> View
 
 // Temp memory belongs to the callback in progress and is freed when the outermost one returns.
 // Callbacks nest: an on_click that calls input_set_text, list_reload or push can trigger a change
@@ -65,17 +67,10 @@ callback_exit :: proc() {
 	if g_callback_depth == 0 do free_all(context.temp_allocator)
 }
 
-// Opens a window showing the root page and blocks in the platform event loop.
-// `build` runs once the platform is ready to create views. `title` is copied.
-run :: proc(title: string, build: Build_Proc, user: rawptr = nil) {
-	append(&g_nav, Nav_Page{page = {title = strings.clone(title), build = build, user = user}})
-	_run()
-}
-
-// One screen of the navigation stack. `build` runs when the page is pushed; `on_pop` runs after
-// the page left the stack and its view was released, so the app can free what `build` created.
-// `actions` are the trailing buttons of the page's bar (Flutter's AppBar.actions); they are
-// copied on push and can be replaced later with `page_set_actions`.
+// One screen of the navigation stack. `build` runs when the page is pushed and gets the page's
+// handle; `on_pop` runs after the page left the stack and its view was released, so the app can
+// free what `build` created (it is the last call the page's handle is valid for). `actions` are
+// the trailing buttons of the page's bar (Flutter's AppBar.actions).
 Page :: struct {
 	title:   string, // copied
 	build:   Build_Proc,
@@ -83,6 +78,8 @@ Page :: struct {
 	on_pop:  proc(user: rawptr), // optional
 	actions: []Action,           // copied
 }
+
+Build_Proc :: proc(page: ^Page_Handle, user: rawptr) -> View
 
 // System icons every platform has (SF Symbols / android.R.drawable / GTK icon names / Segoe MDL2
 // Assets). A platform without a given icon shows the action's title as text instead.
@@ -104,84 +101,120 @@ Action :: struct {
 	ctx:    runtime.Context,
 }
 
-@(private) Nav_Page :: struct {
+// A page on the stack, from `run` / `push` until its `on_pop` returned. Heap-allocated, so the
+// pointer is stable while the stack grows.
+Page_Handle :: struct {
 	page:    Page,                    // page.title is an owned copy; page.actions is not used past push
-	root:    View,                    // owned; dropped by _nav_release
+	root:    View,                    // owned; nil while `build` runs and once released
 	actions: [dynamic]^Action_Handle, // owned; freed by nav_actions_free
+	native:  rawptr,                  // backend per-page object: the UIViewController on iOS
 }
 
 // The page stack: g_nav[0] is the root page from `run`, the depth is len(g_nav) - 1. Backends
 // implement _run (the platform loop; once views can exist it calls nav_show_root), _nav_push
 // (show the new top page, already in g_nav, with its title and chrome), _nav_pop (the native
-// transition back to `below`, already the top of g_nav; false if the platform refused) and
-// _nav_release (drop the ownership of a page's root view) and _nav_actions_changed (the shown
-// page's actions were replaced; push and pop read them on their own). They never modify g_nav; a system back
-// (iOS swipe, Android relaunch) that already removed the native page calls nav_system_pop for the
-// bookkeeping. Inside this package `pop` shadows the builtin, hence builtin.pop.
-@(private) g_nav: [dynamic]Nav_Page
+// transition back to `below`, already the top of g_nav; false if the platform refused),
+// _nav_release (drop the ownership of a page's root view), _nav_title_changed and
+// _nav_actions_changed (a shown page's title / actions were replaced; it may or may not be the
+// top page, and push / pop read them on their own). They never modify g_nav; a system back (iOS swipe, Android relaunch) that
+// already removed the native page calls nav_system_pop for the bookkeeping. Inside this package
+// `pop` shadows the builtin, hence builtin.pop.
+@(private) g_nav: [dynamic]^Page_Handle
 
 // A push from inside a page's `build` (a deep link from the root page, say) waits until that page
 // is shown, so the pages stack in call order.
 @(private) g_nav_building: int
-@(private) g_nav_pending:  [dynamic]Nav_Page // titles and actions already cloned
+@(private) g_nav_pending:  [dynamic]^Page_Handle
+
+// Opens a window showing the root page and blocks in the platform event loop. `build` runs once
+// the platform is ready to create views.
+run :: proc(p: Page) {
+	assert(len(g_nav) == 0, "nv.run twice")
+	append(&g_nav, nav_page_new(p))
+	_run()
+}
 
 // Builds and shows a page on top of the stack; the title is shown in the navigation bar / window
 // title, and a back button (or the platform's back gesture / key) pops it. Called from `build`,
-// the page is pushed once the page being built is shown.
-push :: proc(p: Page) {
+// the page is pushed once the page being built is shown. The handle stays valid until the page's
+// `on_pop` returned.
+push :: proc(p: Page) -> ^Page_Handle {
 	assert(len(g_nav) > 0, "nv.push before nv.run")
-	e := Nav_Page{page = p}
-	e.page.title = strings.clone(p.title)
-	nav_actions_assign(&e, p.actions)
-	e.page.actions = nil // the app's slice; not kept
+	h := nav_page_new(p)
 	if g_nav_building > 0 {
-		append(&g_nav_pending, e)
-		return
+		append(&g_nav_pending, h)
+		return h
 	}
-	append(&g_nav, e) // on the stack before the build, so a nested push queues behind it
-	i := len(g_nav) - 1
-	nav_build(&g_nav[i])
-	_nav_push(&g_nav[i])
+	append(&g_nav, h) // on the stack before the build, so a nested push queues behind it
+	nav_build(h)
+	_nav_push(h)
 	nav_flush_pending()
+	return h
 }
 
-// Removes the top page and returns to the one below. Does nothing on the root page.
+// Removes the top page and returns to the one below. Does nothing on the root page, or inside a
+// `build` (the top page is the one being built then; a page decides against itself by pushing
+// nothing and popping from a later callback).
 pop :: proc() {
-	if len(g_nav) <= 1 do return
+	if len(g_nav) <= 1 || g_nav_building > 0 do return
 	top := builtin.pop(&g_nav)
-	if !_nav_pop(&top, &g_nav[len(g_nav) - 1]) {
+	if !_nav_pop(top, g_nav[len(g_nav) - 1]) {
 		append(&g_nav, top) // the platform is mid-transition; the page stays
 		return
 	}
-	nav_finish_pop(&top)
+	nav_finish_pop(top)
+}
+
+// Replaces the title shown in the page's bar; `title` is copied.
+page_set_title :: proc(h: ^Page_Handle, title: string) {
+	old := h.page.title
+	h.page.title = strings.clone(title)
+	delete(old)
+	if h.root != nil do _nav_title_changed(h) // nil while `build` runs: the _nav_push that follows shows it
+}
+
+// Replaces the page's actions. Frees the old ones, including the one whose `on_click` may be
+// making this call.
+page_set_actions :: proc(h: ^Page_Handle, actions: []Action) {
+	nav_actions_assign(h, actions)
+	if h.root != nil do _nav_actions_changed(h)
 }
 
 @(private)
-nav_build :: proc(e: ^Nav_Page) {
+nav_page_new :: proc(p: Page) -> ^Page_Handle {
+	h := new(Page_Handle)
+	h.page = p
+	h.page.title = strings.clone(p.title)
+	h.page.actions = nil // the app's slice; not kept
+	nav_actions_assign(h, p.actions)
+	return h
+}
+
+@(private)
+nav_build :: proc(h: ^Page_Handle) {
 	callback_enter()
 	defer callback_exit()
 	g_nav_building += 1
-	e.root = e.page.build(e.page.user)
+	h.root = h.page.build(h, h.page.user)
 	g_nav_building -= 1
 }
 
 // Builds and shows the root page; every backend calls this once views can exist, bracketed.
 @(private)
 nav_show_root :: proc() {
-	nav_build(&g_nav[0])
-	_nav_push(&g_nav[0])
+	nav_build(g_nav[0])
+	_nav_push(g_nav[0])
 	nav_flush_pending()
 }
 
 @(private)
 nav_flush_pending :: proc() {
 	for len(g_nav_pending) > 0 {
-		e := g_nav_pending[0]
+		h := g_nav_pending[0]
 		ordered_remove(&g_nav_pending, 0)
-		append(&g_nav, e)
-		i := len(g_nav) - 1
-		nav_build(&g_nav[i])
-		_nav_push(&g_nav[i])
+		append(&g_nav, h)
+		nav_build(h)
+		_nav_push(h)
 	}
 }
 
@@ -190,12 +223,13 @@ nav_flush_pending :: proc() {
 nav_system_pop :: proc() {
 	if len(g_nav) <= 1 do return
 	top := builtin.pop(&g_nav)
-	nav_finish_pop(&top)
+	nav_finish_pop(top)
 }
 
 @(private)
-nav_finish_pop :: proc(top: ^Nav_Page) {
+nav_finish_pop :: proc(top: ^Page_Handle) {
 	_nav_release(top)
+	top.root, top.native = nil, nil // a page_set_* from on_pop has nothing to show
 	if top.page.on_pop != nil {
 		callback_enter()
 		defer callback_exit()
@@ -203,38 +237,29 @@ nav_finish_pop :: proc(top: ^Nav_Page) {
 	}
 	nav_actions_free(top)
 	delete(top.page.title)
-}
-
-// Replaces the actions of the top page. Inside `build` that is the page being built (so the root
-// page, which has no Page struct, sets its actions here); the following push shows them. Frees
-// the old actions, including the one whose `on_click` may be making this call.
-page_set_actions :: proc(actions: []Action) {
-	assert(len(g_nav) > 0, "nv.page_set_actions before nv.run")
-	e := &g_nav[len(g_nav) - 1]
-	nav_actions_assign(e, actions)
-	if e.root != nil do _nav_actions_changed(e) // nil while `build` runs: _nav_push follows
+	free(top)
 }
 
 @(private)
-nav_actions_assign :: proc(e: ^Nav_Page, actions: []Action) {
-	nav_actions_free(e)
+nav_actions_assign :: proc(h: ^Page_Handle, actions: []Action) {
+	nav_actions_free(h)
 	for a in actions {
-		h := new(Action_Handle)
-		h.action = a
-		h.action.title = strings.clone(a.title)
-		h.ctx = context
-		append(&e.actions, h)
+		ah := new(Action_Handle)
+		ah.action = a
+		ah.action.title = strings.clone(a.title)
+		ah.ctx = context
+		append(&h.actions, ah)
 	}
 }
 
 @(private)
-nav_actions_free :: proc(e: ^Nav_Page) {
-	for h in e.actions {
-		delete(h.action.title)
-		free(h)
+nav_actions_free :: proc(h: ^Page_Handle) {
+	for ah in h.actions {
+		delete(ah.action.title)
+		free(ah)
 	}
-	delete(e.actions)
-	e.actions = nil
+	delete(h.actions)
+	h.actions = nil
 }
 
 // Called by the backends when an action was clicked. The callback may replace the page's actions
@@ -251,7 +276,7 @@ action_notify :: proc(h: ^Action_Handle) {
 list_create :: proc(l: List) -> ^List_Handle {
 	h := new(List_Handle)
 	h.list = l
-	if h.list.row_height <= 0 do h.list.row_height = 44
+	if h.list.item_height <= 0 do h.list.item_height = 44
 	h.ctx = context
 	_list_init(h)
 	return h
@@ -299,9 +324,34 @@ column_create :: proc(children: []Flex_Child, spacing: f64 = 0) -> View {
 	return _flex_create({axis = .Vertical, spacing = spacing, children = children})
 }
 
-// Single-line bold text. `text` is copied.
-label_create :: proc(text: string) -> View {
-	return _label_create(text)
+// Single-line bold text.
+Label :: struct {
+	text: string, // copied
+}
+
+Label_Handle :: struct {
+	label: Label, // label.text is an owned copy, kept current by label_set_text
+	root:  View,  // the NSTextField* / UILabel* / TextView / GtkLabel* / Static HWND, embedded by the app
+}
+
+label_create :: proc(l: Label) -> ^Label_Handle {
+	h := new(Label_Handle)
+	h.label = l
+	h.label.text = strings.clone(l.text)
+	_label_init(h)
+	return h
+}
+
+label_view :: proc(h: ^Label_Handle) -> View {
+	return h.root
+}
+
+// Replaces the text; `text` is copied. The size of a flex-0 label follows on the next layout.
+label_set_text :: proc(h: ^Label_Handle, text: string) {
+	old := h.label.text
+	h.label.text = strings.clone(text)
+	delete(old)
+	_label_set_text(h, text)
 }
 
 // Single-line text input. Callbacks get the current text, valid only during the call.
@@ -357,13 +407,13 @@ input_notify :: proc(h: ^Input_Handle, cb: proc(user: rawptr, text: string)) {
 
 // Push button with a text title.
 Button :: struct {
-	title:    string,
+	title:    string, // copied
 	on_click: proc(user: rawptr), // optional
 	user:     rawptr,
 }
 
 Button_Handle :: struct {
-	button:  Button,
+	button:  Button, // button.title is an owned copy, kept current by button_set_title
 	ctx:     runtime.Context,
 	root:    View,   // view embedded by the app
 	control: rawptr, // NSButton* / UIButton* / Button / GtkButton* / Button HWND
@@ -373,6 +423,7 @@ Button_Handle :: struct {
 button_create :: proc(b: Button) -> ^Button_Handle {
 	h := new(Button_Handle)
 	h.button = b
+	h.button.title = strings.clone(b.title)
 	h.ctx = context
 	_button_init(h)
 	return h
@@ -384,6 +435,9 @@ button_view :: proc(h: ^Button_Handle) -> View {
 
 // Replaces the title; `title` is copied. The size of a flex-0 button follows on the next layout.
 button_set_title :: proc(h: ^Button_Handle, title: string) {
+	old := h.button.title
+	h.button.title = strings.clone(title)
+	delete(old)
 	_button_set_title(h, title)
 }
 

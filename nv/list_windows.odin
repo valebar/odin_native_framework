@@ -30,7 +30,7 @@ _list_init :: proc(h: ^List_Handle) {
 	col := win.LVCOLUMNW{mask = win.LVCF_WIDTH}
 	win.ListView_InsertColumn(lv, 0, &col)
 
-	rows := win.ImageList_Create(1, px(h.list.row_height), win.ILC_COLOR32, 0, 0)
+	rows := win.ImageList_Create(1, px(h.list.item_height), win.ILC_COLOR32, 0, 0)
 	win.SendMessageW(lv, win.LVM_SETIMAGELIST, win.LVSIL_SMALL, win.LPARAM(uintptr(rawptr(rows))))
 
 	win.ListView_SetItemCountEx(lv, i32(h.list.count(h.list.user)), 0)

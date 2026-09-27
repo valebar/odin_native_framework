@@ -23,12 +23,4 @@ _flex_create :: proc(f: Flex) -> View {
 	return View(stack)
 }
 
-@(private)
-_label_create :: proc(text: string) -> View {
-	label := ui_label_new()
-	ui_label_set_text(label, ns_string(text))
-	ui_label_set_font(label, ui_font_bold_system(17))
-	return View(label)
-}
-
 }

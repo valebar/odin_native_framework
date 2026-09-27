@@ -29,28 +29,34 @@ import "core:strings"
 @(private) MENU_SHOW_AS_ACTION_IF_ROOM :: 1
 
 @(private)
-_nav_push :: proc(e: ^Nav_Page) {
+_nav_push :: proc(e: ^Page_Handle) {
 	android_show(e)
 }
 
 @(private)
-_nav_pop :: proc(top, below: ^Nav_Page) -> bool {
+_nav_pop :: proc(top, below: ^Page_Handle) -> bool {
 	android_show(below)
 	return true
 }
 
 @(private)
-_nav_release :: proc(e: ^Nav_Page) {
+_nav_release :: proc(e: ^Page_Handle) {
 	jni_delete_global_ref(g_android.env, jobject(e.root))
 }
 
 @(private)
-android_show :: proc(e: ^Nav_Page) {
+android_show :: proc(e: ^Page_Handle) {
+	jni_call_void(g_android.env, g_android.activity, "setContentView", "(Landroid/view/View;)V", jv_obj(jobject(e.root)))
+	android_chrome(e)
+}
+
+// Title, up arrow and (deferred by the framework, so an item can replace the menu from inside its
+// own click) the options menu.
+@(private)
+android_chrome :: proc(e: ^Page_Handle) {
 	env := g_android.env
 	activity := g_android.activity
-	jni_call_void(env, activity, "setContentView", "(Landroid/view/View;)V", jv_obj(jobject(e.root)))
-	jni_call_void(env, activity, "setTitle", "(Ljava/lang/CharSequence;)V",
-		jv_obj(jni_string(env, strings.clone_to_cstring(e.page.title, context.temp_allocator))))
+	set_char_sequence(env, activity, "setTitle", e.page.title)
 	if bar := jni_call_object(env, activity, "getActionBar", "()Landroid/app/ActionBar;"); bar != nil {
 		jni_call_void(env, bar, "setDisplayHomeAsUpEnabled", "(Z)V", jv_bool(len(g_nav) > 1))
 		jni_delete_local_ref(env, bar)
@@ -58,11 +64,15 @@ android_show :: proc(e: ^Nav_Page) {
 	jni_call_void(env, activity, "invalidateOptionsMenu", "()V")
 }
 
-// The rebuild is deferred by the framework, so the menu can be replaced from inside an item's
-// own click.
+// The ActionBar shows the top page only; a lower page's changes are picked up when it is shown again.
 @(private)
-_nav_actions_changed :: proc(e: ^Nav_Page) {
-	jni_call_void(g_android.env, g_android.activity, "invalidateOptionsMenu", "()V")
+_nav_title_changed :: proc(e: ^Page_Handle) {
+	if e == g_nav[len(g_nav) - 1] do set_char_sequence(g_android.env, g_android.activity, "setTitle", e.page.title)
+}
+
+@(private)
+_nav_actions_changed :: proc(e: ^Page_Handle) {
+	if e == g_nav[len(g_nav) - 1] do jni_call_void(g_android.env, g_android.activity, "invalidateOptionsMenu", "()V")
 }
 
 // onCreateOptionsMenu: fills the (empty) menu with the top page's actions.
@@ -73,7 +83,7 @@ jni_on_create_menu :: proc "c" (env: JNI_Env, _: jclass, menu: jobject) {
 	if len(g_nav) == 0 do return
 	callback_enter()
 	defer callback_exit()
-	e := &g_nav[len(g_nav) - 1]
+	e := g_nav[len(g_nav) - 1]
 	for h, i in e.actions {
 		title := jni_string(env, strings.clone_to_cstring(h.action.title, context.temp_allocator))
 		item := jni_call_object(env, menu, "add", "(IIILjava/lang/CharSequence;)Landroid/view/MenuItem;",
@@ -96,7 +106,7 @@ jni_on_action :: proc "c" (env: JNI_Env, _: jclass, id: jint) -> jboolean {
 	context = g_android.ctx
 	g_android.env = env
 	if len(g_nav) == 0 do return 0
-	e := &g_nav[len(g_nav) - 1]
+	e := g_nav[len(g_nav) - 1]
 	i := int(id) - 1
 	if i < 0 || i >= len(e.actions) do return 0
 	action_notify(e.actions[i])

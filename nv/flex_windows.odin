@@ -25,13 +25,8 @@ _flex_create :: proc(f: Flex) -> View {
 	return View(box)
 }
 
-@(private)
-_label_create :: proc(text: string) -> View {
-	return View(label_new(text, g_windows.parking, win.WS_VISIBLE))
-}
-
-// A single-line bold Static; `style` adds to the label styles (the navigation bar centers its
-// title vertically with SS_CENTERIMAGE).
+// A single-line bold Static (label_windows.odin and the navigation bar's title); `style` adds to the
+// label styles (the navigation bar centers its title vertically with SS_CENTERIMAGE).
 @(private)
 label_new :: proc(text: string, parent: win.HWND, style: win.DWORD) -> win.HWND {
 	label := win.CreateWindowExW(0, wstr("Static"), wstr(text),

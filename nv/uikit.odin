@@ -167,10 +167,6 @@ ui_navigation_controller_set_delegate :: proc "c" (nc: ^UI_Navigation_Controller
 	send(nil, nc, "setDelegate:", d)
 }
 
-ui_navigation_controller_top :: proc "c" (nc: ^UI_Navigation_Controller) -> ^UI_View_Controller {
-	return send(^UI_View_Controller, nc, "topViewController")
-}
-
 // The controller's item in the navigation bar; owned by the controller.
 ui_view_controller_navigation_item :: proc "c" (vc: ^UI_View_Controller) -> ^UI_Navigation_Item {
 	return send(^UI_Navigation_Item, vc, "navigationItem")

@@ -14,7 +14,7 @@ when IS_IOS {
 // Returns an owned (+1) controller showing the page's view, pinned to the safe area: a stack
 // view doesn't inset itself like a table view does, so it would slide under the navigation bar.
 @(private)
-page_controller_new :: proc(e: ^Nav_Page) -> ^UI_View_Controller {
+page_controller_new :: proc(e: ^Page_Handle) -> ^UI_View_Controller {
 	container := ui_view_new()
 	ui_view_set_background_color(container, ui_color_system_background())
 	ui_view_pin_to_safe_area((^UI_View)(e.root), container)
@@ -23,6 +23,7 @@ page_controller_new :: proc(e: ^Nav_Page) -> ^UI_View_Controller {
 	container->release()
 	ui_view_controller_set_title(vc, ns_string(e.page.title))
 	ios_apply_actions(vc, e)
+	e.native = vc // owned by the navigation controller
 	return vc
 }
 
@@ -30,7 +31,7 @@ page_controller_new :: proc(e: ^Nav_Page) -> ^UI_View_Controller {
 // items may be inside their own action right now, so their array is autoreleased before it is
 // replaced.
 @(private)
-ios_apply_actions :: proc(vc: ^UI_View_Controller, e: ^Nav_Page) {
+ios_apply_actions :: proc(vc: ^UI_View_Controller, e: ^Page_Handle) {
 	nav_item := ui_view_controller_navigation_item(vc)
 	if old := ui_navigation_item_right_items(nav_item); old != nil {
 		send(nil, old, "retain")
@@ -55,22 +56,19 @@ ios_apply_actions :: proc(vc: ^UI_View_Controller, e: ^Nav_Page) {
 	ui_navigation_item_set_right_items(nav_item, array)
 }
 
-// The top of g_nav is the top controller whenever its root exists (page_set_actions skips the
-// call during `build`, when the controller doesn't exist yet).
+// Every page has its own controller, so a lower page can be updated too.
 @(private)
-_nav_actions_changed :: proc(e: ^Nav_Page) {
-	if vc := ui_navigation_controller_top(g_app.nav); vc != nil do ios_apply_actions(vc, e)
-}
-
-// `sender` is the UIBarButtonItem; its tag is the handle.
-@(private)
-nav_action_clicked :: proc "c" (self: NS.id, _: NS.SEL, sender: NS.id) {
-	context = g_app.ctx
-	action_notify((^Action_Handle)(uintptr(object_tag((^NS.Object)(sender)))))
+_nav_title_changed :: proc(e: ^Page_Handle) {
+	if vc := (^UI_View_Controller)(e.native); vc != nil do ui_view_controller_set_title(vc, ns_string(e.page.title))
 }
 
 @(private)
-_nav_push :: proc(e: ^Nav_Page) {
+_nav_actions_changed :: proc(e: ^Page_Handle) {
+	if vc := (^UI_View_Controller)(e.native); vc != nil do ios_apply_actions(vc, e)
+}
+
+@(private)
+_nav_push :: proc(e: ^Page_Handle) {
 	vc := page_controller_new(e)
 	ui_navigation_controller_push(g_app.nav, vc, true)
 	vc->release()
@@ -78,13 +76,13 @@ _nav_push :: proc(e: ^Nav_Page) {
 
 // UIKit refuses a pop while another transition is still animating and returns nil.
 @(private)
-_nav_pop :: proc(top, below: ^Nav_Page) -> bool {
+_nav_pop :: proc(top, below: ^Page_Handle) -> bool {
 	return ui_navigation_controller_pop(g_app.nav, true) != nil
 }
 
 // The page's container view still holds the root through the pop animation.
 @(private)
-_nav_release :: proc(e: ^Nav_Page) {
+_nav_release :: proc(e: ^Page_Handle) {
 	send(nil, (^NS.Object)(e.root), "release")
 }
 

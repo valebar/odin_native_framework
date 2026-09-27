@@ -23,8 +23,9 @@ _button_init :: proc(h: ^Button_Handle) {
 
 @(private)
 _button_set_title :: proc(h: ^Button_Handle, title: string) {
+	before := measure(win.HWND(h.root))
 	win.SetWindowTextW(win.HWND(h.control), wstr(title))
-	flex_relayout_ancestors(win.HWND(h.root)) // the natural width follows the title
+	if measure(win.HWND(h.root)) != before do flex_relayout_ancestors(win.HWND(h.root)) // the natural width follows the title
 }
 
 // Natural size in px: the themed ideal size plus some horizontal padding, at least the 75px of a

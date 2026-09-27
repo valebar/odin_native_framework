@@ -8,6 +8,7 @@ package nv
 // a popped page (and a replaced action button) is destroyed once its own message (a Back
 // button's BN_CLICKED) has been handled.
 
+import "core:slice"
 import win "core:sys/windows"
 
 @(private) WM_NV_DESTROY :: win.WM_APP + 1 // lparam: the HWND to destroy
@@ -46,7 +47,7 @@ nav_create_host :: proc(wnd: win.HWND) {
 // The page root was created as a child of `parking`; only it moves into the host, so the list,
 // input and button containers inside keep the parent their controls cached.
 @(private)
-_nav_push :: proc(e: ^Nav_Page) {
+_nav_push :: proc(e: ^Page_Handle) {
 	win.SetParent(win.HWND(e.root), g_windows.root)
 	if len(g_nav) > 1 do win.ShowWindow(win.HWND(g_nav[len(g_nav) - 2].root), win.SW_HIDE)
 	nav_update_chrome(e)
@@ -54,7 +55,7 @@ _nav_push :: proc(e: ^Nav_Page) {
 }
 
 @(private)
-_nav_pop :: proc(top, below: ^Nav_Page) -> bool {
+_nav_pop :: proc(top, below: ^Page_Handle) -> bool {
 	win.ShowWindow(win.HWND(top.root), win.SW_HIDE)
 	win.ShowWindow(win.HWND(below.root), win.SW_SHOW)
 	nav_update_chrome(below)
@@ -64,24 +65,44 @@ _nav_pop :: proc(top, below: ^Nav_Page) -> bool {
 }
 
 @(private)
-_nav_release :: proc(e: ^Nav_Page) {
+_nav_release :: proc(e: ^Page_Handle) {
 	win.PostMessageW(g_windows.root, WM_NV_DESTROY, 0, win.LPARAM(uintptr(e.root)))
 }
 
+// The bar shows the top page only; a lower page's changes are picked up when it is shown again.
 @(private)
-_nav_actions_changed :: proc(e: ^Nav_Page) {
-	nav_update_chrome(e)
+_nav_title_changed :: proc(e: ^Page_Handle) {
+	if e == g_nav[len(g_nav) - 1] do nav_set_title(e)
+}
+
+@(private)
+_nav_actions_changed :: proc(e: ^Page_Handle) {
+	if e != g_nav[len(g_nav) - 1] do return
+	nav_rebuild_actions(e)
 	nav_layout(g_windows.root)
 }
 
-// The old action buttons are hidden now and destroyed later: one of them may be inside its own
-// BN_CLICKED.
 @(private)
-nav_update_chrome :: proc(e: ^Nav_Page) {
+nav_update_chrome :: proc(e: ^Page_Handle) {
+	nav_set_title(e)
+	nav_rebuild_actions(e)
+	win.ShowWindow(g_windows.nav_back, len(g_nav) > 1 ? win.SW_SHOW : win.SW_HIDE)
+	win.ShowWindow(g_windows.nav_title, nav_bar_shown() ? win.SW_SHOW : win.SW_HIDE)
+}
+
+// The window caption and the bar title.
+@(private)
+nav_set_title :: proc(e: ^Page_Handle) {
 	title := wstr(e.page.title)
 	win.SetWindowTextW(g_windows.parking, title)
 	win.SetWindowTextW(g_windows.nav_title, title)
+}
 
+// The old action buttons are hidden now and destroyed later: one of them may be inside its own
+// BN_CLICKED. The focus leaves them first, or it would die with them.
+@(private)
+nav_rebuild_actions :: proc(e: ^Page_Handle) {
+	if slice.contains(g_windows.nav_actions[:], win.GetFocus()) do win.SetFocus(g_windows.parking)
 	for b in g_windows.nav_actions {
 		win.ShowWindow(b, win.SW_HIDE)
 		win.PostMessageW(g_windows.root, WM_NV_DESTROY, 0, win.LPARAM(uintptr(b)))
@@ -99,9 +120,7 @@ nav_update_chrome :: proc(e: ^Nav_Page) {
 		win.SetWindowLongPtrW(b, win.GWLP_USERDATA, win.LONG_PTR(uintptr(h)))
 		append(&g_windows.nav_actions, b)
 	}
-
-	win.ShowWindow(g_windows.nav_back, len(g_nav) > 1 ? win.SW_SHOW : win.SW_HIDE)
-	win.ShowWindow(g_windows.nav_title, nav_bar_shown() ? win.SW_SHOW : win.SW_HIDE)
+	win.ShowWindow(g_windows.nav_title, nav_bar_shown() ? win.SW_SHOW : win.SW_HIDE) // the bar may appear or vanish with the root's actions
 }
 
 @(private)
@@ -162,8 +181,8 @@ nav_proc :: proc "system" (hwnd: win.HWND, msg: win.UINT, wparam: win.WPARAM, lp
 				pop()
 				return 0
 			}
-			if h := (^Action_Handle)(uintptr(win.GetWindowLongPtrW(sender, win.GWLP_USERDATA))); h != nil {
-				action_notify(h)
+			if slice.contains(g_windows.nav_actions[:], sender) {
+				action_notify((^Action_Handle)(uintptr(win.GetWindowLongPtrW(sender, win.GWLP_USERDATA))))
 				return 0
 			}
 		}

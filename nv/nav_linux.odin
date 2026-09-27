@@ -24,7 +24,7 @@ import "core:strings"
 }
 
 @(private)
-_nav_push :: proc(e: ^Nav_Page) {
+_nav_push :: proc(e: ^Page_Handle) {
 	root := (^GtkWidget)(e.root)
 	gtk_stack_add_child(g_linux.stack, root) // the stack owns the page from here on
 	gtk_stack_set_visible_child(g_linux.stack, root) // a later child: slides left
@@ -32,7 +32,7 @@ _nav_push :: proc(e: ^Nav_Page) {
 }
 
 @(private)
-_nav_pop :: proc(top, below: ^Nav_Page) -> bool {
+_nav_pop :: proc(top, below: ^Page_Handle) -> bool {
 	gtk_stack_set_visible_child(g_linux.stack, (^GtkWidget)(below.root)) // an earlier child: slides right
 	nav_update_chrome(below)
 	return true
@@ -41,7 +41,7 @@ _nav_pop :: proc(top, below: ^Nav_Page) -> bool {
 // Removing a page from the stack while it slides out would cut the animation short (and could
 // finalize a button inside its own "clicked" emission), so it waits for the transition to end.
 @(private)
-_nav_release :: proc(e: ^Nav_Page) {
+_nav_release :: proc(e: ^Page_Handle) {
 	root := (^GtkWidget)(e.root)
 	if gtk_stack_get_transition_running(g_linux.stack) {
 		append(&g_linux.dying, root)
@@ -50,16 +50,31 @@ _nav_release :: proc(e: ^Nav_Page) {
 	}
 }
 
+// The header bar shows the top page only; a lower page's changes are picked up when it is shown again.
 @(private)
-_nav_actions_changed :: proc(e: ^Nav_Page) {
-	nav_update_chrome(e)
+_nav_title_changed :: proc(e: ^Page_Handle) {
+	if e == g_nav[len(g_nav) - 1] do nav_set_title(e)
 }
 
 @(private)
-nav_update_chrome :: proc(e: ^Nav_Page) {
-	gtk_window_set_title(g_linux.window, strings.clone_to_cstring(e.page.title, context.temp_allocator))
-	gtk_widget_set_visible(g_linux.back, len(g_nav) > 1)
+_nav_actions_changed :: proc(e: ^Page_Handle) {
+	if e == g_nav[len(g_nav) - 1] do nav_rebuild_actions(e)
+}
 
+@(private)
+nav_update_chrome :: proc(e: ^Page_Handle) {
+	nav_set_title(e)
+	gtk_widget_set_visible(g_linux.back, len(g_nav) > 1)
+	nav_rebuild_actions(e)
+}
+
+@(private)
+nav_set_title :: proc(e: ^Page_Handle) {
+	gtk_window_set_title(g_linux.window, strings.clone_to_cstring(e.page.title, context.temp_allocator))
+}
+
+@(private)
+nav_rebuild_actions :: proc(e: ^Page_Handle) {
 	// The header bar drops its reference on remove, so each button holds one of its own (ref_sink at
 	// creation) until an idle callback: this often runs inside one of these buttons' own "clicked"
 	// emission, and a finalized button is not allowed there.

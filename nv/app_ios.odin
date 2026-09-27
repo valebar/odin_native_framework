@@ -70,8 +70,8 @@ scene_will_connect :: proc "c" (self: NS.id, _: NS.SEL, scene: NS.id, _: NS.id, 
 
 	// The navigation controller wants its root view controller up front, so the root page
 	// doesn't go through _nav_push.
-	nav_build(&g_nav[0])
-	root := page_controller_new(&g_nav[0])
+	nav_build(g_nav[0])
+	root := page_controller_new(g_nav[0])
 	nav := ui_navigation_controller_new(root)
 	root->release()
 	ui_navigation_controller_set_delegate(nav, g_app.nav_delegate)

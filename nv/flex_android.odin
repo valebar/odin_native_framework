@@ -5,8 +5,6 @@ package nv
 // layout_weight = flex, which is exactly Flutter's Expanded; the cross axis is MATCH_PARENT.
 // Spacing becomes a leading margin (top or left) on every child after the first.
 
-import "core:strings"
-
 @(private) LAYOUT_MATCH_PARENT :: -1
 @(private) LAYOUT_WRAP_CONTENT :: -2
 
@@ -42,23 +40,5 @@ _flex_create :: proc(f: Flex) -> View {
 
 	root := jni_new_global_ref(env, ll)
 	jni_delete_local_ref(env, ll)
-	return View(root)
-}
-
-@(private)
-_label_create :: proc(text: string) -> View {
-	env := g_android.env
-
-	tv_cls := jni_find_class(env, "android/widget/TextView")
-	tv := jni_new_object(env, tv_cls, "(Landroid/content/Context;)V", jv_obj(g_android.activity))
-	s := jni_string(env, strings.clone_to_cstring(text, context.temp_allocator))
-	jni_call_void(env, tv, "setText", "(Ljava/lang/CharSequence;)V", jv_obj(s))
-	jni_call_void(env, tv, "setTextSize", "(F)V", jv_float(20)) // sp
-	jni_call_void(env, tv, "setTypeface", "(Landroid/graphics/Typeface;I)V", jv_obj(nil), jv_int(1)) // Typeface.BOLD
-	jni_delete_local_ref(env, s)
-	jni_delete_local_ref(env, tv_cls)
-
-	root := jni_new_global_ref(env, tv)
-	jni_delete_local_ref(env, tv)
 	return View(root)
 }

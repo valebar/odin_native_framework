@@ -116,7 +116,7 @@ on_setup :: proc "c" (_: ^GtkListItemFactory, item: ^GtkListItem, user: gpointer
 	cell := gtk_box_new(.Vertical, 2)
 	gtk_widget_set_margin_start(cell, 12)
 	gtk_widget_set_margin_end(cell, 12)
-	gtk_widget_set_size_request(cell, -1, i32(h.list.row_height))
+	gtk_widget_set_size_request(cell, -1, i32(h.list.item_height))
 
 	title := gtk_label_new("")
 	gtk_label_set_xalign(title, 0)

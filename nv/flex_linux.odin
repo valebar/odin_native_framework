@@ -7,8 +7,6 @@ package nv
 // so a flex-0 list must be turned off again, and an explicit value also stops the flag from
 // propagating up through the box to its parent.
 
-import "core:strings"
-
 @(private)
 _flex_create :: proc(f: Flex) -> View {
 	box := gtk_box_new(GtkOrientation(f.axis), i32(f.spacing))
@@ -21,12 +19,4 @@ _flex_create :: proc(f: Flex) -> View {
 		gtk_box_append(box, child)
 	}
 	return View(box)
-}
-
-@(private)
-_label_create :: proc(text: string) -> View {
-	label := gtk_label_new(strings.clone_to_cstring(text, context.temp_allocator))
-	gtk_label_set_xalign(label, 0)
-	gtk_widget_add_css_class(label, "title-4")
-	return View(label)
 }

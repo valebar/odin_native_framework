@@ -28,12 +28,4 @@ _flex_create :: proc(f: Flex) -> View {
 	return View(stack)
 }
 
-@(private)
-_label_create :: proc(text: string) -> View {
-	label := text_field_label(ns_string(text)) // autoreleased; *_create returns owned views
-	text_field_set_font(label, font_bold_system(17))
-	label->retain()
-	return View(label)
-}
-
 }
