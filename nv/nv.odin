@@ -7,9 +7,12 @@ package nv
 //
 // Widgets: a scrolling list (`list_create`), a text label (`label_create`), a text input
 // (`input_create`), a push button (`button_create`), a custom-drawn canvas (`canvas_create`) and
-// Flutter-style Row / Column stacks (`row_create`, `column_create`, `flex_create`).
+// Flutter-style Row / Column stacks (`row_create`, `column_create`, `flex_create`). Pages stack
+// with `push` / `pop`; `run` shows the root page.
 
+import "base:builtin"
 import "base:runtime"
+import "core:strings"
 
 IS_IOS     :: ODIN_PLATFORM_SUBTARGET_IOS
 IS_ANDROID :: ODIN_PLATFORM_SUBTARGET == .Android
@@ -43,11 +46,11 @@ List_Handle :: struct {
 Build_Proc :: proc(user: rawptr) -> View
 
 // Temp memory belongs to the callback in progress and is freed when the outermost one returns.
-// Callbacks nest: an on_click that calls input_set_text or list_reload can trigger a change
-// notification or a row callback, and a Win32 layout re-enters the procs of nested views. An inner
-// callback that freed would wipe strings the outer one (and the app) still holds. So every entry
-// from the platform into Odin code that allocates or calls the app is bracketed by these, and
-// procs the app calls never free.
+// Callbacks nest: an on_click that calls input_set_text, list_reload or push can trigger a change
+// notification, a row callback or a page build, and a Win32 layout re-enters the procs of nested
+// views. An inner callback that freed would wipe strings the outer one (and the app) still holds.
+// So every entry from the platform into Odin code that allocates or calls the app (`build`,
+// `on_pop`, the system back handlers) is bracketed by these, and procs the app calls never free.
 @(private) g_callback_depth: int
 
 @(private)
@@ -61,10 +64,117 @@ callback_exit :: proc() {
 	if g_callback_depth == 0 do free_all(context.temp_allocator)
 }
 
-// Opens a window and blocks in the platform event loop.
-// `build` runs once the platform is ready to create views.
+// Opens a window showing the root page and blocks in the platform event loop.
+// `build` runs once the platform is ready to create views. `title` is copied.
 run :: proc(title: string, build: Build_Proc, user: rawptr = nil) {
-	_run(title, build, user)
+	append(&g_nav, Nav_Page{page = {title = strings.clone(title), build = build, user = user}})
+	_run()
+}
+
+// One screen of the navigation stack. `build` runs when the page is pushed; `on_pop` runs after
+// the page left the stack and its view was released, so the app can free what `build` created.
+Page :: struct {
+	title:  string, // copied
+	build:  Build_Proc,
+	user:   rawptr,
+	on_pop: proc(user: rawptr), // optional
+}
+
+@(private) Nav_Page :: struct {
+	page: Page, // page.title is an owned copy
+	root: View, // owned; dropped by _nav_release
+}
+
+// The page stack: g_nav[0] is the root page from `run`, the depth is len(g_nav) - 1. Backends
+// implement _run (the platform loop; once views can exist it calls nav_show_root), _nav_push
+// (show the new top page, already in g_nav, with its title and chrome), _nav_pop (the native
+// transition back to `below`, already the top of g_nav; false if the platform refused) and
+// _nav_release (drop the ownership of a page's root view). They never modify g_nav; a system back
+// (iOS swipe, Android relaunch) that already removed the native page calls nav_system_pop for the
+// bookkeeping. Inside this package `pop` shadows the builtin, hence builtin.pop.
+@(private) g_nav: [dynamic]Nav_Page
+
+// A push from inside a page's `build` (a deep link from the root page, say) waits until that page
+// is shown, so the pages stack in call order.
+@(private) g_nav_building: int
+@(private) g_nav_pending:  [dynamic]Page // titles already cloned
+
+// Builds and shows a page on top of the stack; the title is shown in the navigation bar / window
+// title, and a back button (or the platform's back gesture / key) pops it. Called from `build`,
+// the page is pushed once the page being built is shown.
+push :: proc(p: Page) {
+	assert(len(g_nav) > 0, "nv.push before nv.run")
+	e := Nav_Page{page = p}
+	e.page.title = strings.clone(p.title)
+	if g_nav_building > 0 {
+		append(&g_nav_pending, e.page)
+		return
+	}
+	append(&g_nav, e) // on the stack before the build, so a nested push queues behind it
+	i := len(g_nav) - 1
+	nav_build(&g_nav[i])
+	_nav_push(&g_nav[i])
+	nav_flush_pending()
+}
+
+// Removes the top page and returns to the one below. Does nothing on the root page.
+pop :: proc() {
+	if len(g_nav) <= 1 do return
+	top := builtin.pop(&g_nav)
+	if !_nav_pop(&top, &g_nav[len(g_nav) - 1]) {
+		append(&g_nav, top) // the platform is mid-transition; the page stays
+		return
+	}
+	nav_finish_pop(&top)
+}
+
+@(private)
+nav_build :: proc(e: ^Nav_Page) {
+	callback_enter()
+	defer callback_exit()
+	g_nav_building += 1
+	e.root = e.page.build(e.page.user)
+	g_nav_building -= 1
+}
+
+// Builds and shows the root page; every backend calls this once views can exist, bracketed.
+@(private)
+nav_show_root :: proc() {
+	nav_build(&g_nav[0])
+	_nav_push(&g_nav[0])
+	nav_flush_pending()
+}
+
+@(private)
+nav_flush_pending :: proc() {
+	for len(g_nav_pending) > 0 {
+		p := g_nav_pending[0]
+		ordered_remove(&g_nav_pending, 0)
+		e := Nav_Page{page = p}
+		append(&g_nav, e)
+		i := len(g_nav) - 1
+		nav_build(&g_nav[i])
+		_nav_push(&g_nav[i])
+	}
+}
+
+// Bookkeeping for a pop the platform already performed.
+@(private)
+nav_system_pop :: proc() {
+	if len(g_nav) <= 1 do return
+	top := builtin.pop(&g_nav)
+	nav_finish_pop(&top)
+}
+
+@(private)
+nav_finish_pop :: proc(top: ^Nav_Page) {
+	_nav_release(top)
+	if top.page.on_pop != nil {
+		callback_enter()
+		defer callback_exit()
+		top.page.on_pop(top.page.user)
+	}
+	delete(top.page.title)
 }
 
 list_create :: proc(l: List) -> ^List_Handle {

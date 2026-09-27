@@ -5,7 +5,8 @@ package main
 //   Column [ label, Row [ Expanded(input), button ], Expanded( Row [ Expanded(list, 1), Expanded(list2, 2) ], 2 ), Expanded(canvas, 1) ]
 //
 // Typing in the input filters both lists down to the items whose number contains the text.
-// Dragging on the canvas draws strokes; the button clears the filter and the strokes.
+// Dragging on the canvas draws strokes; the button clears the filter and the strokes. Selecting
+// a row pushes a detail page, which can push another one or pop itself.
 
 import "core:fmt"
 import "core:strconv"
@@ -46,7 +47,9 @@ build :: proc(user: rawptr) -> nv.View {
 		},
 		on_select = proc(user: rawptr, index: int) {
 			s := (^State)(user)
-			fmt.printfln("selected %d (cells created: %d + %d)", s.visible[index], s.list.cells_created, s.list2.cells_created)
+			n := s.visible[index]
+			fmt.printfln("selected %d (cells created: %d + %d)", n, s.list.cells_created, s.list2.cells_created)
+			push_detail(s, fmt.tprintf("Item %d", n), 1)
 		},
 		row_height = 44,
 		user = s,
@@ -94,6 +97,52 @@ build :: proc(user: rawptr) -> nv.View {
 	lists := nv.row_create({{nv.list_view(s.list), 1}, {nv.list_view(s.list2), 2}}, spacing = 8)
 	search := nv.row_create({{nv.input_view(s.filter), 1}, {nv.button_view(s.clear), 0}}, spacing = 8)
 	return nv.column_create({{header, 0}, {search, 0}, {lists, 2}, {nv.canvas_view(s.canvas), 1}}, spacing = 8)
+}
+
+// One pushed page. The title is cloned because the page outlives the callback that pushed it.
+// Its widget handles are leaked on pop, like the root page's: handles have no destroy yet.
+Detail :: struct {
+	s:     ^State,
+	title: string,
+	level: int,
+	more:  ^nv.Button_Handle,
+	back:  ^nv.Button_Handle,
+}
+
+push_detail :: proc(s: ^State, title: string, level: int) {
+	d := new(Detail)
+	d.s = s
+	d.title = strings.clone(title)
+	d.level = level
+	nv.push({title = d.title, build = detail_build, user = d, on_pop = detail_free})
+}
+
+detail_build :: proc(user: rawptr) -> nv.View {
+	d := (^Detail)(user)
+	label := nv.label_create(fmt.tprintf("%s, level %d", d.title, d.level))
+	d.more = nv.button_create({
+		title = "Push another",
+		on_click = proc(user: rawptr) {
+			d := (^Detail)(user)
+			push_detail(d.s, d.title, d.level + 1)
+		},
+		user = d,
+	})
+	d.back = nv.button_create({
+		title = "Back",
+		on_click = proc(user: rawptr) {
+			nv.pop()
+		},
+		user = d,
+	})
+	return nv.column_create({{label, 0}, {nv.button_view(d.more), 0}, {nv.button_view(d.back), 0}}, spacing = 8)
+}
+
+detail_free :: proc(user: rawptr) {
+	d := (^Detail)(user)
+	fmt.printfln("popped %q, level %d", d.title, d.level)
+	delete(d.title)
+	free(d)
 }
 
 draw_canvas :: proc(user: rawptr, p: ^nv.Painter, w, h: f64) {

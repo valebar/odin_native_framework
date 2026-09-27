@@ -71,12 +71,17 @@ input_proc :: proc "system" (hwnd: win.HWND, msg: win.UINT, wparam: win.WPARAM, 
 }
 
 @(private)
-edit_subclass_proc :: proc "system" (hwnd: win.HWND, msg: win.UINT, wparam: win.WPARAM, lparam: win.LPARAM, _: win.UINT_PTR, ref: win.DWORD_PTR) -> win.LRESULT {
-	if msg == win.WM_CHAR && wparam == win.VK_RETURN {
-		h := (^Input_Handle)(uintptr(ref))
-		context = h.ctx
-		input_notify(h, h.input.on_submit)
-		return 0 // the Edit would beep
+edit_subclass_proc :: proc "system" (hwnd: win.HWND, msg: win.UINT, wparam: win.WPARAM, lparam: win.LPARAM, id: win.UINT_PTR, ref: win.DWORD_PTR) -> win.LRESULT {
+	switch msg {
+	case win.WM_CHAR:
+		if wparam == win.VK_RETURN {
+			h := (^Input_Handle)(uintptr(ref))
+			context = h.ctx
+			input_notify(h, h.input.on_submit)
+			return 0 // the Edit would beep
+		}
+	case win.WM_NCDESTROY: // a popped page destroys its inputs; the subclass must go first
+		RemoveWindowSubclass(hwnd, edit_subclass_proc, id)
 	}
 	return win.DefSubclassProc(hwnd, msg, wparam, lparam)
 }

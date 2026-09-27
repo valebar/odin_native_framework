@@ -2,21 +2,24 @@
 package nv
 
 // Linux (GTK4) app backend. GtkApplication emits `activate` once GTK is ready, and that is
-// where `build` runs (like UIApplicationMain on iOS). The app quits when the window closes.
+// where the root page is built (like UIApplicationMain on iOS). The app quits when the window
+// closes. The window gets a GtkHeaderBar with a back button and a GtkStack holding the pages
+// (nav_linux.odin).
 
 import "base:runtime"
 import "core:strings"
 
 @(private) g_linux: struct {
-	title: string,
-	build: Build_Proc,
-	user:  rawptr,
-	ctx:   runtime.Context,
+	ctx:    runtime.Context,
+	window: ^GtkWidget,
+	back:   ^GtkWidget, // header bar back button, visible on pushed pages
+	stack:  ^GtkWidget, // one child per page
+	dying:  [dynamic]^GtkWidget, // popped pages waiting for the slide animation to end
 }
 
 @(private)
-_run :: proc(title: string, build: Build_Proc, user: rawptr) {
-	g_linux = {title, build, user, context}
+_run :: proc() {
+	g_linux.ctx = context
 	app := gtk_application_new(nil, G_APPLICATION_DEFAULT_FLAGS)
 	g_signal_connect(app, "activate", rawptr(on_activate), nil)
 	g_application_run(app, 0, nil)
@@ -28,9 +31,33 @@ on_activate :: proc "c" (app: ^GtkApplication, _: gpointer) {
 	context = g_linux.ctx
 	callback_enter()
 	defer callback_exit()
+
 	wnd := gtk_application_window_new(app)
-	gtk_window_set_title(wnd, strings.clone_to_cstring(g_linux.title, context.temp_allocator))
 	gtk_window_set_default_size(wnd, 400, 600)
-	gtk_window_set_child(wnd, (^GtkWidget)(g_linux.build(g_linux.user)))
+	g_linux.window = wnd
+
+	header := gtk_header_bar_new() // shows the window title
+	back := gtk_button_new_from_icon_name("go-previous-symbolic")
+	gtk_widget_set_visible(back, false)
+	g_signal_connect(back, "clicked", rawptr(on_back_clicked), nil)
+	gtk_header_bar_pack_start(header, back)
+	gtk_window_set_titlebar(wnd, header)
+	g_linux.back = back
+
+	stack := gtk_stack_new()
+	gtk_stack_set_transition_type(stack, .Slide_Left_Right)
+	g_signal_connect(stack, "notify::transition-running", rawptr(on_transition_running), nil)
+	gtk_window_set_child(wnd, stack)
+	g_linux.stack = stack
+
+	nav_show_root()
 	gtk_window_present(wnd)
+}
+
+@(private)
+on_back_clicked :: proc "c" (_: ^GtkWidget, _: gpointer) {
+	context = g_linux.ctx
+	callback_enter()
+	defer callback_exit()
+	pop()
 }

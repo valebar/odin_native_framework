@@ -2,6 +2,8 @@
 package nv
 
 // iOS app backend: UIApplicationMain + scene lifecycle (NVSceneDelegate is named in ios/Info.plist).
+// The window's root is a UINavigationController whose root view controller wraps the root page
+// (nav_ios.odin).
 
 import "base:intrinsics"
 import "base:runtime"
@@ -10,18 +12,18 @@ import NS "core:sys/darwin/Foundation"
 when IS_IOS {
 
 @(private) g_app: struct {
-	title:  string,
-	build:  Build_Proc,
-	user:   rawptr,
-	ctx:    runtime.Context,
-	window: ^UI_Window,
+	ctx:          runtime.Context,
+	window:       ^UI_Window,
+	nav:          ^UI_Navigation_Controller, // owned by the window
+	nav_delegate: NS.id,                     // NVNavDelegate; the controller's delegate is weak
 }
 
 @(private)
-_run :: proc(title: string, build: Build_Proc, user: rawptr) {
-	g_app = {title = title, build = build, user = user, ctx = context}
+_run :: proc() {
+	g_app.ctx = context
 
 	UIResponder := intrinsics.objc_find_class("UIResponder")
+	NSObject := intrinsics.objc_find_class("NSObject")
 
 	app_delegate := NS.objc_allocateClassPair(UIResponder, "NVAppDelegate", 0)
 	NS.class_addMethod(app_delegate, intrinsics.objc_find_selector("application:didFinishLaunchingWithOptions:"), auto_cast did_finish_launching, "B@:@@")
@@ -33,6 +35,12 @@ _run :: proc(title: string, build: Build_Proc, user: rawptr) {
 	NS.class_addMethod(scene_delegate, intrinsics.objc_find_selector("window"), auto_cast scene_window, "@@:")
 	NS.class_addProtocol(scene_delegate, NS.objc_getProtocol("UIWindowSceneDelegate"))
 	NS.objc_registerClassPair(scene_delegate)
+
+	nav_delegate := NS.objc_allocateClassPair(NSObject, "NVNavDelegate", 0)
+	NS.class_addMethod(nav_delegate, intrinsics.objc_find_selector("navigationController:didShowViewController:animated:"), auto_cast nav_did_show, "v@:@@B")
+	NS.class_addProtocol(nav_delegate, NS.objc_getProtocol("UINavigationControllerDelegate"))
+	NS.objc_registerClassPair(nav_delegate)
+	g_app.nav_delegate = NS.class_createInstance(nav_delegate, 0)
 
 	args := runtime.args__
 	UIApplicationMain(i32(len(args)), raw_data(args), nil, NS.AT("NVAppDelegate"))
@@ -54,22 +62,20 @@ scene_will_connect :: proc "c" (self: NS.id, _: NS.SEL, scene: NS.id, _: NS.id, 
 	callback_enter()
 	defer callback_exit()
 
-	// The app's view sits in a plain container, pinned to its safe area: a stack view doesn't
-	// inset itself like a table view does, so it would slide under the navigation bar.
-	container := ui_view_new()
-	ui_view_set_background_color(container, ui_color_system_background())
-	ui_view_pin_to_safe_area((^UI_View)(g_app.build(g_app.user)), container)
-	root := ui_view_controller_new()
-	ui_view_controller_set_view(root, container)
-	container->release()
-	ui_view_controller_set_title(root, ns_string(g_app.title))
+	// The navigation controller wants its root view controller up front, so the root page
+	// doesn't go through _nav_push.
+	nav_build(&g_nav[0])
+	root := page_controller_new(&g_nav[0])
 	nav := ui_navigation_controller_new(root)
 	root->release()
+	ui_navigation_controller_set_delegate(nav, g_app.nav_delegate)
+	g_app.nav = nav
 
 	g_app.window = ui_window_new(scene)
 	ui_window_set_root_view_controller(g_app.window, nav)
 	nav->release()
 	ui_window_make_key_and_visible(g_app.window)
+	nav_flush_pending() // pages the root build pushed
 }
 
 }

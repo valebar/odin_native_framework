@@ -9,11 +9,11 @@ package nv
 //
 // The entry point runs once per process. A later Activity in the same process (the user backed
 // out and relaunched, so onCreate ran again but loadLibrary didn't) gets a fresh view tree from
-// the same `build`, since views belong to the Activity that created them. Configuration changes
-// such as rotation don't recreate the Activity (android:configChanges in the manifest).
+// the same `build`, since views belong to the Activity that created them: the page stack is
+// reset to the root first. Configuration changes such as rotation don't recreate the Activity
+// (android:configChanges in the manifest).
 
 import "base:runtime"
-import "core:strings"
 import "core:sys/posix"
 
 foreign import liblog "system:log"
@@ -29,9 +29,6 @@ foreign liblog {
 	env:      JNI_Env,  // UI-thread env, refreshed on every JNI callback
 	activity: jobject,  // global ref
 	ctx:      runtime.Context,
-	title:    string,   // _run arguments, kept to rebuild for a new Activity
-	build:    Build_Proc,
-	user:     rawptr,
 	density:  f32,      // DisplayMetrics.density, read lazily by android_dp
 }
 
@@ -41,8 +38,12 @@ jni_on_create :: proc "c" (env: JNI_Env, _: jclass, activity: jobject) {
 	if g_android.activity != nil do jni_delete_global_ref(env, g_android.activity)
 	g_android.activity = jni_new_global_ref(env, activity)
 
-	if g_android.build != nil {
+	if len(g_nav) > 0 {
 		context = g_android.ctx
+		callback_enter()
+		defer callback_exit()
+		for len(g_nav) > 1 do nav_system_pop() // pushed pages are gone with the old Activity
+		jni_delete_global_ref(env, jobject(g_nav[0].root))
 		set_content()
 		return
 	}
@@ -61,25 +62,18 @@ jni_on_create :: proc "c" (env: JNI_Env, _: jclass, activity: jobject) {
 android_main :: proc "c" (app: rawptr) {}
 
 @(private)
-_run :: proc(title: string, build: Build_Proc, user: rawptr) {
+_run :: proc() {
 	g_android.ctx = context
-	g_android.title = strings.clone(title)
-	g_android.build = build
-	g_android.user = user
 	stdout_to_logcat()
+	callback_enter()
 	set_content()
+	callback_exit()
 }
 
-// Builds the view tree and shows it in the current Activity.
+// Builds the root page's view tree and shows it in the current Activity.
 @(private)
 set_content :: proc() {
-	callback_enter()
-	defer callback_exit()
-	env := g_android.env
-	root := g_android.build(g_android.user)
-	jni_call_void(env, g_android.activity, "setTitle", "(Ljava/lang/CharSequence;)V",
-		jv_obj(jni_string(env, strings.clone_to_cstring(g_android.title, context.temp_allocator))))
-	jni_call_void(env, g_android.activity, "setContentView", "(Landroid/view/View;)V", jv_obj(jobject(root)))
+	nav_show_root()
 }
 
 // Converts density-independent pixels to device pixels, rounding to the nearest pixel.

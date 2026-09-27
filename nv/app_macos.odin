@@ -1,12 +1,23 @@
 #+build darwin
 package nv
 
+// macOS app backend: one NSWindow whose content view is the top page (nav_macos.odin) and whose
+// title bar carries the back button.
+
+import "base:runtime"
 import NS "core:sys/darwin/Foundation"
 
 when !IS_IOS {
 
+@(private) g_macos: struct {
+	ctx:    runtime.Context,
+	window: ^NS.Window,
+	back:   ^Titlebar_Accessory_View_Controller, // hidden on the root page
+}
+
 @(private)
-_run :: proc(title: string, build: Build_Proc, user: rawptr) {
+_run :: proc() {
+	g_macos.ctx = context
 	app := NS.Application.sharedApplication()
 	app->setActivationPolicy(.Regular)
 	delegate := NS.application_delegate_register_and_alloc({
@@ -20,12 +31,11 @@ _run :: proc(title: string, build: Build_Proc, user: rawptr) {
 		.Buffered,
 		false,
 	)
-	wnd->setTitle(ns_string(title))
+	g_macos.window = wnd
+	nav_install_back_button(wnd)
 	callback_enter()
-	root := (^NS.View)(build(user))
+	nav_show_root()
 	callback_exit()
-	view_set_autoresizing(root, RESIZE_WIDTH | RESIZE_HEIGHT)
-	wnd->setContentView(root)
 	wnd->center()
 	wnd->makeKeyAndOrderFront(nil)
 

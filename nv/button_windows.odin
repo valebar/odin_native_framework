@@ -32,8 +32,14 @@ _button_set_title :: proc(h: ^Button_Handle, title: string) {
 @(private)
 button_measure :: proc "contextless" (container: win.HWND) -> [2]i32 {
 	h := (^Button_Handle)(uintptr(win.GetWindowLongPtrW(container, win.GWLP_USERDATA)))
+	return button_ideal_size(win.HWND(h.control))
+}
+
+// The same for a bare push button (the navigation bar's).
+@(private)
+button_ideal_size :: proc "contextless" (button: win.HWND) -> [2]i32 {
 	ideal: win.SIZE
-	win.Button_GetIdealSize(win.HWND(h.control), &ideal)
+	win.Button_GetIdealSize(button, &ideal)
 	return {max(ideal.cx + px(16), px(75)), g_windows.font_h + px(8)}
 }
 

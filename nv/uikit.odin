@@ -139,6 +139,24 @@ ui_navigation_controller_new :: proc "c" (root: ^UI_View_Controller) -> ^UI_Navi
 	return send(^UI_Navigation_Controller, nc, "initWithRootViewController:", root)
 }
 
+ui_navigation_controller_push :: proc "c" (nc: ^UI_Navigation_Controller, vc: ^UI_View_Controller, animated: NS.BOOL) {
+	send(nil, nc, "pushViewController:animated:", vc, animated)
+}
+
+// Returns the popped controller (autoreleased), or nil on the root.
+ui_navigation_controller_pop :: proc "c" (nc: ^UI_Navigation_Controller, animated: NS.BOOL) -> ^UI_View_Controller {
+	return send(^UI_View_Controller, nc, "popViewControllerAnimated:", animated)
+}
+
+ui_navigation_controller_view_controllers :: proc "c" (nc: ^UI_Navigation_Controller) -> ^NS.Array {
+	return send(^NS.Array, nc, "viewControllers")
+}
+
+// UINavigationControllerDelegate; not retained.
+ui_navigation_controller_set_delegate :: proc "c" (nc: ^UI_Navigation_Controller, d: NS.id) {
+	send(nil, nc, "setDelegate:", d)
+}
+
 // Returns an owned (+1) table view.
 ui_table_view_new :: proc "c" (style: NS.Integer) -> ^UI_Table_View {
 	tv := send(^UI_Table_View, UI_Table_View, "alloc")

@@ -27,11 +27,18 @@ _flex_create :: proc(f: Flex) -> View {
 
 @(private)
 _label_create :: proc(text: string) -> View {
+	return View(label_new(text, g_windows.parking, win.WS_VISIBLE))
+}
+
+// A single-line bold Static; `style` adds to the label styles (the navigation bar centers its
+// title vertically with SS_CENTERIMAGE).
+@(private)
+label_new :: proc(text: string, parent: win.HWND, style: win.DWORD) -> win.HWND {
 	label := win.CreateWindowExW(0, wstr("Static"), wstr(text),
-		win.WS_CHILD | win.WS_VISIBLE | win.SS_LEFT | win.SS_NOPREFIX | win.SS_ENDELLIPSIS,
-		0, 0, 0, 0, g_windows.parking, nil, g_windows.hinstance, nil)
+		win.WS_CHILD | win.SS_LEFT | win.SS_NOPREFIX | win.SS_ENDELLIPSIS | style,
+		0, 0, 0, 0, parent, nil, g_windows.hinstance, nil)
 	win.SendMessageW(label, win.WM_SETFONT, win.WPARAM(uintptr(g_windows.title)), 0)
-	return View(label)
+	return label
 }
 
 @(private)
@@ -51,6 +58,12 @@ flex_proc :: proc "system" (hwnd: win.HWND, msg: win.UINT, wparam: win.WPARAM, l
 		return 0
 	case win.WM_CTLCOLORSTATIC:
 		return ctlcolor_static(wparam)
+	case win.WM_NCDESTROY: // a popped page is destroyed with its children
+		if d := flex_data(hwnd); d != nil {
+			delete(d.children)
+			free(d)
+		}
+		return 0
 	}
 	return win.DefWindowProcW(hwnd, msg, wparam, lparam)
 }
@@ -127,6 +140,8 @@ measure :: proc(hwnd: win.HWND) -> [2]i32 {
 		return input_measure()
 	case CLASS_BUTTON:
 		return button_measure(hwnd)
+	case CLASS_NAV: // fills whatever it gets, like a list
+		return {}
 	case "Static":
 		buf: [256]u16
 		n := win.GetWindowTextW(hwnd, &buf[0], len(buf))

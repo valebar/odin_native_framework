@@ -1,14 +1,15 @@
 #+build windows
 package nv
 
-// Windows (Win32) app backend. The main window is created hidden before `build` runs, so the
-// controls `build` creates have a parent (see win32.odin), then shown once the tree exists.
-// The root view fills the client area; the app quits when the window closes.
+// Windows (Win32) app backend. The main window is created hidden before the root page is built,
+// so the controls `build` creates have a parent (see win32.odin), then shown once the tree
+// exists. An NVNav host (nav_windows.odin) fills the client area and holds the pages; the app
+// quits when the window closes.
 
 import win "core:sys/windows"
 
 @(private)
-_run :: proc(title: string, build: Build_Proc, user: rawptr) {
+_run :: proc() {
 	g_windows.ctx = context
 	g_windows.hinstance = win.HINSTANCE(win.GetModuleHandleW(nil))
 	win.SetProcessDpiAwarenessContext(win.DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) // also in the manifest
@@ -18,7 +19,7 @@ _run :: proc(title: string, build: Build_Proc, user: rawptr) {
 	gdiplus_init()
 
 	style := win.WS_OVERLAPPEDWINDOW | win.WS_CLIPCHILDREN
-	wnd := win.CreateWindowExW(0, wstr(CLASS_WINDOW), wstr(title), style,
+	wnd := win.CreateWindowExW(0, wstr(CLASS_WINDOW), wstr(g_nav[0].page.title), style,
 		win.CW_USEDEFAULT, win.CW_USEDEFAULT, win.CW_USEDEFAULT, win.CW_USEDEFAULT,
 		nil, nil, g_windows.hinstance, nil)
 	g_windows.parking = wnd
@@ -30,8 +31,9 @@ _run :: proc(title: string, build: Build_Proc, user: rawptr) {
 	win.AdjustWindowRectExForDpi(&rc, style, false, 0, g_windows.dpi)
 	win.SetWindowPos(wnd, nil, 0, 0, rc.right - rc.left, rc.bottom - rc.top, win.SWP_NOMOVE | win.SWP_NOZORDER | win.SWP_NOACTIVATE)
 
+	nav_create_host(wnd)
 	callback_enter()
-	g_windows.root = win.HWND(build(user)) // already a child of `wnd`
+	nav_show_root()
 	callback_exit()
 	layout_root(wnd)
 	win.ShowWindow(wnd, win.SW_SHOW)

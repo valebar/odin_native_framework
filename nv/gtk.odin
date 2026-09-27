@@ -52,6 +52,10 @@ GListModelInterface :: struct {
 }
 
 GtkOrientation :: enum i32 { Horizontal = 0, Vertical = 1 }
+GtkStackTransitionType :: enum i32 {
+	None = 0, Crossfade = 1, Slide_Right = 2, Slide_Left = 3, Slide_Up = 4, Slide_Down = 5,
+	Slide_Left_Right = 6, Slide_Up_Down = 7,
+}
 GtkAlign       :: enum i32 { Fill = 0, Start = 1, End = 2, Center = 3 }
 PangoEllipsizeMode :: enum i32 { None = 0, Start = 1, Middle = 2, End = 3 }
 
@@ -83,7 +87,18 @@ foreign gtk {
 	gtk_window_set_title        :: proc(window: ^GtkWidget, title: cstring) ---
 	gtk_window_set_default_size :: proc(window: ^GtkWidget, width, height: i32) ---
 	gtk_window_set_child        :: proc(window: ^GtkWidget, child: ^GtkWidget) ---
+	gtk_window_set_titlebar     :: proc(window: ^GtkWidget, titlebar: ^GtkWidget) ---
 	gtk_window_present          :: proc(window: ^GtkWidget) ---
+
+	gtk_header_bar_new        :: proc() -> ^GtkWidget ---
+	gtk_header_bar_pack_start :: proc(bar: ^GtkWidget, child: ^GtkWidget) ---
+
+	gtk_stack_new                    :: proc() -> ^GtkWidget ---
+	gtk_stack_add_child              :: proc(stack: ^GtkWidget, child: ^GtkWidget) -> rawptr --- // GtkStackPage*, not owned
+	gtk_stack_remove                 :: proc(stack: ^GtkWidget, child: ^GtkWidget) ---
+	gtk_stack_set_visible_child      :: proc(stack: ^GtkWidget, child: ^GtkWidget) ---
+	gtk_stack_set_transition_type    :: proc(stack: ^GtkWidget, transition: GtkStackTransitionType) ---
+	gtk_stack_get_transition_running :: proc(stack: ^GtkWidget) -> gboolean ---
 
 	gtk_widget_set_margin_start  :: proc(widget: ^GtkWidget, margin: i32) ---
 	gtk_widget_set_margin_end    :: proc(widget: ^GtkWidget, margin: i32) ---
@@ -92,6 +107,7 @@ foreign gtk {
 	gtk_widget_set_hexpand       :: proc(widget: ^GtkWidget, expand: gboolean) ---
 	gtk_widget_set_valign        :: proc(widget: ^GtkWidget, align: GtkAlign) ---
 	gtk_widget_add_css_class     :: proc(widget: ^GtkWidget, css_class: cstring) ---
+	gtk_widget_set_visible       :: proc(widget: ^GtkWidget, visible: gboolean) ---
 	gtk_widget_get_first_child   :: proc(widget: ^GtkWidget) -> ^GtkWidget ---
 	gtk_widget_get_next_sibling  :: proc(widget: ^GtkWidget) -> ^GtkWidget ---
 
@@ -108,6 +124,7 @@ foreign gtk {
 
 	gtk_button_new_with_label :: proc(label: cstring) -> ^GtkWidget ---
 	gtk_button_set_label      :: proc(button: ^GtkWidget, label: cstring) ---
+	gtk_button_new_from_icon_name :: proc(icon_name: cstring) -> ^GtkWidget ---
 
 	gtk_entry_new                  :: proc() -> ^GtkWidget ---
 	gtk_entry_set_placeholder_text :: proc(entry: ^GtkWidget, text: cstring) ---

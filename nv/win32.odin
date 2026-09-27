@@ -12,23 +12,32 @@ import "base:runtime"
 import win "core:sys/windows"
 
 foreign import user32 "system:User32.lib"
+foreign import comctl32 "system:Comctl32.lib"
 
 @(default_calling_convention="system")
 foreign user32 {
 	SystemParametersInfoForDpi :: proc(uiAction, uiParam: win.UINT, pvParam: win.PVOID, fWinIni, dpi: win.UINT) -> win.BOOL ---
 }
 
+@(default_calling_convention="system")
+foreign comctl32 {
+	RemoveWindowSubclass :: proc(hWnd: win.HWND, pfnSubclass: win.SUBCLASSPROC, uIdSubclass: win.UINT_PTR) -> win.BOOL ---
+}
+
 @(private) g_windows: struct {
 	ctx:        runtime.Context,
 	hinstance:  win.HINSTANCE,
 	parking:    win.HWND, // main window; parent of every control until it is re-parented
-	root:       win.HWND,
+	root:       win.HWND, // the NVNav host (nav_windows.odin), which holds the pages
+	nav_back:   win.HWND, // the host's bar: a back button and the page title, shown on pushed pages
+	nav_title:  win.HWND,
 	dpi:        u32,
 	font:       win.HFONT, // message font (Segoe UI 9pt): list subtitles, inputs, buttons
 	bold:       win.HFONT, // bold message font: list titles
-	title:      win.HFONT, // larger bold font: labels
+	title:      win.HFONT, // larger bold font: labels, the bar title
 	font_h:     i32,       // line heights of the fonts above, in px
 	bold_h:     i32,
+	title_h:    i32,
 }
 
 @(private) CLASS_WINDOW :: "NVWindow"
@@ -37,6 +46,7 @@ foreign user32 {
 @(private) CLASS_INPUT  :: "NVInput"
 @(private) CLASS_BUTTON :: "NVButton"
 @(private) CLASS_CANVAS :: "NVCanvas"
+@(private) CLASS_NAV    :: "NVNav"
 
 @(private)
 wstr :: proc(s: string) -> win.wstring {
@@ -68,6 +78,7 @@ register_classes :: proc() {
 	register(CLASS_INPUT, input_proc)
 	register(CLASS_BUTTON, button_proc)
 	register(CLASS_CANVAS, canvas_proc)
+	register(CLASS_NAV, nav_proc)
 }
 
 // Fonts follow the user's message font (Settings > Accessibility > Text size included) at `dpi`.
@@ -86,6 +97,7 @@ create_fonts :: proc() {
 	defer win.ReleaseDC(nil, dc)
 	g_windows.font_h = text_size(dc, g_windows.font, "Ag").cy
 	g_windows.bold_h = text_size(dc, g_windows.bold, "Ag").cy
+	g_windows.title_h = text_size(dc, g_windows.title, "Ag").cy
 }
 
 @(private)

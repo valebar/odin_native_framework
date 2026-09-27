@@ -55,9 +55,21 @@ flex_link_sizes :: proc(children: []Flex_Child, axis: Axis) {
 when !IS_IOS {
 
 // NSAutoresizingMaskOptions
+RESIZE_MIN_X_MARGIN :: NS.UInteger(1)
 RESIZE_WIDTH        :: NS.UInteger(2)
+RESIZE_MAX_X_MARGIN :: NS.UInteger(4)
 RESIZE_MIN_Y_MARGIN :: NS.UInteger(8)
 RESIZE_HEIGHT       :: NS.UInteger(16)
+RESIZE_MAX_Y_MARGIN :: NS.UInteger(32)
+
+// NSLayoutAttributeLeading: a titlebar accessory next to the window buttons (macOS 11+).
+LAYOUT_ATTRIBUTE_LEADING :: NS.Integer(5)
+
+// NSBezelStyleTexturedRounded (NSBezelStyleToolbar): the look of a title bar button.
+BEZEL_STYLE_TEXTURED_ROUNDED :: NS.Integer(11)
+
+@(objc_class="NSTitlebarAccessoryViewController")
+Titlebar_Accessory_View_Controller :: struct { using _: NS.Object }
 
 Table_View_Style_Plain :: 4
 
@@ -254,6 +266,43 @@ button_push :: proc "c" (title: ^NS.String, target: NS.id, action: NS.SEL) -> ^B
 
 button_set_title_ns :: proc "c" (b: ^Button_View, title: ^NS.String) {
 	send(nil, b, "setTitle:", title)
+}
+
+// Autoreleased image-only bezel button; `target` is weak.
+button_with_image :: proc "c" (image: ^NS.Image, target: NS.id, action: NS.SEL) -> ^Button_View {
+	return send(^Button_View, Button_View, "buttonWithImage:target:action:", image, target, action)
+}
+
+button_set_bezel_style :: proc "c" (b: ^Button_View, style: NS.Integer) {
+	send(nil, b, "setBezelStyle:", style)
+}
+
+// Autoreleased SF Symbol (macOS 11+).
+image_system_symbol :: proc "c" (name: ^NS.String, description: ^NS.String) -> ^NS.Image {
+	return send(^NS.Image, NS.Image, "imageWithSystemSymbolName:accessibilityDescription:", name, description)
+}
+
+// Returns an owned (+1) controller.
+titlebar_accessory_new :: proc "c" () -> ^Titlebar_Accessory_View_Controller {
+	return send(^Titlebar_Accessory_View_Controller, Titlebar_Accessory_View_Controller, "new")
+}
+
+titlebar_accessory_set_view :: proc "c" (vc: ^Titlebar_Accessory_View_Controller, v: ^NS.View) {
+	send(nil, vc, "setView:", v)
+}
+
+// NSLayoutAttribute: Leading / Trailing sit in the title bar, Bottom adds a strip below it.
+titlebar_accessory_set_layout_attribute :: proc "c" (vc: ^Titlebar_Accessory_View_Controller, attr: NS.Integer) {
+	send(nil, vc, "setLayoutAttribute:", attr)
+}
+
+titlebar_accessory_set_hidden :: proc "c" (vc: ^Titlebar_Accessory_View_Controller, hidden: NS.BOOL) {
+	send(nil, vc, "setHidden:", hidden)
+}
+
+// The window retains the controller.
+window_add_titlebar_accessory :: proc "c" (w: ^NS.Window, vc: ^Titlebar_Accessory_View_Controller) {
+	send(nil, w, "addTitlebarAccessoryViewController:", vc)
 }
 
 font_system :: proc "c" (size: NS.Float) -> ^Font {
