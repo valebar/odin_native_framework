@@ -15,10 +15,10 @@ when !IS_IOS {
 @(private)
 _nav_push :: proc(e: ^Page_Handle) {
 	root := (^NS.View)(e.root)
-	view_set_frame(root, g_macos.content->bounds())
-	view_set_autoresizing(root, RESIZE_WIDTH | RESIZE_HEIGHT)
+	view_set_translates_autoresizing_mask(root, false)
 	if len(g_nav) > 1 do view_set_hidden((^NS.View)(g_nav[len(g_nav) - 2].root), true)
 	g_macos.content->addSubview(root) // added last: above the lower pages and their dialogs
+	layout_pin_page(root, g_macos.content)
 	nav_update_chrome(e)
 }
 

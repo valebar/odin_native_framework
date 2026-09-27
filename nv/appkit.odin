@@ -113,6 +113,25 @@ layout_anchor_constant :: proc "c" (a: ^Layout_Anchor, constant: NS.Float, prior
 	send(nil, c, "setActive:", NS.BOOL(true))
 }
 
+// Activates `a == b` at the given priority.
+layout_anchor_equal_priority :: proc "c" (a, b: ^Layout_Anchor, priority: f32) {
+	c := send(^Layout_Constraint, a, "constraintEqualToAnchor:", b)
+	send(nil, c, "setPriority:", priority)
+	send(nil, c, "setActive:", NS.BOOL(true))
+}
+
+// Pins a page to the top-left of `parent`, filling it at priority 499: below the window's
+// size (500), so a page that can't stretch ends short instead of shrinking the window.
+// The `<=` keeps a page larger than the window growing it.
+layout_pin_page :: proc "c" (child, parent: ^NS.Object) {
+	layout_anchor_equal(anchor_top(child), anchor_top(parent))
+	layout_anchor_equal(anchor_leading(child), anchor_leading(parent))
+	layout_anchor_at_most(anchor_bottom(child), anchor_bottom(parent), 0)
+	layout_anchor_at_most(anchor_trailing(child), anchor_trailing(parent), 0)
+	layout_anchor_equal_priority(anchor_bottom(child), anchor_bottom(parent), 499)
+	layout_anchor_equal_priority(anchor_trailing(child), anchor_trailing(parent), 499)
+}
+
 // Pins every edge of `child` to `parent` (both already in the same hierarchy).
 layout_pin_edges :: proc "c" (child, parent: ^NS.Object) {
 	layout_anchor_equal(anchor_top(child), anchor_top(parent))
