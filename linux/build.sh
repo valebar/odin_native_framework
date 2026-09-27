@@ -6,13 +6,19 @@ cd "$(dirname "$0")/.."
 OUT=build/linux
 mkdir -p "$OUT/libs"
 
-# `-lgtk-4` needs an unversioned libgtk-4.so, which only the -dev package installs. Without it,
-# point the linker at a local symlink to the runtime library.
-if ! pkg-config --exists gtk4 2>/dev/null && [ ! -e "$OUT/libs/libgtk-4.so" ]; then
-	RUNTIME="$(ldconfig -p | awk '/libgtk-4\.so\.1 / {print $NF; exit}')"
-	[ -n "$RUNTIME" ] || { echo "libgtk-4.so.1 not found: install GTK 4" >&2; exit 1; }
-	ln -s "$RUNTIME" "$OUT/libs/libgtk-4.so"
-fi
+# `-lgtk-4` / `-lcurl` need an unversioned .so, which only the -dev packages install. Without
+# one, point the linker at a local symlink to the runtime library.
+link_runtime() { # pkg-config name, library name, runtime soname
+	if ! pkg-config --exists "$1" 2>/dev/null && [ ! -e "$OUT/libs/lib$2.so" ]; then
+		RUNTIME="$(ldconfig -p | awk -v so="$3" '$1 == so {print $NF; exit}')"
+		[ -n "$RUNTIME" ] || { echo "$3 not found: install $1" >&2; exit 1; }
+		ln -s "$RUNTIME" "$OUT/libs/lib$2.so"
+	fi
+}
+link_runtime gtk4 gtk-4 libgtk-4.so.1
+link_runtime libcurl curl libcurl.so.4
 
 odin build app -debug -extra-linker-flags:"-L$PWD/$OUT/libs" -out:"$OUT/example"
+# Relative paths in bitmap_from_file resolve against the assets directory next to the executable.
+rm -rf "$OUT/assets" && cp -R app/assets "$OUT/assets"
 "./$OUT/example"

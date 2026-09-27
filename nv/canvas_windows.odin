@@ -14,6 +14,7 @@ foreign import gdiplus "system:gdiplus.lib"
 @(private) GpGraphics :: rawptr
 @(private) GpBrush    :: rawptr
 @(private) GpPen      :: rawptr
+@(private) GpImage    :: rawptr // a GpBitmap (image_windows.odin)
 
 @(private) GdiplusStartupInput :: struct {
 	GdiplusVersion:           u32,
@@ -26,6 +27,8 @@ foreign import gdiplus "system:gdiplus.lib"
 @(private) GP_UNIT_WORLD          :: i32(0)
 @(private) GP_MATRIX_ORDER_PREPEND :: i32(0)
 @(private) GP_LINE_CAP_ROUND      :: i32(2)
+@(private) GP_INTERPOLATION_HIGH_QUALITY_BICUBIC :: i32(7)
+@(private) GP_PIXEL_OFFSET_HIGH_QUALITY          :: i32(2)
 
 @(default_calling_convention="system", private)
 foreign gdiplus {
@@ -47,6 +50,13 @@ foreign gdiplus {
 	GdipDrawLine            :: proc(graphics: GpGraphics, pen: GpPen, x1, y1, x2, y2: f32) -> i32 ---
 	GdipFillEllipse         :: proc(graphics: GpGraphics, brush: GpBrush, x, y, w, h: f32) -> i32 ---
 	GdipDrawEllipse         :: proc(graphics: GpGraphics, pen: GpPen, x, y, w, h: f32) -> i32 ---
+	GdipCreateBitmapFromStream :: proc(stream: ^win.IStream, bitmap: ^GpImage) -> i32 ---
+	GdipGetImageWidth       :: proc(image: GpImage, width: ^u32) -> i32 ---
+	GdipGetImageHeight      :: proc(image: GpImage, height: ^u32) -> i32 ---
+	GdipDisposeImage        :: proc(image: GpImage) -> i32 ---
+	GdipDrawImageRect       :: proc(graphics: GpGraphics, image: GpImage, x, y, w, h: f32) -> i32 ---
+	GdipSetInterpolationMode :: proc(graphics: GpGraphics, mode: i32) -> i32 ---
+	GdipSetPixelOffsetMode  :: proc(graphics: GpGraphics, mode: i32) -> i32 ---
 }
 
 @(private)

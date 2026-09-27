@@ -55,6 +55,7 @@ foreign gdi32 {
 @(private) CLASS_INPUT  :: "NVInput"
 @(private) CLASS_BUTTON :: "NVButton"
 @(private) CLASS_CANVAS :: "NVCanvas"
+@(private) CLASS_IMAGE  :: "NVImage"
 @(private) CLASS_NAV    :: "NVNav"
 @(private) CLASS_SCRIM  :: "NVScrim"
 @(private) CLASS_DIALOG :: "NVDialog"
@@ -89,6 +90,7 @@ register_classes :: proc() {
 	register(CLASS_INPUT, input_proc)
 	register(CLASS_BUTTON, button_proc)
 	register(CLASS_CANVAS, canvas_proc)
+	register(CLASS_IMAGE, image_proc)
 	register(CLASS_NAV, nav_proc)
 	register(CLASS_SCRIM, scrim_proc, win.HBRUSH(win.GetStockObject(win.BLACK_BRUSH)))
 	register(CLASS_DIALOG, dialog_proc)

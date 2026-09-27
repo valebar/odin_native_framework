@@ -62,6 +62,11 @@ window_proc :: proc "system" (hwnd: win.HWND, msg: win.UINT, wparam: win.WPARAM,
 		return 0
 	case win.WM_CTLCOLORSTATIC:
 		return ctlcolor_static(wparam)
+	case WM_NV_FETCHED: // posted by a download's worker thread (image_windows.odin)
+		f := (^Fetch)(uintptr(lparam))
+		context = f.ctx
+		fetch_notify(f)
+		return 0
 	case win.WM_DPICHANGED:
 		// Fonts and row heights keep the DPI they were created with; only the window follows.
 		r := (^win.RECT)(uintptr(lparam))

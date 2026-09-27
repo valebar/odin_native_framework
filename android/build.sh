@@ -33,7 +33,8 @@ odin build app -target:linux_arm64 -subtarget:android -build-mode:shared -debug 
 "$JAVA_HOME/bin/javac" --release 11 -nowarn -cp "$PLATFORM_JAR" -d "$OUT/classes" nv/android/java/nv/*.java
 "$BT/d8" --min-api 34 --lib "$PLATFORM_JAR" --output "$OUT/stage" $(find "$OUT/classes" -name '*.class')
 
-"$BT/aapt2" link --debug-mode -I "$PLATFORM_JAR" --manifest android/AndroidManifest.xml -o "$OUT/unsigned.apk"
+# app/assets become the APK's assets, which bitmap_from_file reads for relative paths.
+"$BT/aapt2" link --debug-mode -I "$PLATFORM_JAR" --manifest android/AndroidManifest.xml -A app/assets -o "$OUT/unsigned.apk"
 (cd "$OUT/stage" && zip -qr ../unsigned.apk classes.dex lib)
 "$BT/zipalign" -f -p 4 "$OUT/unsigned.apk" "$OUT/aligned.apk"
 "$BT/apksigner" sign --ks "$HOME/.android/debug.keystore" --ks-pass pass:android --key-pass pass:android \

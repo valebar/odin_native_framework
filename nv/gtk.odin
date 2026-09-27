@@ -28,12 +28,17 @@ GtkEventController :: struct {}
 GtkCssProvider     :: struct {}
 GdkDisplay         :: struct {}
 cairo_t            :: struct {}
+cairo_surface_t    :: struct {}
+GBytes             :: struct {}
+GError             :: struct {}
+GdkTexture         :: struct {}
 
 cairo_font_extents_t :: struct {
 	ascent, descent, height, max_x_advance, max_y_advance: f64,
 }
 
 CAIRO_LINE_CAP_ROUND :: i32(1)
+CAIRO_FORMAT_ARGB32  :: i32(0)
 
 GTypeQuery :: struct {
 	type:          GType,
@@ -78,11 +83,15 @@ foreign gobj {
 	g_type_add_interface_static  :: proc(instance_type, interface_type: GType, info: ^GInterfaceInfo) ---
 	g_signal_connect_data        :: proc(instance: gpointer, detailed_signal: cstring, c_handler: rawptr, data: gpointer, destroy_data: rawptr, connect_flags: i32) -> gulong ---
 	g_object_ref_sink            :: proc(object: gpointer) -> gpointer ---
+	g_object_ref                 :: proc(object: gpointer) -> gpointer ---
 }
 
 @(default_calling_convention="c")
 foreign glib {
 	g_idle_add :: proc(function: GSourceFunc, data: gpointer) -> guint ---
+	g_bytes_new    :: proc(data: rawptr, size: uint) -> ^GBytes ---
+	g_bytes_unref  :: proc(bytes: ^GBytes) ---
+	g_error_free   :: proc(error: ^GError) ---
 }
 
 @(default_calling_convention="c")
@@ -173,6 +182,12 @@ foreign gtk {
 
 	gtk_drawing_area_new           :: proc() -> ^GtkWidget ---
 	gtk_drawing_area_set_draw_func :: proc(area: ^GtkWidget, draw_func: rawptr, user_data: gpointer, destroy: rawptr) ---
+	gtk_drawing_area_set_content_width  :: proc(area: ^GtkWidget, width: i32) ---
+	gtk_drawing_area_set_content_height :: proc(area: ^GtkWidget, height: i32) ---
+	gdk_texture_new_from_bytes :: proc(bytes: ^GBytes, error: ^^GError) -> ^GdkTexture ---
+	gdk_texture_get_width      :: proc(texture: ^GdkTexture) -> i32 ---
+	gdk_texture_get_height     :: proc(texture: ^GdkTexture) -> i32 ---
+	gdk_texture_download       :: proc(texture: ^GdkTexture, data: [^]u8, stride: uint) ---
 	gtk_widget_queue_draw          :: proc(widget: ^GtkWidget) ---
 	gtk_widget_add_controller      :: proc(widget: ^GtkWidget, controller: ^GtkEventController) ---
 	gtk_gesture_drag_new           :: proc() -> ^GtkEventController ---
@@ -199,6 +214,12 @@ foreign cairo {
 	cairo_set_font_size    :: proc(cr: ^cairo_t, size: f64) ---
 	cairo_font_extents     :: proc(cr: ^cairo_t, extents: ^cairo_font_extents_t) ---
 	cairo_show_text        :: proc(cr: ^cairo_t, utf8: cstring) ---
+	cairo_set_source_surface     :: proc(cr: ^cairo_t, surface: ^cairo_surface_t, x, y: f64) ---
+	cairo_image_surface_create   :: proc(format: i32, width, height: i32) -> ^cairo_surface_t ---
+	cairo_image_surface_get_data :: proc(surface: ^cairo_surface_t) -> [^]u8 ---
+	cairo_image_surface_get_stride :: proc(surface: ^cairo_surface_t) -> i32 ---
+	cairo_surface_mark_dirty     :: proc(surface: ^cairo_surface_t) ---
+	cairo_surface_destroy        :: proc(surface: ^cairo_surface_t) ---
 }
 
 g_signal_connect :: proc "c" (instance: gpointer, signal: cstring, handler: rawptr, data: gpointer) -> gulong {

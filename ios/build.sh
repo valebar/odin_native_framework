@@ -11,6 +11,7 @@ BUNDLE_ID=com.example.nativelist
 mkdir -p "$APP"
 odin build app -target:darwin_arm64 -subtarget:iphonesimulator -minimum-os-version:17.0 -debug -out:"$APP/NativeList"
 cp ios/Info.plist "$APP/Info.plist"
+rm -rf "$APP/assets" && cp -R app/assets "$APP/assets" # bitmap_from_file's relative paths
 codesign --force -s - "$APP"
 
 xcrun simctl boot "$SIM" 2>/dev/null || true

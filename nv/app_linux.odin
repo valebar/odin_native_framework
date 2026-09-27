@@ -32,6 +32,7 @@ import "core:strings"
 @(private)
 _run :: proc() {
 	g_linux.ctx = context
+	curl_global_init(CURL_GLOBAL_DEFAULT) // before any download thread (image_linux.odin)
 	app := gtk_application_new(nil, G_APPLICATION_DEFAULT_FLAGS)
 	g_signal_connect(app, "activate", rawptr(on_activate), nil)
 	g_application_run(app, 0, nil)

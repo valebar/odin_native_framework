@@ -42,12 +42,17 @@ JNI_Env :: ^[^]rawptr
 @(private) JNI_GET_FLOAT_FIELD       :: 102
 @(private) JNI_GET_STATIC_METHOD_ID  :: 113
 @(private) JNI_CALL_STATIC_OBJECT_A  :: 116
+@(private) JNI_CALL_STATIC_VOID_A    :: 143
 @(private) JNI_GET_STATIC_FIELD_ID    :: 144
 @(private) JNI_GET_STATIC_INT_FIELD   :: 150
 @(private) JNI_NEW_STRING_UTF        :: 167
 @(private) JNI_GET_STRING_UTF_LENGTH :: 168
 @(private) JNI_GET_STRING_UTF_CHARS  :: 169
 @(private) JNI_RELEASE_STRING_UTF_CHARS :: 170
+@(private) JNI_GET_ARRAY_LENGTH      :: 171
+@(private) JNI_NEW_BYTE_ARRAY        :: 176
+@(private) JNI_GET_BYTE_ARRAY_REGION :: 200
+@(private) JNI_SET_BYTE_ARRAY_REGION :: 208
 @(private) JNI_EXCEPTION_CHECK       :: 228
 
 @(private)
@@ -142,6 +147,30 @@ jni_call_static_object :: proc "contextless" (env: JNI_Env, cls_name, name, sig:
 	jni_delete_local_ref(env, cls)
 	jni_check(env)
 	return res
+}
+
+jni_call_static_void :: proc "contextless" (env: JNI_Env, cls_name, name, sig: cstring, args: ..jvalue) {
+	cls := jni_find_class(env, cls_name)
+	m := jni_static_method(env, cls, name, sig)
+	jni_fn(env, proc "c" (JNI_Env, jclass, jmethodID, [^]jvalue), JNI_CALL_STATIC_VOID_A)(env, cls, m, raw_data(args))
+	jni_delete_local_ref(env, cls)
+	jni_check(env)
+}
+
+// A new byte[] holding a copy of `data`; a local ref.
+jni_byte_array :: proc "contextless" (env: JNI_Env, data: []u8) -> jobject {
+	arr := jni_fn(env, proc "c" (JNI_Env, jint) -> jobject, JNI_NEW_BYTE_ARRAY)(env, jint(len(data)))
+	jni_fn(env, proc "c" (JNI_Env, jobject, jint, jint, [^]u8), JNI_SET_BYTE_ARRAY_REGION)(env, arr, 0, jint(len(data)), raw_data(data))
+	return arr
+}
+
+// Copies a byte[]; nil for a null array.
+jni_bytes_clone :: proc(env: JNI_Env, arr: jobject, allocator := context.allocator) -> []u8 {
+	if arr == nil do return nil
+	n := jni_fn(env, proc "c" (JNI_Env, jobject) -> jint, JNI_GET_ARRAY_LENGTH)(env, arr)
+	out := make([]u8, n, allocator)
+	jni_fn(env, proc "c" (JNI_Env, jobject, jint, jint, [^]u8), JNI_GET_BYTE_ARRAY_REGION)(env, arr, 0, n, raw_data(out))
+	return out
 }
 
 // Reads a float instance field, looked up on the object's runtime class.

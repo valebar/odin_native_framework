@@ -6,8 +6,10 @@ package nv
 // *_windows.odin (`#+build windows`, Win32).
 //
 // Widgets: a scrolling list (`list_create`), a text label (`label_create`), a text input
-// (`input_create`), a push button (`button_create`), a custom-drawn canvas (`canvas_create`) and
-// Flutter-style Row / Column stacks (`row_create`, `column_create`, `flex_create`). Pages stack
+// (`input_create`), a push button (`button_create`), a custom-drawn canvas (`canvas_create`), an
+// image (`image_create`) and Flutter-style Row / Column stacks (`row_create`, `column_create`,
+// `flex_create`). Images are decoded into a Bitmap from bytes, a file or a URL (`bitmap_from_bytes`,
+// `bitmap_from_file`, `bitmap_fetch`), which the canvas can draw too (`draw_image`). Pages stack
 // with `push` / `pop`; `run` shows the root page. A page's bar carries its title, a back button
 // and its `actions` (`page_set_title`, `page_set_actions`). A dialog (`dialog_show`,
 // `dialog_close`) is a card drawn over the page inside the window, modal or not.
@@ -18,6 +20,7 @@ package nv
 
 import "base:builtin"
 import "base:runtime"
+import "core:os"
 import "core:slice"
 import "core:strings"
 
@@ -572,6 +575,197 @@ canvas_pointer_notify :: proc(h: ^Canvas_Handle, kind: Pointer, x, y: f64) {
 	callback_enter()
 	defer callback_exit()
 	h.canvas.on_pointer(h.canvas.user, kind, x, y)
+}
+
+// Draws `b` stretched over the rect.
+draw_image :: proc(p: ^Painter, b: ^Bitmap, x, y, w, h: f64) {
+	if b == nil do return
+	_draw_image(p, b, x, y, w, h)
+}
+
+// A decoded image in memory, drawn by Image widgets and `draw_image`. Reference counted:
+// `bitmap_free` drops the caller's reference, and a widget showing the bitmap holds its own, so
+// the app can free a bitmap right after handing it to a widget.
+Bitmap :: struct {
+	native: rawptr, // CGImageRef / android.graphics.Bitmap global ref / cairo_surface_t* / GpBitmap*
+	extra:  rawptr, // Windows: the IStream GDI+ decodes from lazily
+	width:  int,    // px
+	height: int,
+	refs:   int,
+}
+
+// Decodes PNG or JPEG bytes with the platform's decoder; nil if they are not an image. `data` is
+// not kept.
+bitmap_from_bytes :: proc(data: []u8) -> ^Bitmap {
+	if len(data) == 0 do return nil
+	b := new(Bitmap)
+	b.refs = 1
+	if !_bitmap_decode(b, data) {
+		free(b)
+		return nil
+	}
+	return b
+}
+
+// Loads an image file. A relative path names one of the app's assets: `app/assets/`, which the
+// build scripts copy next to the executable (desktop), into the app bundle (iOS) or into the APK.
+bitmap_from_file :: proc(path: string) -> ^Bitmap {
+	return bitmap_from_bytes(_asset_read(path, context.temp_allocator))
+}
+
+// Downloads and decodes an image in the background. `on_load` runs later on the UI thread with
+// the bitmap, which the caller then owns, or nil if the download or the decode failed.
+bitmap_fetch :: proc(url: string, on_load: proc(user: rawptr, b: ^Bitmap), user: rawptr) {
+	f := new(Fetch, runtime.heap_allocator())
+	f^ = {url = strings.clone(url, runtime.heap_allocator()), on_load = on_load, user = user, ctx = context}
+	_fetch_start(f)
+}
+
+bitmap_free :: proc(b: ^Bitmap) {
+	if b == nil do return
+	b.refs -= 1
+	if b.refs > 0 do return
+	_bitmap_free(b)
+	free(b)
+}
+
+@(private)
+bitmap_retain :: proc(b: ^Bitmap) -> ^Bitmap {
+	if b != nil do b.refs += 1
+	return b
+}
+
+// Reads a file for bitmap_from_file; a relative path resolves against the `assets` directory next
+// to the executable (inside the .app on iOS). Android overrides this with the APK's assets.
+@(private)
+asset_read_file :: proc(path: string, allocator := context.allocator) -> []u8 {
+	full := path
+	if !os.is_absolute_path(path) {
+		dir, err := os.get_executable_directory(context.temp_allocator)
+		if err != nil do return nil
+		full, _ = os.join_path({dir, "assets", path}, context.temp_allocator)
+	}
+	data, err := os.read_entire_file(full, allocator)
+	if err != nil do return nil
+	return data
+}
+
+// An image download in flight. Heap-allocated, since the worker thread has its own context:
+// only `url` and `data` are touched off the UI thread.
+@(private) Fetch :: struct {
+	url:     string,
+	data:    []u8, // heap; nil on failure
+	on_load: proc(user: rawptr, b: ^Bitmap),
+	user:    rawptr,
+	ctx:     runtime.Context,
+}
+
+// Backends call this on the UI thread once the download finished (see _fetch_start).
+@(private)
+fetch_notify :: proc(f: ^Fetch) {
+	callback_enter()
+	defer callback_exit()
+	b := bitmap_from_bytes(f.data)
+	on_load, user := f.on_load, f.user
+	delete(f.data, runtime.heap_allocator())
+	delete(f.url, runtime.heap_allocator())
+	free(f, runtime.heap_allocator())
+	if on_load != nil {
+		on_load(user, b)
+	} else {
+		bitmap_free(b)
+	}
+}
+
+// How an image fills its view (Flutter's BoxFit).
+Fit :: enum {
+	Contain, // the whole image, letterboxed
+	Cover,   // fills the view, cropped
+	Fill,    // stretched
+}
+
+// An image view. It shows `bitmap` at once, or else downloads `url` and shows it once it is
+// loaded. Its natural size is `width` × `height` when given, else the bitmap's (1 px per
+// point / dp), and 0 while there is no bitmap; the cross axis of a Row / Column still stretches.
+Image :: struct {
+	bitmap: ^Bitmap, // the widget takes its own reference
+	url:    string,
+	fit:    Fit,
+	width:  f64,     // points / dp; 0 for the bitmap's
+	height: f64,
+}
+
+Image_Handle :: struct {
+	image:  Image,   // image.bitmap and image.url are not used past image_create (see bitmap)
+	ctx:    runtime.Context,
+	root:   View,    // view embedded by the app
+	view:   rawptr,  // NVImageView* / ImageView / GtkDrawingArea* / NVImage HWND; the handle holds a reference
+	bitmap: ^Bitmap, // the one shown; owned reference
+	seq:    int,     // bumped by every image_set_bitmap, so a fetch that lost the race is dropped
+}
+
+image_create :: proc(i: Image) -> ^Image_Handle {
+	h := new(Image_Handle)
+	h.image = i
+	h.image.bitmap, h.image.url = nil, ""
+	h.ctx = context
+	h.bitmap = bitmap_retain(i.bitmap)
+	_image_init(h)
+	if i.bitmap == nil && i.url != "" {
+		t := new(Image_Fetch)
+		t^ = {h, h.seq}
+		bitmap_fetch(i.url, image_fetched, t)
+	}
+	return h
+}
+
+image_view :: proc(h: ^Image_Handle) -> View {
+	return h.root
+}
+
+// Shows `b` (nil for nothing) instead of the current bitmap, or of the one still downloading.
+image_set_bitmap :: proc(h: ^Image_Handle, b: ^Bitmap) {
+	h.seq += 1
+	old := h.bitmap
+	h.bitmap = bitmap_retain(b)
+	_image_set_bitmap(h)
+	bitmap_free(old)
+}
+
+@(private) Image_Fetch :: struct {
+	h:   ^Image_Handle,
+	seq: int,
+}
+
+@(private)
+image_fetched :: proc(user: rawptr, b: ^Bitmap) {
+	t := (^Image_Fetch)(user)
+	defer free(t)
+	if t.h.seq == t.seq && b != nil do image_set_bitmap(t.h, b)
+	bitmap_free(b)
+}
+
+// Natural size in points / dp.
+@(private)
+image_natural_size :: proc "contextless" (h: ^Image_Handle) -> [2]f64 {
+	s := [2]f64{h.image.width, h.image.height}
+	if h.bitmap == nil do return s
+	bw, bh := f64(h.bitmap.width), f64(h.bitmap.height)
+	switch {
+	case s.x <= 0 && s.y <= 0: s = {bw, bh}
+	case s.x <= 0:             s.x = s.y * bw / bh // one side given: keep the aspect ratio
+	case s.y <= 0:             s.y = s.x * bh / bw
+	}
+	return s
+}
+
+// Where the bitmap goes in a w × h view, for the backends that draw it themselves.
+@(private)
+image_fit_rect :: proc "contextless" (fit: Fit, b: ^Bitmap, w, h: f64) -> [4]f64 {
+	bw, bh := f64(b.width), f64(b.height)
+	if fit == .Fill || bw <= 0 || bh <= 0 do return {0, 0, w, h}
+	s := fit == .Contain ? min(w / bw, h / bh) : max(w / bw, h / bh)
+	return {(w - bw * s) / 2, (h - bh * s) / 2, bw * s, bh * s}
 }
 
 // A card over the current page, inside the window (not a separate OS window). A modal dialog dims

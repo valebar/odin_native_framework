@@ -9,7 +9,9 @@ package main
 // Tip button opens a non-modal dialog over the page. Selecting a row pushes a detail page, which
 // can push another one or pop itself after a modal confirm. The bar of the root page has Add, Ask (a modal dialog with
 // an input that sets the filter) and Info actions; a detail page's Edit action swaps itself for a
-// Done action and marks the title. The header label follows the filter.
+// Done action and marks the title. The header label follows the filter. The canvas draws an image
+// embedded in the binary; a detail page shows the same image as an asset file and a photo
+// downloaded from the network.
 
 import "core:fmt"
 import "core:strconv"
@@ -27,6 +29,7 @@ State :: struct {
 	tip:     ^nv.Button_Handle,
 	ask:     ^nv.Input_Handle, // the input inside the Ask dialog, while it is open
 	canvas:  ^nv.Canvas_Handle,
+	logo:    ^nv.Bitmap, // decoded from the bytes embedded below, drawn on the canvas
 	strokes: [dynamic][dynamic][2]f64,
 }
 
@@ -154,6 +157,7 @@ build :: proc(page: ^nv.Page_Handle, user: rawptr) -> nv.View {
 	})
 
 	s.tip = nv.button_create({title = "Tip", on_click = show_tip, user = s})
+	if s.logo == nil do s.logo = nv.bitmap_from_bytes(#load("assets/sample.png")) // kept across Android relaunches
 
 	s.header = nv.label_create({text = header_text(s), bold = true})
 	lists := nv.row_create({{nv.list_view(s.list), 1}, {nv.list_view(s.list2), 2}}, spacing = 8)
@@ -233,7 +237,15 @@ detail_build :: proc(page: ^nv.Page_Handle, user: rawptr) -> nv.View {
 		},
 		user = d,
 	})
-	return nv.column_create({{nv.label_view(label), 0}, {nv.button_view(d.more), 0}, {nv.button_view(d.back), 0}}, spacing = 8)
+	// An asset file at a fixed size next to the label, and a download that fills the rest of the page.
+	icon := nv.bitmap_from_file("sample.png")
+	thumb := nv.image_create({bitmap = icon, width = 64, height = 48})
+	nv.bitmap_free(icon) // the widget holds its own reference
+	photo := nv.image_create({url = fmt.tprintf("https://picsum.photos/id/%d/600/400", 10 + d.level), fit = .Cover})
+	header := nv.row_create({{nv.image_view(thumb), 0}, {nv.label_view(label), 1}}, spacing = 12)
+	return nv.column_create({
+		{header, 0}, {nv.button_view(d.more), 0}, {nv.button_view(d.back), 0}, {nv.image_view(photo), 1},
+	}, spacing = 8)
 }
 
 detail_free :: proc(user: rawptr) {
@@ -249,6 +261,7 @@ draw_canvas :: proc(user: rawptr, p: ^nv.Painter, w, h: f64) {
 	nv.stroke_rect(p, 0.5, 0.5, w - 1, h - 1, {0.7, 0.7, 0.75, 1})
 	nv.fill_ellipse(p, w - 60, 12, 44, 44, {1, 0.6, 0.2, 1})
 	nv.stroke_ellipse(p, w - 60, 12, 44, 44, {0.6, 0.3, 0, 1}, 2)
+	nv.draw_image(p, s.logo, w - 76, h - 57, 64, 48)
 	nv.draw_text(p, fmt.tprintf("Draw here (%d strokes)", len(s.strokes)), 12, 12, 15, {0.3, 0.3, 0.35, 1})
 	for st in s.strokes {
 		for i in 1..<len(st) do nv.draw_line(p, st[i-1].x, st[i-1].y, st[i].x, st[i].y, {0.1, 0.3, 0.9, 1}, 3)

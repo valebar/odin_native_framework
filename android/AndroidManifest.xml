@@ -6,6 +6,8 @@
 
     <!-- targetSdk 34: avoids forced edge-to-edge (35+), which would put the list under the action bar -->
     <uses-sdk android:minSdkVersion="34" android:targetSdkVersion="34" />
+    <!-- bitmap_fetch / Image.url -->
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <application
         android:label="Native List"
