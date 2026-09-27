@@ -4,7 +4,8 @@ package nv
 // Linux (GTK4) app backend. GtkApplication emits `activate` once GTK is ready, and that is
 // where the root page is built (like UIApplicationMain on iOS). The app quits when the window
 // closes. The window gets a GtkHeaderBar with a back button and the page's action buttons, and a
-// GtkStack holding the pages (nav_linux.odin).
+// GtkOverlay whose main child is a GtkStack holding the pages (nav_linux.odin); dialogs are
+// overlay children (dialog_linux.odin), styled by the CSS below.
 
 import "base:runtime"
 import "core:strings"
@@ -15,9 +16,18 @@ import "core:strings"
 	header: ^GtkWidget, // the title bar
 	back:   ^GtkWidget, // header bar back button, visible on pushed pages
 	actions: [dynamic]^GtkWidget, // the top page's action buttons, packed at the end of the header
+	overlay: ^GtkWidget, // the window child: the stack below, dialogs on top
 	stack:  ^GtkWidget, // one child per page
 	dying:  [dynamic]^GtkWidget, // popped pages waiting for the slide animation to end
 }
+
+// GTK4's default theme has no card style (libadwaita's .card), so the dialog brings its own,
+// from the theme's named colors.
+@(private) NV_CSS :: `
+.nv-scrim  { background-color: rgba(0, 0, 0, 0.4); }
+.nv-dialog { background-color: @theme_base_color; color: @theme_fg_color; border: 1px solid @borders;
+             border-radius: 12px; padding: 16px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.3); }
+`
 
 @(private)
 _run :: proc() {
@@ -50,8 +60,15 @@ on_activate :: proc "c" (app: ^GtkApplication, _: gpointer) {
 	stack := gtk_stack_new()
 	gtk_stack_set_transition_type(stack, .Slide_Left_Right)
 	g_signal_connect(stack, "notify::transition-running", rawptr(on_transition_running), nil)
-	gtk_window_set_child(wnd, stack)
+	overlay := gtk_overlay_new()
+	gtk_overlay_set_child(overlay, stack)
+	gtk_window_set_child(wnd, overlay)
+	g_linux.overlay = overlay
 	g_linux.stack = stack
+
+	css := gtk_css_provider_new()
+	gtk_css_provider_load_from_data(css, NV_CSS, -1)
+	gtk_style_context_add_provider_for_display(gdk_display_get_default(), css, GTK_STYLE_PROVIDER_PRIORITY_APPLICATION)
 
 	nav_show_root()
 	gtk_window_present(wnd)
@@ -60,7 +77,5 @@ on_activate :: proc "c" (app: ^GtkApplication, _: gpointer) {
 @(private)
 on_back_clicked :: proc "c" (_: ^GtkWidget, _: gpointer) {
 	context = g_linux.ctx
-	callback_enter()
-	defer callback_exit()
-	pop()
+	nav_back_notify()
 }

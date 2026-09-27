@@ -25,14 +25,14 @@ _flex_create :: proc(f: Flex) -> View {
 	return View(box)
 }
 
-// A single-line bold Static (label_windows.odin and the navigation bar's title); `style` adds to the
-// label styles (the navigation bar centers its title vertically with SS_CENTERIMAGE).
+// A single-line Static in `font` (label_windows.odin and the navigation bar's title); `style` adds
+// to the label styles (the navigation bar centers its title vertically with SS_CENTERIMAGE).
 @(private)
-label_new :: proc(text: string, parent: win.HWND, style: win.DWORD) -> win.HWND {
+label_new :: proc(text: string, parent: win.HWND, style: win.DWORD, font: win.HFONT) -> win.HWND {
 	label := win.CreateWindowExW(0, wstr("Static"), wstr(text),
 		win.WS_CHILD | win.SS_LEFT | win.SS_NOPREFIX | win.SS_ENDELLIPSIS | style,
 		0, 0, 0, 0, parent, nil, g_windows.hinstance, nil)
-	win.SendMessageW(label, win.WM_SETFONT, win.WPARAM(uintptr(g_windows.title)), 0)
+	win.SendMessageW(label, win.WM_SETFONT, win.WPARAM(uintptr(font)), 0)
 	return label
 }
 

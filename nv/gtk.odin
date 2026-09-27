@@ -25,6 +25,8 @@ GtkListItem      :: struct {}
 GtkSingleSelection :: struct {}
 GtkListItemFactory :: struct {}
 GtkEventController :: struct {}
+GtkCssProvider     :: struct {}
+GdkDisplay         :: struct {}
 cairo_t            :: struct {}
 
 cairo_font_extents_t :: struct {
@@ -64,6 +66,7 @@ PangoEllipsizeMode :: enum i32 { None = 0, Start = 1, Middle = 2, End = 3 }
 G_APPLICATION_DEFAULT_FLAGS :: i32(0)
 G_SOURCE_REMOVE             :: gboolean(false)
 GTK_INVALID_LIST_POSITION   :: guint(0xffffffff)
+GTK_STYLE_PROVIDER_PRIORITY_APPLICATION :: guint(600)
 
 @(default_calling_convention="c")
 foreign gobj {
@@ -117,11 +120,24 @@ foreign gtk {
 	gtk_widget_set_vexpand       :: proc(widget: ^GtkWidget, expand: gboolean) ---
 	gtk_widget_set_hexpand       :: proc(widget: ^GtkWidget, expand: gboolean) ---
 	gtk_widget_set_valign        :: proc(widget: ^GtkWidget, align: GtkAlign) ---
+	gtk_widget_set_halign        :: proc(widget: ^GtkWidget, align: GtkAlign) ---
 	gtk_widget_add_css_class     :: proc(widget: ^GtkWidget, css_class: cstring) ---
 	gtk_widget_set_visible       :: proc(widget: ^GtkWidget, visible: gboolean) ---
+	gtk_widget_set_sensitive     :: proc(widget: ^GtkWidget, sensitive: gboolean) ---
+	gtk_widget_grab_focus        :: proc(widget: ^GtkWidget) -> gboolean ---
 	gtk_widget_set_tooltip_text  :: proc(widget: ^GtkWidget, text: cstring) ---
 	gtk_widget_get_first_child   :: proc(widget: ^GtkWidget) -> ^GtkWidget ---
 	gtk_widget_get_next_sibling  :: proc(widget: ^GtkWidget) -> ^GtkWidget ---
+
+	gtk_overlay_new            :: proc() -> ^GtkWidget ---
+	gtk_overlay_set_child      :: proc(overlay: ^GtkWidget, child: ^GtkWidget) ---
+	gtk_overlay_add_overlay    :: proc(overlay: ^GtkWidget, widget: ^GtkWidget) ---
+	gtk_overlay_remove_overlay :: proc(overlay: ^GtkWidget, widget: ^GtkWidget) ---
+
+	gtk_css_provider_new              :: proc() -> ^GtkCssProvider ---
+	gtk_css_provider_load_from_data   :: proc(provider: ^GtkCssProvider, data: cstring, length: int) --- // every 4.x (4.12+ prefers load_from_string)
+	gtk_style_context_add_provider_for_display :: proc(display: ^GdkDisplay, provider: gpointer, priority: guint) ---
+	gdk_display_get_default           :: proc() -> ^GdkDisplay ---
 
 	gtk_scrolled_window_new       :: proc() -> ^GtkWidget ---
 	gtk_scrolled_window_set_child :: proc(scrolled_window: ^GtkWidget, child: ^GtkWidget) ---

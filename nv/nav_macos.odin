@@ -1,11 +1,11 @@
 #+build darwin
 package nv
 
-// macOS navigation backend: the top page is the window's content view and the page title is the
-// window title. The back button is a chevron NSButton in an NSTitlebarAccessoryViewController on
-// the leading edge of the title bar, next to the window buttons, hidden on the root page. The
-// page's actions are NSButtons in a second accessory on the trailing edge, rebuilt on every
-// chrome update.
+// macOS navigation backend: the pages are full-size subviews of the window's content view
+// (g_macos.content), the pages below the top hidden, and the page title is the window title. The
+// back button is a chevron NSButton in an NSTitlebarAccessoryViewController on the leading edge
+// of the title bar, next to the window buttons, hidden on the root page. The page's actions are
+// NSButtons in a second accessory on the trailing edge, rebuilt on every chrome update.
 
 import "base:intrinsics"
 import NS "core:sys/darwin/Foundation"
@@ -15,21 +15,24 @@ when !IS_IOS {
 @(private)
 _nav_push :: proc(e: ^Page_Handle) {
 	root := (^NS.View)(e.root)
+	view_set_frame(root, g_macos.content->bounds())
 	view_set_autoresizing(root, RESIZE_WIDTH | RESIZE_HEIGHT)
-	g_macos.window->setContentView(root)
+	if len(g_nav) > 1 do view_set_hidden((^NS.View)(g_nav[len(g_nav) - 2].root), true)
+	g_macos.content->addSubview(root) // added last: above the lower pages and their dialogs
 	nav_update_chrome(e)
 }
 
 @(private)
 _nav_pop :: proc(top, below: ^Page_Handle) -> bool {
-	g_macos.window->setContentView((^NS.View)(below.root))
+	view_remove_from_superview((^NS.View)(top.root))
+	view_set_hidden((^NS.View)(below.root), false)
 	nav_update_chrome(below)
 	return true
 }
 
 // Autoreleased rather than released: when pop() runs from a button on the page itself, the
-// window already dropped its reference in setContentView: and the button's action is still on
-// the stack. The pool drains once the event is handled.
+// container already dropped its reference in removeFromSuperview and the button's action is
+// still on the stack. The pool drains once the event is handled.
 @(private)
 _nav_release :: proc(e: ^Page_Handle) {
 	send(nil, (^NS.Object)(e.root), "autorelease")
@@ -134,9 +137,7 @@ nav_install_back_button :: proc(wnd: ^NS.Window) {
 @(private)
 nav_back_clicked :: proc "c" (self: NS.id, _: NS.SEL, _: NS.id) {
 	context = g_macos.ctx
-	callback_enter()
-	defer callback_exit()
-	pop()
+	nav_back_notify()
 }
 
 }

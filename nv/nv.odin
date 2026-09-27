@@ -9,7 +9,8 @@ package nv
 // (`input_create`), a push button (`button_create`), a custom-drawn canvas (`canvas_create`) and
 // Flutter-style Row / Column stacks (`row_create`, `column_create`, `flex_create`). Pages stack
 // with `push` / `pop`; `run` shows the root page. A page's bar carries its title, a back button
-// and its `actions` (`page_set_title`, `page_set_actions`).
+// and its `actions` (`page_set_title`, `page_set_actions`). A dialog (`dialog_show`,
+// `dialog_close`) is a card drawn over the page inside the window, modal or not.
 //
 // Every widget follows one shape: `X :: struct` describes it, `x_create(X) -> ^X_Handle` makes it,
 // `x_view(h)` is the view to embed, `x_set_y(h, ..)` changes it. Row / Column return a plain View:
@@ -17,6 +18,7 @@ package nv
 
 import "base:builtin"
 import "base:runtime"
+import "core:slice"
 import "core:strings"
 
 IS_IOS     :: ODIN_PLATFORM_SUBTARGET_IOS
@@ -70,7 +72,8 @@ callback_exit :: proc() {
 // One screen of the navigation stack. `build` runs when the page is pushed and gets the page's
 // handle; `on_pop` runs after the page left the stack and its view was released, so the app can
 // free what `build` created (it is the last call the page's handle is valid for). `actions` are
-// the trailing buttons of the page's bar (Flutter's AppBar.actions).
+// the trailing buttons of the page's bar (Flutter's AppBar.actions). Dialogs shown while the page
+// is on top belong to it: they hide under a pushed page and close when the page pops.
 Page :: struct {
 	title:   string, // copied
 	build:   Build_Proc,
@@ -118,7 +121,8 @@ Page_Handle :: struct {
 // _nav_actions_changed (a shown page's title / actions were replaced; it may or may not be the
 // top page, and push / pop read them on their own). They never modify g_nav; a system back (iOS swipe, Android relaunch) that
 // already removed the native page calls nav_system_pop for the bookkeeping. Inside this package
-// `pop` shadows the builtin, hence builtin.pop.
+// `pop` shadows the builtin, hence builtin.pop. Dialogs add _dialog_show, _dialog_close and
+// _dialog_set_hidden (see Dialog).
 @(private) g_nav: [dynamic]^Page_Handle
 
 // A push from inside a page's `build` (a deep link from the root page, say) waits until that page
@@ -147,7 +151,7 @@ push :: proc(p: Page) -> ^Page_Handle {
 	}
 	append(&g_nav, h) // on the stack before the build, so a nested push queues behind it
 	nav_build(h)
-	_nav_push(h)
+	nav_present(h)
 	nav_flush_pending()
 	return h
 }
@@ -203,18 +207,30 @@ nav_build :: proc(h: ^Page_Handle) {
 @(private)
 nav_show_root :: proc() {
 	nav_build(g_nav[0])
-	_nav_push(g_nav[0])
+	nav_present(g_nav[0])
 	nav_flush_pending()
 }
 
+// Shows a built page that is already the top of g_nav: the dialogs of the page below hide under
+// it, and the dialogs its own `build` showed appear over it.
+@(private)
+nav_present :: proc(h: ^Page_Handle) {
+	if len(g_nav) > 1 do dialog_set_page_hidden(g_nav[len(g_nav) - 2], true)
+	_nav_push(h)
+	dialog_flush_pending()
+}
+
+// Also flushes the dialogs of a root page shown without nav_present (iOS builds the root page
+// itself, since the navigation controller wants its root controller up front).
 @(private)
 nav_flush_pending :: proc() {
+	dialog_flush_pending()
 	for len(g_nav_pending) > 0 {
 		h := g_nav_pending[0]
 		ordered_remove(&g_nav_pending, 0)
 		append(&g_nav, h)
 		nav_build(h)
-		_nav_push(h)
+		nav_present(h)
 	}
 }
 
@@ -226,8 +242,11 @@ nav_system_pop :: proc() {
 	nav_finish_pop(top)
 }
 
+// The page's dialogs close first (their on_close still sees a live page), and the dialogs of the
+// page below come back.
 @(private)
 nav_finish_pop :: proc(top: ^Page_Handle) {
+	dialog_close_page(top)
 	_nav_release(top)
 	top.root, top.native = nil, nil // a page_set_* from on_pop has nothing to show
 	if top.page.on_pop != nil {
@@ -238,6 +257,7 @@ nav_finish_pop :: proc(top: ^Page_Handle) {
 	nav_actions_free(top)
 	delete(top.page.title)
 	free(top)
+	dialog_set_page_hidden(g_nav[len(g_nav) - 1], false)
 }
 
 @(private)
@@ -262,12 +282,24 @@ nav_actions_free :: proc(h: ^Page_Handle) {
 	h.actions = nil
 }
 
+// Called by the backends when the bar's back button was clicked (macOS, GTK, Windows; Android's
+// Back key closes a modal dialog instead, iOS's bar is under the scrim). Ignored while a modal
+// dialog is up, since the bar sits outside the scrim on macOS and GTK.
+@(private)
+nav_back_notify :: proc() {
+	if dialog_top_modal() != nil do return
+	callback_enter()
+	defer callback_exit()
+	pop()
+}
+
 // Called by the backends when an action was clicked. The callback may replace the page's actions
-// or pop the page, which frees `h`, so nothing is read from it afterwards.
+// or pop the page, which frees `h`, so nothing is read from it afterwards. Ignored while a modal
+// dialog is up, like nav_back_notify.
 @(private)
 action_notify :: proc(h: ^Action_Handle) {
 	cb, user := h.action.on_click, h.action.user
-	if cb == nil do return
+	if cb == nil || dialog_top_modal() != nil do return
 	callback_enter()
 	defer callback_exit()
 	cb(user)
@@ -324,9 +356,10 @@ column_create :: proc(children: []Flex_Child, spacing: f64 = 0) -> View {
 	return _flex_create({axis = .Vertical, spacing = spacing, children = children})
 }
 
-// Single-line bold text.
+// Single-line text; `bold` makes it a heading (bold and a little larger).
 Label :: struct {
 	text: string, // copied
+	bold: bool,
 }
 
 Label_Handle :: struct {
@@ -539,4 +572,177 @@ canvas_pointer_notify :: proc(h: ^Canvas_Handle, kind: Pointer, x, y: f64) {
 	callback_enter()
 	defer callback_exit()
 	h.canvas.on_pointer(h.canvas.user, kind, x, y)
+}
+
+// A card over the current page, inside the window (not a separate OS window). A modal dialog dims
+// the page and blocks it; a non-modal one floats over a page that stays usable. `content` is any
+// view the app built from the widgets; it keeps its natural size (a bare list or canvas has none).
+// The buttons sit in a row under the content and never close the dialog on their own: a callback
+// gets the handle and calls `dialog_close` when it wants to. The dialog belongs to the page on top
+// when it is shown: it hides under a page pushed later and closes when its page pops.
+Dialog :: struct {
+	title:    string,              // copied; "" for none
+	content:  View,                // optional
+	buttons:  []Dialog_Button,     // copied
+	modal:    bool,
+	on_close: proc(user: rawptr),  // optional; after the dialog is gone (the last call the handle is valid for)
+	user:     rawptr,
+}
+
+Dialog_Button :: struct {
+	title:    string, // copied
+	on_click: proc(dialog: ^Dialog_Handle, user: rawptr), // optional
+	user:     rawptr,
+}
+
+Dialog_Handle :: struct {
+	dialog:  Dialog,               // dialog.title is an owned copy; dialog.buttons is not kept (see buttons)
+	ctx:     runtime.Context,
+	page:    ^Page_Handle,         // the page it was shown on
+	body:    View,                 // Column [title label, content, Row of buttons]; owned by the card
+	title:   ^Label_Handle,        // nil without a title
+	buttons: []^Dialog_Button_Handle,
+	card:    rawptr,               // NSBox* / UIView* / FrameLayout global ref / GtkBox* / NVDialog HWND
+	scrim:   rawptr,               // the dimming layer, modal only
+	hidden:  bool,                 // another page is on top of its page
+}
+
+@(private) Dialog_Button_Handle :: struct {
+	dialog: ^Dialog_Handle,
+	button: Dialog_Button, // button.title is an owned copy
+	handle: ^Button_Handle,
+}
+
+// Shown dialogs in show order, and dialogs shown from inside a `build`, which appear once the
+// page is shown (nav_present).
+@(private) g_dialogs:         [dynamic]^Dialog_Handle
+@(private) g_dialogs_pending: [dynamic]^Dialog_Handle
+
+// Shows a dialog over the top page. From inside a `build`, it appears once that page is shown.
+dialog_show :: proc(d: Dialog) -> ^Dialog_Handle {
+	assert(len(g_nav) > 0, "nv.dialog_show before nv.run")
+	h := new(Dialog_Handle)
+	h.dialog = d
+	h.dialog.title = strings.clone(d.title)
+	h.dialog.buttons = nil // the app's slice; not kept
+	h.ctx = context
+	h.page = g_nav[len(g_nav) - 1] // inside a build: the page being built, already on the stack
+	h.buttons = make([]^Dialog_Button_Handle, len(d.buttons))
+	for b, i in d.buttons {
+		bh := new(Dialog_Button_Handle)
+		bh.dialog = h
+		bh.button = b
+		bh.button.title = strings.clone(b.title)
+		h.buttons[i] = bh
+	}
+	if g_nav_building > 0 {
+		append(&g_dialogs_pending, h)
+		return h
+	}
+	dialog_present(h)
+	return h
+}
+
+// Removes the dialog, calls `on_close` and frees the handle. The widget handles of the title and
+// the buttons leak, like a popped page's: handles have no destroy.
+dialog_close :: proc(h: ^Dialog_Handle) {
+	if i, found := slice.linear_search(g_dialogs_pending[:], h); found {
+		ordered_remove(&g_dialogs_pending, i) // never shown: nothing to take down
+	} else {
+		i, found := slice.linear_search(g_dialogs[:], h)
+		if !found do return
+		ordered_remove(&g_dialogs, i) // before _dialog_close: the backend reads dialog_top_modal for the state after
+		_dialog_close(h)
+		h.card, h.scrim, h.body = nil, nil, nil
+	}
+	if h.dialog.on_close != nil {
+		callback_enter()
+		defer callback_exit()
+		h.dialog.on_close(h.dialog.user)
+	}
+	dialog_free(h)
+}
+
+// Builds the body from the framework's own widgets, so the backends only add the card and the
+// scrim: a Column of the title (a bold label), the content and a Row of the buttons (equal widths).
+@(private)
+dialog_present :: proc(h: ^Dialog_Handle) {
+	children := make([dynamic]Flex_Child, context.temp_allocator)
+	if h.dialog.title != "" {
+		h.title = label_create({text = h.dialog.title, bold = true})
+		append(&children, Flex_Child{label_view(h.title), 0})
+	}
+	if h.dialog.content != nil do append(&children, Flex_Child{h.dialog.content, 0})
+	if len(h.buttons) > 0 {
+		row := make([]Flex_Child, len(h.buttons), context.temp_allocator)
+		for bh, i in h.buttons {
+			bh.handle = button_create({title = bh.button.title, on_click = dialog_button_clicked, user = bh})
+			row[i] = {button_view(bh.handle), 1}
+		}
+		append(&children, Flex_Child{row_create(row, spacing = 8), 0})
+	}
+	h.body = column_create(children[:], spacing = 12)
+	append(&g_dialogs, h)
+	_dialog_show(h)
+}
+
+// The body buttons' on_click. The app's callback may close the dialog, which frees `bh`.
+@(private)
+dialog_button_clicked :: proc(user: rawptr) {
+	bh := (^Dialog_Button_Handle)(user)
+	if bh.button.on_click != nil do bh.button.on_click(bh.dialog, bh.button.user)
+}
+
+@(private)
+dialog_free :: proc(h: ^Dialog_Handle) {
+	for bh in h.buttons {
+		delete(bh.button.title)
+		free(bh)
+	}
+	delete(h.buttons)
+	delete(h.dialog.title)
+	free(h)
+}
+
+// The visible modal dialog of the top page, or nil. Contextless for the Win32 layout code.
+@(private)
+dialog_top_modal :: proc "contextless" () -> ^Dialog_Handle {
+	if len(g_nav) == 0 do return nil
+	return dialog_page_modal(g_nav[len(g_nav) - 1])
+}
+
+@(private)
+dialog_page_modal :: proc "contextless" (page: ^Page_Handle) -> ^Dialog_Handle {
+	#reverse for d in g_dialogs {
+		if d.page == page && d.dialog.modal && !d.hidden do return d
+	}
+	return nil
+}
+
+@(private)
+dialog_close_page :: proc(page: ^Page_Handle) {
+	for i := len(g_dialogs) - 1; i >= 0; i -= 1 {
+		if i < len(g_dialogs) && g_dialogs[i].page == page do dialog_close(g_dialogs[i]) // on_close may close others
+	}
+	for i := len(g_dialogs_pending) - 1; i >= 0; i -= 1 {
+		if i < len(g_dialogs_pending) && g_dialogs_pending[i].page == page do dialog_close(g_dialogs_pending[i])
+	}
+}
+
+@(private)
+dialog_set_page_hidden :: proc(page: ^Page_Handle, hidden: bool) {
+	for d in g_dialogs {
+		if d.page != page || d.hidden == hidden do continue
+		d.hidden = hidden
+		_dialog_set_hidden(d, hidden)
+	}
+}
+
+@(private)
+dialog_flush_pending :: proc() {
+	for len(g_dialogs_pending) > 0 {
+		h := g_dialogs_pending[0]
+		ordered_remove(&g_dialogs_pending, 0)
+		dialog_present(h)
+	}
 }

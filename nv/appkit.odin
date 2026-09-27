@@ -76,6 +76,65 @@ layout_constraint_equal :: proc "c" (a: NS.id, b: NS.id, attr: NS.Integer, multi
 	send(nil, c, "setActive:", NS.BOOL(true))
 }
 
+// NSLayoutAnchor exists in both AppKit and UIKit: the anchor API positions the dialog card on both.
+@(objc_class="NSLayoutAnchor")
+Layout_Anchor :: struct { using _: NS.Object }
+
+anchor_top      :: proc "c" (v: ^NS.Object) -> ^Layout_Anchor { return send(^Layout_Anchor, v, "topAnchor") }
+anchor_bottom   :: proc "c" (v: ^NS.Object) -> ^Layout_Anchor { return send(^Layout_Anchor, v, "bottomAnchor") }
+anchor_leading  :: proc "c" (v: ^NS.Object) -> ^Layout_Anchor { return send(^Layout_Anchor, v, "leadingAnchor") }
+anchor_trailing :: proc "c" (v: ^NS.Object) -> ^Layout_Anchor { return send(^Layout_Anchor, v, "trailingAnchor") }
+anchor_center_x :: proc "c" (v: ^NS.Object) -> ^Layout_Anchor { return send(^Layout_Anchor, v, "centerXAnchor") }
+anchor_center_y :: proc "c" (v: ^NS.Object) -> ^Layout_Anchor { return send(^Layout_Anchor, v, "centerYAnchor") }
+anchor_width    :: proc "c" (v: ^NS.Object) -> ^Layout_Anchor { return send(^Layout_Anchor, v, "widthAnchor") }
+
+// Activates `a == b`.
+layout_anchor_equal :: proc "c" (a, b: ^Layout_Anchor) {
+	c := send(^Layout_Constraint, a, "constraintEqualToAnchor:", b)
+	send(nil, c, "setActive:", NS.BOOL(true))
+}
+
+// Activates `a == b + constant`.
+layout_anchor_equal_offset :: proc "c" (a, b: ^Layout_Anchor, constant: NS.Float) {
+	c := send(^Layout_Constraint, a, "constraintEqualToAnchor:constant:", b, constant)
+	send(nil, c, "setActive:", NS.BOOL(true))
+}
+
+// Activates `a <= b + constant`.
+layout_anchor_at_most :: proc "c" (a, b: ^Layout_Anchor, constant: NS.Float) {
+	c := send(^Layout_Constraint, a, "constraintLessThanOrEqualToAnchor:constant:", b, constant)
+	send(nil, c, "setActive:", NS.BOOL(true))
+}
+
+// Activates `a == constant` at the given priority (below Required it yields to other constraints).
+layout_anchor_constant :: proc "c" (a: ^Layout_Anchor, constant: NS.Float, priority: f32) {
+	c := send(^Layout_Constraint, a, "constraintEqualToConstant:", constant)
+	send(nil, c, "setPriority:", priority)
+	send(nil, c, "setActive:", NS.BOOL(true))
+}
+
+// Pins every edge of `child` to `parent` (both already in the same hierarchy).
+layout_pin_edges :: proc "c" (child, parent: ^NS.Object) {
+	layout_anchor_equal(anchor_top(child), anchor_top(parent))
+	layout_anchor_equal(anchor_bottom(child), anchor_bottom(parent))
+	layout_anchor_equal(anchor_leading(child), anchor_leading(parent))
+	layout_anchor_equal(anchor_trailing(child), anchor_trailing(parent))
+}
+
+// Places the dialog card in `host` (both Auto Layout): centered, `width` wide unless the host is
+// narrower than that plus the margins, with `body` inset by `pad` on every side. The card's height
+// follows the body.
+layout_dialog_card :: proc "c" (card, body, host: ^NS.Object, width, pad: NS.Float) {
+	layout_anchor_equal(anchor_center_x(card), anchor_center_x(host))
+	layout_anchor_equal(anchor_center_y(card), anchor_center_y(host))
+	layout_anchor_constant(anchor_width(card), width, 999)
+	layout_anchor_at_most(anchor_width(card), anchor_width(host), -2 * pad)
+	layout_anchor_equal_offset(anchor_top(body), anchor_top(card), pad)
+	layout_anchor_equal_offset(anchor_leading(body), anchor_leading(card), pad)
+	layout_anchor_equal_offset(anchor_bottom(card), anchor_bottom(body), pad)
+	layout_anchor_equal_offset(anchor_trailing(card), anchor_trailing(body), pad)
+}
+
 // Ties the main-axis size of every flex child to the first flex child, in the ratio of their
 // weights. Together with a low hugging priority this gives exact Flutter weights in a stack view.
 flex_link_sizes :: proc(children: []Flex_Child, axis: Axis) {
@@ -141,8 +200,51 @@ Font :: struct { using _: NS.Object }
 @(objc_class="NSGraphicsContext")
 Graphics_Context :: struct { using _: NS.Object }
 
+@(objc_class="NSBox")
+Box :: struct { using _: NS.View }
+
+// NSBoxCustom: no title, the fill and corner radius are the box's own.
+BOX_TYPE_CUSTOM   :: NS.Integer(4)
+BOX_TITLE_NONE    :: NS.Integer(0)
+
 view_set_frame :: proc "c" (v: ^NS.View, frame: NS.Rect) {
 	send(nil, v, "setFrame:", frame)
+}
+
+view_set_hidden :: proc "c" (v: ^NS.View, hidden: NS.BOOL) {
+	send(nil, v, "setHidden:", hidden)
+}
+
+view_remove_from_superview :: proc "c" (v: ^NS.View) {
+	send(nil, v, "removeFromSuperview")
+}
+
+// Returns an owned (+1) custom box: a plain filled rectangle with optional rounded corners.
+box_new :: proc "c" (frame: NS.Rect) -> ^Box {
+	b := send(^Box, Box, "alloc")
+	b = send(^Box, b, "initWithFrame:", frame)
+	send(nil, b, "setBoxType:", BOX_TYPE_CUSTOM)
+	send(nil, b, "setTitlePosition:", BOX_TITLE_NONE)
+	send(nil, b, "setBorderWidth:", NS.Float(0))
+	send(nil, b, "setContentViewMargins:", NS.Size{0, 0})
+	return b
+}
+
+box_set_fill_color :: proc "c" (b: ^Box, c: ^NS.Color) {
+	send(nil, b, "setFillColor:", c)
+}
+
+box_set_corner_radius :: proc "c" (b: ^Box, r: NS.Float) {
+	send(nil, b, "setCornerRadius:", r)
+}
+
+// The box's inner view, which holds its subviews.
+box_content_view :: proc "c" (b: ^Box) -> ^NS.View {
+	return send(^NS.View, b, "contentView")
+}
+
+color_window_background :: proc "c" () -> ^NS.Color {
+	return send(^NS.Color, NS.Color, "windowBackgroundColor")
 }
 
 view_set_autoresizing :: proc "c" (v: ^NS.View, mask: NS.UInteger) {

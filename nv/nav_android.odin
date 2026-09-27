@@ -113,11 +113,18 @@ jni_on_action :: proc "c" (env: JNI_Env, _: jclass, id: jint) -> jboolean {
 	return 1
 }
 
-// Back key or ActionBar up arrow. Returns false on the root page so the Activity finishes.
+// Back key or ActionBar up arrow. A modal dialog takes it first and closes, as Android dialogs
+// do. Returns false on the root page so the Activity finishes.
 @(export, link_name="Java_nv_NvActivity_nativeOnBack")
 jni_on_back :: proc "c" (env: JNI_Env, _: jclass) -> jboolean {
 	context = g_android.ctx
 	g_android.env = env
+	if d := dialog_top_modal(); d != nil {
+		callback_enter()
+		defer callback_exit()
+		dialog_close(d)
+		return 1
+	}
 	if len(g_nav) <= 1 do return 0
 	callback_enter()
 	defer callback_exit()

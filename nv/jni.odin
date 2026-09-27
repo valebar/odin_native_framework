@@ -33,9 +33,12 @@ JNI_Env :: ^[^]rawptr
 @(private) JNI_GET_OBJECT_CLASS      :: 31
 @(private) JNI_GET_METHOD_ID         :: 33
 @(private) JNI_CALL_OBJECT_METHOD_A  :: 36
+@(private) JNI_CALL_BOOLEAN_METHOD_A :: 39
+@(private) JNI_CALL_INT_METHOD_A     :: 51
 @(private) JNI_CALL_FLOAT_METHOD_A   :: 57
 @(private) JNI_CALL_VOID_METHOD_A    :: 63
 @(private) JNI_GET_FIELD_ID          :: 94
+@(private) JNI_GET_INT_FIELD         :: 100
 @(private) JNI_GET_FLOAT_FIELD       :: 102
 @(private) JNI_GET_STATIC_METHOD_ID  :: 113
 @(private) JNI_CALL_STATIC_OBJECT_A  :: 116
@@ -114,6 +117,24 @@ jni_call_float :: proc "contextless" (env: JNI_Env, obj: jobject, name, sig: cst
 	return res
 }
 
+jni_call_bool :: proc "contextless" (env: JNI_Env, obj: jobject, name, sig: cstring, args: ..jvalue) -> bool {
+	cls := jni_get_object_class(env, obj)
+	m := jni_method(env, cls, name, sig)
+	jni_delete_local_ref(env, cls)
+	res := jni_fn(env, proc "c" (JNI_Env, jobject, jmethodID, [^]jvalue) -> jboolean, JNI_CALL_BOOLEAN_METHOD_A)(env, obj, m, raw_data(args))
+	jni_check(env)
+	return res != 0
+}
+
+jni_call_int :: proc "contextless" (env: JNI_Env, obj: jobject, name, sig: cstring, args: ..jvalue) -> jint {
+	cls := jni_get_object_class(env, obj)
+	m := jni_method(env, cls, name, sig)
+	jni_delete_local_ref(env, cls)
+	res := jni_fn(env, proc "c" (JNI_Env, jobject, jmethodID, [^]jvalue) -> jint, JNI_CALL_INT_METHOD_A)(env, obj, m, raw_data(args))
+	jni_check(env)
+	return res
+}
+
 jni_call_static_object :: proc "contextless" (env: JNI_Env, cls_name, name, sig: cstring, args: ..jvalue) -> jobject {
 	cls := jni_find_class(env, cls_name)
 	m := jni_static_method(env, cls, name, sig)
@@ -129,6 +150,16 @@ jni_get_float_field :: proc "contextless" (env: JNI_Env, obj: jobject, name: cst
 	id := jni_fn(env, proc "c" (JNI_Env, jclass, cstring, cstring) -> rawptr, JNI_GET_FIELD_ID)(env, cls, name, "F")
 	jni_delete_local_ref(env, cls)
 	res := jni_fn(env, proc "c" (JNI_Env, jobject, rawptr) -> f32, JNI_GET_FLOAT_FIELD)(env, obj, id)
+	jni_check(env)
+	return res
+}
+
+// Reads an int instance field, looked up on the object's runtime class.
+jni_get_int_field :: proc "contextless" (env: JNI_Env, obj: jobject, name: cstring) -> jint {
+	cls := jni_get_object_class(env, obj)
+	id := jni_fn(env, proc "c" (JNI_Env, jclass, cstring, cstring) -> rawptr, JNI_GET_FIELD_ID)(env, cls, name, "I")
+	jni_delete_local_ref(env, cls)
+	res := jni_fn(env, proc "c" (JNI_Env, jobject, rawptr) -> jint, JNI_GET_INT_FIELD)(env, obj, id)
 	jni_check(env)
 	return res
 }

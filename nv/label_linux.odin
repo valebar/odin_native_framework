@@ -1,7 +1,7 @@
 #+build linux:default
 package nv
 
-// Linux label backend: a left-aligned GtkLabel with the "title-4" style class.
+// Linux label backend: a left-aligned GtkLabel, with the "title-4" style class when bold.
 
 import "core:strings"
 
@@ -9,7 +9,7 @@ import "core:strings"
 _label_init :: proc(h: ^Label_Handle) {
 	label := gtk_label_new(strings.clone_to_cstring(h.label.text, context.temp_allocator))
 	gtk_label_set_xalign(label, 0)
-	gtk_widget_add_css_class(label, "title-4")
+	if h.label.bold do gtk_widget_add_css_class(label, "title-4")
 
 	h.root = View(label)
 }

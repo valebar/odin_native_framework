@@ -28,6 +28,7 @@ foreign comctl32 {
 @(default_calling_convention="system")
 foreign gdi32 {
 	GetTextFaceW :: proc(hdc: win.HDC, c: i32, lpName: win.LPWSTR) -> i32 ---
+	CreateRoundRectRgn :: proc(x1, y1, x2, y2, w, h: i32) -> win.HRGN ---
 }
 
 @(private) g_windows: struct {
@@ -39,9 +40,9 @@ foreign gdi32 {
 	nav_title:  win.HWND,
 	nav_actions: [dynamic]win.HWND, // the bar's action buttons for the top page
 	dpi:        u32,
-	font:       win.HFONT, // message font (Segoe UI 9pt): list subtitles, inputs, buttons
+	font:       win.HFONT, // message font (Segoe UI 9pt): list subtitles, inputs, buttons, plain labels
 	bold:       win.HFONT, // bold message font: list titles
-	title:      win.HFONT, // larger bold font: labels, the bar title
+	title:      win.HFONT, // larger bold font: bold labels, the bar title
 	icon_font:  win.HFONT, // Segoe MDL2 Assets at the message font size: action icons; nil if unavailable
 	font_h:     i32,       // line heights of the fonts above, in px
 	bold_h:     i32,
@@ -55,6 +56,8 @@ foreign gdi32 {
 @(private) CLASS_BUTTON :: "NVButton"
 @(private) CLASS_CANVAS :: "NVCanvas"
 @(private) CLASS_NAV    :: "NVNav"
+@(private) CLASS_SCRIM  :: "NVScrim"
+@(private) CLASS_DIALOG :: "NVDialog"
 
 @(private)
 wstr :: proc(s: string) -> win.wstring {
@@ -69,13 +72,13 @@ px :: proc "contextless" (dp: f64) -> i32 {
 
 @(private)
 register_classes :: proc() {
-	register :: proc(name: string, wndproc: win.WNDPROC) {
+	register :: proc(name: string, wndproc: win.WNDPROC, background := win.HBRUSH(uintptr(win.COLOR_WINDOW + 1))) {
 		wc := win.WNDCLASSEXW{
 			cbSize        = size_of(win.WNDCLASSEXW),
 			lpfnWndProc   = wndproc,
 			hInstance     = g_windows.hinstance,
 			hCursor       = win.LoadCursorW(nil, win.LPCWSTR(win._IDC_ARROW)),
-			hbrBackground = win.HBRUSH(uintptr(win.COLOR_WINDOW + 1)),
+			hbrBackground = background,
 			lpszClassName = wstr(name),
 		}
 		win.RegisterClassExW(&wc)
@@ -87,6 +90,8 @@ register_classes :: proc() {
 	register(CLASS_BUTTON, button_proc)
 	register(CLASS_CANVAS, canvas_proc)
 	register(CLASS_NAV, nav_proc)
+	register(CLASS_SCRIM, scrim_proc, win.HBRUSH(win.GetStockObject(win.BLACK_BRUSH)))
+	register(CLASS_DIALOG, dialog_proc)
 }
 
 // Fonts follow the user's message font (Settings > Accessibility > Text size included) at `dpi`.

@@ -2,13 +2,14 @@ package main
 
 // Shared app code: identical on macOS, iOS, Android, Linux and Windows.
 //
-//   Column [ label, Row [ Expanded(input), button ], Expanded( Row [ Expanded(list, 1), Expanded(list2, 2) ], 2 ), Expanded(canvas, 1) ]
+//   Column [ label, Row [ Expanded(input), Clear, Tip ], Expanded( Row [ Expanded(list, 1), Expanded(list2, 2) ], 2 ), Expanded(canvas, 1) ]
 //
 // Typing in the input filters both lists down to the items whose number contains the text.
-// Dragging on the canvas draws strokes; the button clears the filter and the strokes. Selecting
-// a row pushes a detail page, which can push another one or pop itself. The bar of the root page
-// has Add and Info actions; a detail page's Edit action swaps itself for a Done action and marks
-// the title. The header label follows the filter.
+// Dragging on the canvas draws strokes; the Clear button clears the filter and the strokes; the
+// Tip button opens a non-modal dialog over the page. Selecting a row pushes a detail page, which
+// can push another one or pop itself after a modal confirm. The bar of the root page has Add, Ask (a modal dialog with
+// an input that sets the filter) and Info actions; a detail page's Edit action swaps itself for a
+// Done action and marks the title. The header label follows the filter.
 
 import "core:fmt"
 import "core:strconv"
@@ -23,6 +24,8 @@ State :: struct {
 	list2:   ^nv.List_Handle,
 	filter:  ^nv.Input_Handle,
 	clear:   ^nv.Button_Handle,
+	tip:     ^nv.Button_Handle,
+	ask:     ^nv.Input_Handle, // the input inside the Ask dialog, while it is open
 	canvas:  ^nv.Canvas_Handle,
 	strokes: [dynamic][dynamic][2]f64,
 }
@@ -38,11 +41,52 @@ main :: proc() {
 			{title = "Add", icon = .Add, user = &state, on_click = proc(user: rawptr) {
 				push_detail((^State)(user), "New item", 1)
 			}},
+			{title = "Ask", icon = .Edit, user = &state, on_click = ask_filter},
 			{title = "Info", icon = .Info, user = &state, on_click = proc(user: rawptr) {
 				s := (^State)(user)
 				fmt.printfln("%d of %d items visible, %d strokes", len(s.visible), s.items, len(s.strokes))
 			}},
 		},
+	})
+}
+
+// A modal dialog with an input: Apply copies its text into the filter, Cancel just closes. Both
+// close through the handle their callback gets; on_close runs after either.
+ask_filter :: proc(user: rawptr) {
+	s := (^State)(user)
+	s.ask = nv.input_create({placeholder = "Digits", text = nv.input_text(s.filter, context.temp_allocator)})
+	nv.dialog_show({
+		title   = "Filter items",
+		content = nv.input_view(s.ask),
+		modal   = true,
+		buttons = {
+			{title = "Cancel", on_click = proc(d: ^nv.Dialog_Handle, _: rawptr) {
+				nv.dialog_close(d)
+			}},
+			{title = "Apply", user = s, on_click = proc(d: ^nv.Dialog_Handle, user: rawptr) {
+				s := (^State)(user)
+				text := nv.input_text(s.ask, context.temp_allocator)
+				nv.input_set_text(s.filter, text)
+				set_filter(s, text)
+				nv.dialog_close(d)
+			}},
+		},
+		on_close = proc(user: rawptr) {
+			(^State)(user).ask = nil
+			fmt.println("ask closed")
+		},
+		user = s,
+	})
+}
+
+// A non-modal dialog: the page underneath stays usable, and a pushed detail page hides it.
+show_tip :: proc(user: rawptr) {
+	msg := nv.label_create({text = "Type digits to filter both lists."})
+	nv.dialog_show({
+		title   = "Tip",
+		content = nv.label_view(msg),
+		buttons = {{title = "Got it", on_click = proc(d: ^nv.Dialog_Handle, _: rawptr) { nv.dialog_close(d) }}},
+		on_close = proc(_: rawptr) { fmt.println("tip closed") },
 	})
 }
 
@@ -109,9 +153,11 @@ build :: proc(page: ^nv.Page_Handle, user: rawptr) -> nv.View {
 		user = s,
 	})
 
-	s.header = nv.label_create({text = header_text(s)})
+	s.tip = nv.button_create({title = "Tip", on_click = show_tip, user = s})
+
+	s.header = nv.label_create({text = header_text(s), bold = true})
 	lists := nv.row_create({{nv.list_view(s.list), 1}, {nv.list_view(s.list2), 2}}, spacing = 8)
-	search := nv.row_create({{nv.input_view(s.filter), 1}, {nv.button_view(s.clear), 0}}, spacing = 8)
+	search := nv.row_create({{nv.input_view(s.filter), 1}, {nv.button_view(s.clear), 0}, {nv.button_view(s.tip), 0}}, spacing = 8)
 	return nv.column_create({{nv.label_view(s.header), 0}, {search, 0}, {lists, 2}, {nv.canvas_view(s.canvas), 1}}, spacing = 8)
 }
 
@@ -160,7 +206,7 @@ detail_done :: proc(user: rawptr) {
 detail_build :: proc(page: ^nv.Page_Handle, user: rawptr) -> nv.View {
 	d := (^Detail)(user)
 	d.page = page
-	label := nv.label_create({text = fmt.tprintf("%s, level %d", d.title, d.level)})
+	label := nv.label_create({text = fmt.tprintf("%s, level %d", d.title, d.level), bold = true})
 	d.more = nv.button_create({
 		title = "Push another",
 		on_click = proc(user: rawptr) {
@@ -169,10 +215,21 @@ detail_build :: proc(page: ^nv.Page_Handle, user: rawptr) -> nv.View {
 		},
 		user = d,
 	})
+	// A modal confirm on a pushed page. Leave pops the page, which closes the dialog (its on_close
+	// runs first, while the page is still there); the header's back button is blocked meanwhile.
 	d.back = nv.button_create({
 		title = "Back",
 		on_click = proc(user: rawptr) {
-			nv.pop()
+			nv.dialog_show({
+				title   = "Leave page?",
+				content = nv.label_view(nv.label_create({text = "Unsaved edits are lost."})),
+				modal   = true,
+				buttons = {
+					{title = "Stay", on_click = proc(d: ^nv.Dialog_Handle, _: rawptr) { nv.dialog_close(d) }},
+					{title = "Leave", on_click = proc(_: ^nv.Dialog_Handle, _: rawptr) { nv.pop() }},
+				},
+				on_close = proc(_: rawptr) { fmt.println("leave closed") },
+			})
 		},
 		user = d,
 	})

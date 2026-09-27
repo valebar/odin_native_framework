@@ -1,14 +1,14 @@
 #+build darwin
 package nv
 
-// macOS label backend: a bold NSTextField label.
+// macOS label backend: an NSTextField label in the system font, bold when asked.
 
 when !IS_IOS {
 
 @(private)
 _label_init :: proc(h: ^Label_Handle) {
 	label := text_field_label(ns_string(h.label.text)) // autoreleased; *_create returns owned views
-	text_field_set_font(label, font_bold_system(17))
+	text_field_set_font(label, h.label.bold ? font_bold_system(17) : font_system(15))
 	label->retain()
 
 	h.root = View(label)

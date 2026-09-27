@@ -1,7 +1,7 @@
 #+build darwin
 package nv
 
-// iOS label backend: a bold UILabel.
+// iOS label backend: a UILabel in the system font, bold when asked.
 
 when IS_IOS {
 
@@ -9,7 +9,7 @@ when IS_IOS {
 _label_init :: proc(h: ^Label_Handle) {
 	label := ui_label_new() // owned
 	ui_label_set_text(label, ns_string(h.label.text))
-	ui_label_set_font(label, ui_font_bold_system(17))
+	ui_label_set_font(label, h.label.bold ? ui_font_bold_system(17) : ui_font_system(17))
 
 	h.root = View(label)
 }

@@ -97,6 +97,7 @@ nav_rebuild_actions :: proc(e: ^Page_Handle) {
 		}
 		g_object_ref_sink(b)
 		g_signal_connect(b, "clicked", rawptr(on_action_clicked), h)
+		gtk_widget_set_sensitive(b, dialog_top_modal() == nil) // a modal dialog keeps the bar disabled
 		gtk_header_bar_pack_end(g_linux.header, b)
 		append(&g_linux.actions, b)
 	}

@@ -43,6 +43,7 @@ jni_on_create :: proc "c" (env: JNI_Env, _: jclass, activity: jobject) {
 		callback_enter()
 		defer callback_exit()
 		for len(g_nav) > 1 do nav_system_pop() // pushed pages are gone with the old Activity
+		dialog_close_page(g_nav[0]) // and so are the root's dialogs
 		jni_delete_global_ref(env, jobject(g_nav[0].root))
 		g_nav[0].root = nil // rebuilt by set_content; nil means "building" to page_set_*
 		set_content()

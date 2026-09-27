@@ -1,7 +1,7 @@
 #+build linux:android
 package nv
 
-// Android label backend: a bold 20sp TextView.
+// Android label backend: a TextView, 20sp bold as a heading, 16sp otherwise.
 
 @(private)
 _label_init :: proc(h: ^Label_Handle) {
@@ -10,8 +10,12 @@ _label_init :: proc(h: ^Label_Handle) {
 	tv_cls := jni_find_class(env, "android/widget/TextView")
 	tv := jni_new_object(env, tv_cls, "(Landroid/content/Context;)V", jv_obj(g_android.activity))
 	set_char_sequence(env, tv, "setText", h.label.text)
-	jni_call_void(env, tv, "setTextSize", "(F)V", jv_float(20)) // sp
-	jni_call_void(env, tv, "setTypeface", "(Landroid/graphics/Typeface;I)V", jv_obj(nil), jv_int(1)) // Typeface.BOLD
+	if h.label.bold {
+		jni_call_void(env, tv, "setTextSize", "(F)V", jv_float(20)) // sp
+		jni_call_void(env, tv, "setTypeface", "(Landroid/graphics/Typeface;I)V", jv_obj(nil), jv_int(1)) // Typeface.BOLD
+	} else {
+		jni_call_void(env, tv, "setTextSize", "(F)V", jv_float(16))
+	}
 	jni_delete_local_ref(env, tv_cls)
 
 	h.root = View(jni_new_global_ref(env, tv))

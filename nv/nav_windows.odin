@@ -35,20 +35,25 @@ nav_create_host :: proc(wnd: win.HWND) {
 		0, 0, 0, 0, wnd, nil, g_windows.hinstance, nil)
 	g_windows.root = host
 
+	// The bar's controls clip their siblings so that their repaints stay under a dialog reaching
+	// into the bar.
 	back := win.CreateWindowExW(0, wstr("Button"), wstr("← Back"),
-		win.WS_CHILD | win.WS_TABSTOP | win.BS_PUSHBUTTON,
+		win.WS_CHILD | win.WS_TABSTOP | win.WS_CLIPSIBLINGS | win.BS_PUSHBUTTON,
 		0, 0, 0, 0, host, nil, g_windows.hinstance, nil)
 	win.SendMessageW(back, win.WM_SETFONT, win.WPARAM(uintptr(g_windows.font)), 0)
 	g_windows.nav_back = back
 
-	g_windows.nav_title = label_new("", host, win.SS_CENTERIMAGE)
+	g_windows.nav_title = label_new("", host, win.SS_CENTERIMAGE | win.WS_CLIPSIBLINGS, g_windows.title)
 }
 
 // The page root was created as a child of `parking`; only it moves into the host, so the list,
-// input and button containers inside keep the parent their controls cached.
+// input and button containers inside keep the parent their controls cached. It gets
+// WS_CLIPSIBLINGS so that its repaints stay under the dialog windows over it.
 @(private)
 _nav_push :: proc(e: ^Page_Handle) {
-	win.SetParent(win.HWND(e.root), g_windows.root)
+	root := win.HWND(e.root)
+	win.SetWindowLongPtrW(root, win.GWL_STYLE, win.GetWindowLongPtrW(root, win.GWL_STYLE) | win.LONG_PTR(win.WS_CLIPSIBLINGS))
+	win.SetParent(root, g_windows.root)
 	if len(g_nav) > 1 do win.ShowWindow(win.HWND(g_nav[len(g_nav) - 2].root), win.SW_HIDE)
 	nav_update_chrome(e)
 	nav_layout(g_windows.root)
@@ -58,6 +63,7 @@ _nav_push :: proc(e: ^Page_Handle) {
 _nav_pop :: proc(top, below: ^Page_Handle) -> bool {
 	win.ShowWindow(win.HWND(top.root), win.SW_HIDE)
 	win.ShowWindow(win.HWND(below.root), win.SW_SHOW)
+	dialog_apply_modal() // `below` may have been left disabled by a modal dialog closed while it was under `top`
 	nav_update_chrome(below)
 	nav_layout(g_windows.root)
 	win.SetFocus(g_windows.parking) // the focused control is about to be destroyed with `top`
@@ -114,7 +120,7 @@ nav_rebuild_actions :: proc(e: ^Page_Handle) {
 			text, font = glyph, g_windows.icon_font
 		}
 		b := win.CreateWindowExW(0, wstr("Button"), wstr(text),
-			win.WS_CHILD | win.WS_VISIBLE | win.WS_TABSTOP | win.BS_PUSHBUTTON,
+			win.WS_CHILD | win.WS_VISIBLE | win.WS_TABSTOP | win.WS_CLIPSIBLINGS | win.BS_PUSHBUTTON,
 			0, 0, 0, 0, g_windows.root, nil, g_windows.hinstance, nil)
 		win.SendMessageW(b, win.WM_SETFONT, win.WPARAM(uintptr(font)), 0)
 		win.SetWindowLongPtrW(b, win.GWLP_USERDATA, win.LONG_PTR(uintptr(h)))
@@ -129,9 +135,10 @@ nav_bar_shown :: proc "contextless" () -> bool {
 }
 
 // The bar, when shown, is the title font height plus padding: the back button at the left, the
-// action buttons right-aligned in declared order, the title in between. The top page gets the rest.
+// action buttons right-aligned in declared order, the title in between. The top page gets the
+// rest, and its dialogs are placed over everything (dialog_layout).
 @(private)
-nav_layout :: proc "contextless" (host: win.HWND) {
+nav_layout :: proc(host: win.HWND) {
 	if len(g_nav) == 0 do return
 	rc: win.RECT
 	win.GetClientRect(host, &rc)
@@ -159,6 +166,7 @@ nav_layout :: proc "contextless" (host: win.HWND) {
 		win.MoveWindow(g_windows.nav_title, x, 0, max(right - x, 0), bar, true)
 	}
 	win.MoveWindow(win.HWND(g_nav[len(g_nav) - 1].root), 0, bar, rc.right, max(rc.bottom - bar, 0), true)
+	dialog_layout(rc)
 }
 
 @(private)
@@ -176,9 +184,7 @@ nav_proc :: proc "system" (hwnd: win.HWND, msg: win.UINT, wparam: win.WPARAM, lp
 		if win.HIWORD(u32(wparam)) == win.BN_CLICKED {
 			sender := win.HWND(uintptr(lparam))
 			if sender == g_windows.nav_back {
-				callback_enter()
-				defer callback_exit()
-				pop()
+				nav_back_notify()
 				return 0
 			}
 			if slice.contains(g_windows.nav_actions[:], sender) {

@@ -68,8 +68,10 @@ UI_Navigation_Item :: struct { using _: NS.Object }
 @(objc_class="UILayoutGuide")
 UI_Layout_Guide :: struct { using _: NS.Object }
 
-@(objc_class="NSLayoutAnchor")
-Layout_Anchor :: struct { using _: NS.Object }
+@(objc_class="UIGestureRecognizer")
+UI_Gesture_Recognizer :: struct { using _: NS.Object }
+
+// Layout_Anchor and the anchor helpers live in appkit.odin, shared with macOS.
 
 UI_VIEW_CONTENT_MODE_REDRAW :: NS.Integer(3)
 
@@ -113,21 +115,62 @@ ui_color_system_background :: proc "c" () -> ^UI_Color {
 	return send(^UI_Color, UI_Color, "systemBackgroundColor")
 }
 
-// Adds `child` to `parent` and pins its edges to the parent's safe area.
-ui_view_pin_to_safe_area :: proc "c" (child, parent: ^UI_View) {
-	send(nil, child, "setTranslatesAutoresizingMaskIntoConstraints:", NS.BOOL(false))
-	send(nil, parent, "addSubview:", child)
-	guide := send(^UI_Layout_Guide, parent, "safeAreaLayoutGuide")
-	layout_anchor_equal(send(^Layout_Anchor, child, "topAnchor"), send(^Layout_Anchor, guide, "topAnchor"))
-	layout_anchor_equal(send(^Layout_Anchor, child, "bottomAnchor"), send(^Layout_Anchor, guide, "bottomAnchor"))
-	layout_anchor_equal(send(^Layout_Anchor, child, "leadingAnchor"), send(^Layout_Anchor, guide, "leadingAnchor"))
-	layout_anchor_equal(send(^Layout_Anchor, child, "trailingAnchor"), send(^Layout_Anchor, guide, "trailingAnchor"))
+// Grayscale with alpha (0..1 each).
+ui_color_with_white_alpha :: proc "c" (white, alpha: NS.Float) -> ^UI_Color {
+	return send(^UI_Color, UI_Color, "colorWithWhite:alpha:", white, alpha)
 }
 
-// Activates `a == b`.
-layout_anchor_equal :: proc "c" (a, b: ^Layout_Anchor) {
-	c := send(^Layout_Constraint, a, "constraintEqualToAnchor:", b)
-	send(nil, c, "setActive:", NS.BOOL(true))
+ui_view_add_subview :: proc "c" (parent, child: ^UI_View) {
+	send(nil, parent, "addSubview:", child)
+}
+
+ui_view_bring_to_front :: proc "c" (parent, child: ^UI_View) {
+	send(nil, parent, "bringSubviewToFront:", child)
+}
+
+ui_view_remove_from_superview :: proc "c" (v: ^UI_View) {
+	send(nil, v, "removeFromSuperview")
+}
+
+ui_view_set_hidden :: proc "c" (v: ^UI_View, hidden: NS.BOOL) {
+	send(nil, v, "setHidden:", hidden)
+}
+
+ui_view_set_translates_autoresizing_mask :: proc "c" (v: ^UI_View, translates: NS.BOOL) {
+	send(nil, v, "setTranslatesAutoresizingMaskIntoConstraints:", translates)
+}
+
+// Makes any first responder in the view's tree resign, which dismisses the keyboard.
+ui_view_end_editing :: proc "c" (v: ^UI_View) {
+	send(nil, v, "endEditing:", NS.BOOL(true))
+}
+
+// The view's backing CALayer, for the corner radius.
+ui_view_set_corner_radius :: proc "c" (v: ^UI_View, r: NS.Float) {
+	layer := send(^NS.Object, v, "layer")
+	send(nil, layer, "setCornerRadius:", r)
+}
+
+// Adds `child` to `parent` and pins its edges to the parent's safe area.
+ui_view_pin_to_safe_area :: proc "c" (child, parent: ^UI_View) {
+	ui_view_set_translates_autoresizing_mask(child, false)
+	ui_view_add_subview(parent, child)
+	guide := send(^UI_Layout_Guide, parent, "safeAreaLayoutGuide")
+	layout_pin_edges(child, guide)
+}
+
+// The controller's view, loaded on first access.
+ui_view_controller_view :: proc "c" (vc: ^UI_View_Controller) -> ^UI_View {
+	return send(^UI_View, vc, "view")
+}
+
+// The swipe-from-the-edge back gesture, owned by the controller.
+ui_navigation_controller_pop_gesture :: proc "c" (nc: ^UI_Navigation_Controller) -> ^UI_Gesture_Recognizer {
+	return send(^UI_Gesture_Recognizer, nc, "interactivePopGestureRecognizer")
+}
+
+ui_gesture_recognizer_set_enabled :: proc "c" (g: ^UI_Gesture_Recognizer, enabled: NS.BOOL) {
+	send(nil, g, "setEnabled:", enabled)
 }
 
 // Returns an owned (+1) controller.
@@ -301,6 +344,10 @@ ui_label_set_text :: proc "c" (l: ^UI_Label, s: ^NS.String) {
 
 ui_label_set_font :: proc "c" (l: ^UI_Label, f: ^UI_Font) {
 	send(nil, l, "setFont:", f)
+}
+
+ui_font_system :: proc "c" (size: NS.Float) -> ^UI_Font {
+	return send(^UI_Font, UI_Font, "systemFontOfSize:", size)
 }
 
 ui_font_bold_system :: proc "c" (size: NS.Float) -> ^UI_Font {
