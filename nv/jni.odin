@@ -239,3 +239,4 @@ jv_int  :: #force_inline proc "contextless" (i: int) -> jvalue { return {i = jin
 jv_long :: #force_inline proc "contextless" (i: i64) -> jvalue { return {j = jlong(i)} }
 jv_float :: #force_inline proc "contextless" (f: f32) -> jvalue { return {f = f} }
 jv_bool :: #force_inline proc "contextless" (b: bool) -> jvalue { return {z = jboolean(b)} }
+jv_argb  :: proc "contextless" (c: Color) -> jvalue { return jvalue{i = jint(i32(color_argb(c)))} } // android.graphics.Color int

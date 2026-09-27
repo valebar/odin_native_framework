@@ -2,9 +2,10 @@ package main
 
 // Shared app code: identical on macOS, iOS, Android, Linux and Windows.
 //
-//   Column [ label, Row [ Expanded(input), Clear, Tip ], Expanded( Row [ Expanded(list, 1), Expanded(list2, 2) ], 2 ), Expanded(canvas, 1) ]
+//   Column [ label, Container( Row [ Expanded(input), Clear, Tip ] ), Expanded( Row [ Expanded(list, 1), Expanded(list2, 2) ], 2 ), Expanded(canvas, 1) ]
 //
-// Typing in the input filters both lists down to the items whose number contains the text.
+// The search row sits in a tinted, bordered, rounded Container; a detail page's header is a card
+// (a Container with a margin) whose color changes while editing. Typing in the input filters both lists down to the items whose number contains the text.
 // Dragging on the canvas draws strokes; the Clear button clears the filter and the strokes; the
 // Tip button opens a non-modal dialog over the page. Selecting a row pushes a detail page, which
 // can push another one or pop itself after a modal confirm. The bar of the root page has Add, Ask (a modal dialog with
@@ -168,7 +169,11 @@ build :: proc(page: ^nv.Page_Handle, user: rawptr) -> nv.View {
 	s.header = nv.label_create({text = header_text(s), bold = true, font = s.font, size = 22})
 	lists := nv.row_create({{nv.list_view(s.list), 1}, {nv.list_view(s.list2), 2}}, spacing = 8)
 	search := nv.row_create({{nv.input_view(s.filter), 1}, {nv.button_view(s.clear), 0}, {nv.button_view(s.tip), 0}}, spacing = 8)
-	return nv.column_create({{nv.label_view(s.header), 0}, {search, 0}, {lists, 2}, {nv.canvas_view(s.canvas), 1}}, spacing = 8)
+	search_box := nv.container_create({
+		child = search, padding = nv.insets_all(8), radius = 10,
+		color = {0.93, 0.95, 1, 1}, border_color = {0.7, 0.75, 0.85, 1}, border_width = 1,
+	})
+	return nv.column_create({{nv.label_view(s.header), 0}, {nv.container_view(search_box), 0}, {lists, 2}, {nv.canvas_view(s.canvas), 1}}, spacing = 8)
 }
 
 header_text :: proc(s: ^State) -> string {
@@ -184,7 +189,11 @@ Detail :: struct {
 	level: int,
 	more:  ^nv.Button_Handle,
 	back:  ^nv.Button_Handle,
+	card:  ^nv.Container_Handle, // the header card; tinted while editing
 }
+
+CARD_COLOR    :: nv.Color{0.95, 0.93, 0.85, 1}
+EDITING_COLOR :: nv.Color{1, 0.88, 0.6, 1}
 
 push_detail :: proc(s: ^State, title: string, level: int) {
 	d := new(Detail)
@@ -204,6 +213,7 @@ detail_edit :: proc(user: rawptr) {
 	fmt.println("editing")
 	nv.page_set_title(d.page, fmt.tprintf("%s (editing)", d.title))
 	nv.page_set_actions(d.page, {{title = "Done", icon = .Done, user = d, on_click = detail_done}})
+	nv.container_set_color(d.card, EDITING_COLOR)
 }
 
 detail_done :: proc(user: rawptr) {
@@ -211,6 +221,7 @@ detail_done :: proc(user: rawptr) {
 	fmt.println("done editing")
 	nv.page_set_title(d.page, d.title)
 	nv.page_set_actions(d.page, {{title = "Edit", user = d, on_click = detail_edit}})
+	nv.container_set_color(d.card, CARD_COLOR)
 }
 
 detail_build :: proc(page: ^nv.Page_Handle, user: rawptr) -> nv.View {
@@ -249,8 +260,9 @@ detail_build :: proc(page: ^nv.Page_Handle, user: rawptr) -> nv.View {
 	nv.bitmap_free(icon) // the widget holds its own reference
 	photo := nv.image_create({url = fmt.tprintf("https://picsum.photos/id/%d/600/400", 10 + d.level), fit = .Cover})
 	header := nv.row_create({{nv.image_view(thumb), 0}, {nv.label_view(label), 1}}, spacing = 12)
+	d.card = nv.container_create({child = header, margin = {top = 4, bottom = 4}, padding = nv.insets_all(12), radius = 12, color = CARD_COLOR})
 	return nv.column_create({
-		{header, 0}, {nv.button_view(d.more), 0}, {nv.button_view(d.back), 0}, {nv.image_view(photo), 1},
+		{nv.container_view(d.card), 0}, {nv.button_view(d.more), 0}, {nv.button_view(d.back), 0}, {nv.image_view(photo), 1},
 	}, spacing = 8)
 }
 

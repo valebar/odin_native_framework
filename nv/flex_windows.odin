@@ -52,7 +52,10 @@ flex_proc :: proc "system" (hwnd: win.HWND, msg: win.UINT, wparam: win.WPARAM, l
 		flex_layout(hwnd)
 		return 0
 	case win.WM_CTLCOLORSTATIC:
-		return ctlcolor_static(wparam)
+		return ctlcolor_static(wparam, lparam)
+	case win.WM_ERASEBKGND: // the class brush would paint the window color over a container's fill
+		erase_background(hwnd, win.HDC(wparam))
+		return 1
 	case win.WM_NCDESTROY: // a popped page is destroyed with its children
 		if d := flex_data(hwnd); d != nil {
 			delete(d.children)
@@ -116,8 +119,18 @@ flex_relayout_ancestors :: proc(hwnd: win.HWND) {
 	}
 }
 
+// Fills a window's client area with its background brush (WM_ERASEBKGND; children are clipped out
+// by WS_CLIPCHILDREN).
+@(private)
+erase_background :: proc "contextless" (hwnd: win.HWND, dc: win.HDC) {
+	rc: win.RECT
+	win.GetClientRect(hwnd, &rc)
+	win.FillRect(dc, &rc, background_brush_of(hwnd))
+}
+
 // Natural size of a view in px: text extent for labels, one line for inputs, the title for buttons,
-// the bitmap (or the given size) for images, the stacked children for Row / Column, and 0 for anything else (a list or canvas has no natural size).
+// the bitmap (or the given size) for images, the stacked children for Row / Column, the child plus
+// the insets (or the given size) for a container, and 0 for anything else (a list or canvas has no natural size).
 @(private)
 measure :: proc(hwnd: win.HWND) -> [2]i32 {
 	switch class_name(hwnd) {
@@ -137,6 +150,8 @@ measure :: proc(hwnd: win.HWND) -> [2]i32 {
 		return button_measure(hwnd)
 	case CLASS_IMAGE:
 		return image_measure(hwnd)
+	case CLASS_CONTAINER:
+		return container_measure(hwnd)
 	case CLASS_NAV: // fills whatever it gets, like a list
 		return {}
 	case "Static":

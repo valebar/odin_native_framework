@@ -67,9 +67,7 @@ android_density :: proc "contextless" () -> f64 {
 paint :: proc "contextless" (p: ^Painter, c: Color, stroke := false, width: f64 = 0) -> jobject {
 	env := g_android.env
 	obj := jobject(stroke ? p.h.stroke : p.h.fill)
-	u8c :: proc "contextless" (f: f32) -> u32 { return u32(clamp(f, 0, 1) * 255 + 0.5) }
-	argb := u8c(c.a) << 24 | u8c(c.r) << 16 | u8c(c.g) << 8 | u8c(c.b)
-	jni_call_void(env, obj, "setColor", "(I)V", jvalue{i = jint(i32(argb))})
+	jni_call_void(env, obj, "setColor", "(I)V", jv_argb(c))
 	if stroke do jni_call_void(env, obj, "setStrokeWidth", "(F)V", jv_float(f32(width)))
 	return obj
 }

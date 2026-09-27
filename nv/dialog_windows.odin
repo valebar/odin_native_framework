@@ -133,7 +133,7 @@ dialog_proc :: proc "system" (hwnd: win.HWND, msg: win.UINT, wparam: win.WPARAM,
 		win.EndPaint(hwnd, &ps)
 		return 0
 	case win.WM_CTLCOLORSTATIC:
-		return ctlcolor_static(wparam)
+		return ctlcolor_static(wparam, lparam)
 	}
 	return win.DefWindowProcW(hwnd, msg, wparam, lparam)
 }

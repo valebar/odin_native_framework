@@ -16,6 +16,7 @@ foreign import gdiplus "system:gdiplus.lib"
 @(private) GpBrush    :: rawptr
 @(private) GpPen      :: rawptr
 @(private) GpImage    :: rawptr // a GpBitmap (image_windows.odin)
+@(private) GpPath     :: rawptr
 
 @(private) GdiplusStartupInput :: struct {
 	GdiplusVersion:           u32,
@@ -51,6 +52,12 @@ foreign gdiplus {
 	GdipDrawLine            :: proc(graphics: GpGraphics, pen: GpPen, x1, y1, x2, y2: f32) -> i32 ---
 	GdipFillEllipse         :: proc(graphics: GpGraphics, brush: GpBrush, x, y, w, h: f32) -> i32 ---
 	GdipDrawEllipse         :: proc(graphics: GpGraphics, pen: GpPen, x, y, w, h: f32) -> i32 ---
+	GdipCreatePath          :: proc(fill_mode: i32, path: ^GpPath) -> i32 ---
+	GdipDeletePath          :: proc(path: GpPath) -> i32 ---
+	GdipAddPathArc          :: proc(path: GpPath, x, y, w, h, start, sweep: f32) -> i32 ---
+	GdipClosePathFigure     :: proc(path: GpPath) -> i32 ---
+	GdipFillPath            :: proc(graphics: GpGraphics, brush: GpBrush, path: GpPath) -> i32 ---
+	GdipDrawPath            :: proc(graphics: GpGraphics, pen: GpPen, path: GpPath) -> i32 ---
 	GdipCreateBitmapFromStream :: proc(stream: ^win.IStream, bitmap: ^GpImage) -> i32 ---
 	GdipGetImageWidth       :: proc(image: GpImage, width: ^u32) -> i32 ---
 	GdipGetImageHeight      :: proc(image: GpImage, height: ^u32) -> i32 ---
@@ -81,22 +88,16 @@ _canvas_redraw :: proc(h: ^Canvas_Handle) {
 }
 
 @(private)
-argb :: proc "contextless" (c: Color) -> u32 {
-	b :: proc "contextless" (f: f32) -> u32 { return u32(clamp(f, 0, 1) * 255 + 0.5) }
-	return b(c.a) << 24 | b(c.r) << 16 | b(c.g) << 8 | b(c.b)
-}
-
-@(private)
 with_brush :: proc "contextless" (c: Color) -> GpBrush {
 	brush: GpBrush
-	GdipCreateSolidFill(argb(c), &brush)
+	GdipCreateSolidFill(color_argb(c), &brush)
 	return brush
 }
 
 @(private)
 with_pen :: proc "contextless" (c: Color, width: f64) -> GpPen {
 	pen: GpPen
-	GdipCreatePen1(argb(c), f32(width), GP_UNIT_WORLD, &pen)
+	GdipCreatePen1(color_argb(c), f32(width), GP_UNIT_WORLD, &pen)
 	return pen
 }
 
@@ -153,7 +154,7 @@ _draw_text :: proc(p: ^Painter, text: string, x, y: f64, size: f64, color: Color
 	old := win.SelectObject(dc, win.HGDIOBJ(hfont))
 	defer win.SelectObject(dc, old)
 	win.SetBkMode(dc, .TRANSPARENT)
-	c := argb(color)
+	c := color_argb(color)
 	win.SetTextColor(dc, win.RGB(c >> 16 & 0xff, c >> 8 & 0xff, c & 0xff)) // GDI text has no alpha
 	w := wstr(text)
 	win.TextOutW(dc, px(x), px(y), w, i32(len(string16_of(w))))
@@ -180,7 +181,7 @@ canvas_paint :: proc(hwnd: win.HWND, h: ^Canvas_Handle) {
 	defer win.DeleteObject(win.HGDIOBJ(bmp))
 	old := win.SelectObject(mem, win.HGDIOBJ(bmp))
 	defer win.SelectObject(mem, old)
-	win.FillRect(mem, &rc, win.GetSysColorBrush(win.COLOR_WINDOW))
+	win.FillRect(mem, &rc, background_brush_of(win.GetParent(hwnd)))
 
 	g: GpGraphics
 	GdipCreateFromHDC(mem, &g)

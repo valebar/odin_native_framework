@@ -193,7 +193,7 @@ nav_proc :: proc "system" (hwnd: win.HWND, msg: win.UINT, wparam: win.WPARAM, lp
 			}
 		}
 	case win.WM_CTLCOLORSTATIC:
-		return ctlcolor_static(wparam)
+		return ctlcolor_static(wparam, lparam)
 	case WM_NV_DESTROY:
 		win.DestroyWindow(win.HWND(uintptr(lparam)))
 		return 0

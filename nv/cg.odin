@@ -67,7 +67,7 @@ foreign imageio {
 
 @(default_calling_convention="c")
 foreign coretext {
-	CTFontCreateWithGraphicsFont :: proc(font: CGFontRef, size: NS.Float, matrix: rawptr, attributes: rawptr) -> CTFontRef ---
+	CTFontCreateWithGraphicsFont :: proc(font: CGFontRef, size: NS.Float, mtx: rawptr, attributes: rawptr) -> CTFontRef ---
 }
 
 @(default_calling_convention="c")

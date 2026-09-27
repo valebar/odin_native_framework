@@ -67,6 +67,7 @@ foreign gdi32 {
 @(private) CLASS_NAV    :: "NVNav"
 @(private) CLASS_SCRIM  :: "NVScrim"
 @(private) CLASS_DIALOG :: "NVDialog"
+@(private) CLASS_CONTAINER :: "NVContainer"
 
 @(private)
 wstr :: proc(s: string) -> win.wstring {
@@ -102,6 +103,7 @@ register_classes :: proc() {
 	register(CLASS_NAV, nav_proc)
 	register(CLASS_SCRIM, scrim_proc, win.HBRUSH(win.GetStockObject(win.BLACK_BRUSH)))
 	register(CLASS_DIALOG, dialog_proc)
+	register(CLASS_CONTAINER, container_proc, nil) // paints every pixel itself
 }
 
 // Fonts follow the user's message font (Settings > Accessibility > Text size included) at `dpi`.
@@ -182,9 +184,33 @@ class_name :: proc(hwnd: win.HWND) -> string {
 	return s
 }
 
-// WM_CTLCOLORSTATIC for every container: labels are painted on the window background.
+// Whether `hwnd` is of the window class `name` (ASCII), without allocating.
 @(private)
-ctlcolor_static :: proc "contextless" (wparam: win.WPARAM) -> win.LRESULT {
+class_is :: proc "contextless" (hwnd: win.HWND, name: string) -> bool {
+	buf: [64]u16
+	n := int(win.GetClassNameW(hwnd, &buf[0], len(buf)))
+	if n != len(name) do return false
+	for i in 0..<n do if buf[i] != u16(name[i]) do return false
+	return true
+}
+
+// The brush a window's background is painted with: the fill of the nearest NVContainer around (or
+// at) `hwnd` that has a color, else the window color. Labels, Row / Column, buttons, images and the
+// canvas all erase with it, so they don't punch white holes into a colored container.
+@(private)
+background_brush_of :: proc "contextless" (hwnd: win.HWND) -> win.HBRUSH {
+	for p := hwnd; p != nil; p = win.GetParent(p) {
+		if !class_is(p, CLASS_CONTAINER) do continue
+		h := (^Container_Handle)(uintptr(win.GetWindowLongPtrW(p, win.GWLP_USERDATA)))
+		if h != nil && h.box != nil && h.container.color.a > 0 do return win.HBRUSH(h.box)
+	}
+	return win.GetSysColorBrush(win.COLOR_WINDOW)
+}
+
+// WM_CTLCOLORSTATIC for every parent of a label: the text goes transparently on the background
+// brush of the label (`lparam`).
+@(private)
+ctlcolor_static :: proc "contextless" (wparam: win.WPARAM, lparam: win.LPARAM) -> win.LRESULT {
 	win.SetBkMode(win.HDC(wparam), .TRANSPARENT)
-	return win.LRESULT(uintptr(win.GetSysColorBrush(win.COLOR_WINDOW)))
+	return win.LRESULT(uintptr(background_brush_of(win.HWND(uintptr(lparam)))))
 }

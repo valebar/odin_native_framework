@@ -151,6 +151,19 @@ ui_view_set_corner_radius :: proc "c" (v: ^UI_View, r: NS.Float) {
 	send(nil, layer, "setCornerRadius:", r)
 }
 
+// The layer's border, drawn inside the bounds over the background.
+ui_view_set_layer_border :: proc "c" (v: ^UI_View, c: ^UI_Color, width: NS.Float) {
+	layer := send(^NS.Object, v, "layer")
+	send(nil, layer, "setBorderColor:", send(rawptr, c, "CGColor"))
+	send(nil, layer, "setBorderWidth:", width)
+}
+
+// Clips the subviews to the layer's (rounded) bounds.
+ui_view_set_masks_to_bounds :: proc "c" (v: ^UI_View, masks: NS.BOOL) {
+	layer := send(^NS.Object, v, "layer")
+	send(nil, layer, "setMasksToBounds:", masks)
+}
+
 // Adds `child` to `parent` and pins its edges to the parent's safe area.
 ui_view_pin_to_safe_area :: proc "c" (child, parent: ^UI_View) {
 	ui_view_set_translates_autoresizing_mask(child, false)
@@ -311,6 +324,10 @@ index_path_row :: proc "c" (ip: ^Index_Path) -> NS.Integer {
 // axis: UILayoutConstraintAxis, same values as Axis.
 ui_view_set_content_hugging_priority :: proc "c" (v: ^UI_View, priority: f32, axis: NS.Integer) {
 	send(nil, v, "setContentHuggingPriority:forAxis:", priority, axis)
+}
+
+ui_view_set_content_compression_resistance_priority :: proc "c" (v: ^UI_View, priority: f32, axis: NS.Integer) {
+	send(nil, v, "setContentCompressionResistancePriority:forAxis:", priority, axis)
 }
 
 // Returns an owned (+1) stack view. Distribution and alignment default to Fill.

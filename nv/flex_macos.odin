@@ -22,7 +22,9 @@ _flex_create :: proc(f: Flex) -> View {
 		child := (^NS.View)(c.view)
 		view_set_translates_autoresizing_mask(child, false)
 		stack_view_add_arranged_subview(stack, child)
-		view_set_content_hugging_priority(child, c.flex > 0 ? LAYOUT_PRIORITY_FLEX : LAYOUT_PRIORITY_REQUIRED, NS.Integer(f.axis))
+		priority := c.flex > 0 ? LAYOUT_PRIORITY_FLEX : LAYOUT_PRIORITY_REQUIRED
+		view_set_content_hugging_priority(child, priority, NS.Integer(f.axis))
+		container_forward_hugging(child, priority, f.axis)
 	}
 	flex_link_sizes(f.children, f.axis)
 	return View(stack)

@@ -101,7 +101,7 @@ image_paint :: proc(hwnd: win.HWND, h: ^Image_Handle) {
 	defer win.DeleteObject(win.HGDIOBJ(bmp))
 	old := win.SelectObject(mem, win.HGDIOBJ(bmp))
 	defer win.SelectObject(mem, old)
-	win.FillRect(mem, &rc, win.GetSysColorBrush(win.COLOR_WINDOW))
+	win.FillRect(mem, &rc, background_brush_of(win.GetParent(hwnd))) // the letterbox shows the background
 
 	if h.bitmap != nil {
 		g: GpGraphics

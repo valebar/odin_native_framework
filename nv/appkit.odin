@@ -68,6 +68,7 @@ LAYOUT_RELATION_EQUAL   :: NS.Integer(0)
 // NSLayoutPriority / UILayoutPriority
 LAYOUT_PRIORITY_REQUIRED :: f32(1000)
 LAYOUT_PRIORITY_FLEX     :: f32(1)
+LAYOUT_PRIORITY_FIXED    :: f32(751) // a container's fixed size: above a child's default 750, below the stack's required stretch
 
 // Activates `a.attr == b.attr * multiplier`.
 layout_constraint_equal :: proc "c" (a: NS.id, b: NS.id, attr: NS.Integer, multiplier: NS.Float) {
@@ -140,6 +141,15 @@ layout_pin_edges :: proc "c" (child, parent: ^NS.Object) {
 	layout_anchor_equal(anchor_trailing(child), anchor_trailing(parent))
 }
 
+// Pins `child` inside `parent` (both already in the same hierarchy) at the given distances from
+// each edge.
+layout_pin_insets :: proc "c" (child, parent: ^NS.Object, top, leading, bottom, trailing: NS.Float) {
+	layout_anchor_equal_offset(anchor_top(child), anchor_top(parent), top)
+	layout_anchor_equal_offset(anchor_leading(child), anchor_leading(parent), leading)
+	layout_anchor_equal_offset(anchor_bottom(parent), anchor_bottom(child), bottom)
+	layout_anchor_equal_offset(anchor_trailing(parent), anchor_trailing(child), trailing)
+}
+
 // Places the dialog card in `host` (both Auto Layout): centered, `width` wide unless the host is
 // narrower than that plus the margins, with `body` inset by `pad` on every side. The card's height
 // follows the body.
@@ -148,10 +158,7 @@ layout_dialog_card :: proc "c" (card, body, host: ^NS.Object, width, pad: NS.Flo
 	layout_anchor_equal(anchor_center_y(card), anchor_center_y(host))
 	layout_anchor_constant(anchor_width(card), width, 999)
 	layout_anchor_at_most(anchor_width(card), anchor_width(host), -2 * pad)
-	layout_anchor_equal_offset(anchor_top(body), anchor_top(card), pad)
-	layout_anchor_equal_offset(anchor_leading(body), anchor_leading(card), pad)
-	layout_anchor_equal_offset(anchor_bottom(card), anchor_bottom(body), pad)
-	layout_anchor_equal_offset(anchor_trailing(card), anchor_trailing(body), pad)
+	layout_pin_insets(body, card, pad, pad, pad, pad)
 }
 
 // Ties the main-axis size of every flex child to the first flex child, in the ratio of their
@@ -257,6 +264,12 @@ box_set_corner_radius :: proc "c" (b: ^Box, r: NS.Float) {
 	send(nil, b, "setCornerRadius:", r)
 }
 
+// The border of a custom box, drawn inside its bounds.
+box_set_border :: proc "c" (b: ^Box, c: ^NS.Color, width: NS.Float) {
+	send(nil, b, "setBorderColor:", c)
+	send(nil, b, "setBorderWidth:", width)
+}
+
 // The box's inner view, which holds its subviews.
 box_content_view :: proc "c" (b: ^Box) -> ^NS.View {
 	return send(^NS.View, b, "contentView")
@@ -289,6 +302,10 @@ view_set_translates_autoresizing_mask :: proc "c" (v: ^NS.View, translates: NS.B
 // orientation: NSLayoutConstraintOrientation, same values as Axis.
 view_set_content_hugging_priority :: proc "c" (v: ^NS.View, priority: f32, orientation: NS.Integer) {
 	send(nil, v, "setContentHuggingPriority:forOrientation:", priority, orientation)
+}
+
+view_set_content_compression_resistance_priority :: proc "c" (v: ^NS.View, priority: f32, orientation: NS.Integer) {
+	send(nil, v, "setContentCompressionResistancePriority:forOrientation:", priority, orientation)
 }
 
 // Returns an owned (+1) stack view.

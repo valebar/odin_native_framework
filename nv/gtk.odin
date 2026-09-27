@@ -79,6 +79,7 @@ GtkStackTransitionType :: enum i32 {
 	Slide_Left_Right = 6, Slide_Up_Down = 7,
 }
 GtkAlign       :: enum i32 { Fill = 0, Start = 1, End = 2, Center = 3 }
+GtkOverflow    :: enum i32 { Visible = 0, Hidden = 1 }
 PangoEllipsizeMode :: enum i32 { None = 0, Start = 1, Middle = 2, End = 3 }
 
 G_APPLICATION_DEFAULT_FLAGS :: i32(0)
@@ -138,6 +139,9 @@ foreign gtk {
 
 	gtk_widget_set_margin_start  :: proc(widget: ^GtkWidget, margin: i32) ---
 	gtk_widget_set_margin_end    :: proc(widget: ^GtkWidget, margin: i32) ---
+	gtk_widget_set_margin_top    :: proc(widget: ^GtkWidget, margin: i32) ---
+	gtk_widget_set_margin_bottom :: proc(widget: ^GtkWidget, margin: i32) ---
+	gtk_widget_set_overflow      :: proc(widget: ^GtkWidget, overflow: GtkOverflow) ---
 	gtk_widget_set_size_request  :: proc(widget: ^GtkWidget, width, height: i32) ---
 	gtk_widget_set_vexpand       :: proc(widget: ^GtkWidget, expand: gboolean) ---
 	gtk_widget_set_hexpand       :: proc(widget: ^GtkWidget, expand: gboolean) ---

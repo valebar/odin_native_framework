@@ -61,7 +61,7 @@ window_proc :: proc "system" (hwnd: win.HWND, msg: win.UINT, wparam: win.WPARAM,
 		layout_root(hwnd)
 		return 0
 	case win.WM_CTLCOLORSTATIC:
-		return ctlcolor_static(wparam)
+		return ctlcolor_static(wparam, lparam)
 	case WM_NV_FETCHED: // posted by a download's worker thread (image_windows.odin)
 		f := (^Fetch)(uintptr(lparam))
 		context = f.ctx

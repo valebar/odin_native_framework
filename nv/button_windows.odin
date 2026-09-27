@@ -60,6 +60,9 @@ button_proc :: proc "system" (hwnd: win.HWND, msg: win.UINT, wparam: win.WPARAM,
 		win.GetClientRect(hwnd, &rc)
 		win.MoveWindow(win.HWND(h.control), 0, 0, rc.right, rc.bottom, true)
 		return 0
+	case win.WM_ERASEBKGND: // the themed button asks its parent to paint its rounded corners
+		erase_background(hwnd, win.HDC(wparam))
+		return 1
 	case win.WM_COMMAND:
 		if win.HWND(uintptr(lparam)) == win.HWND(h.control) && win.HIWORD(u32(wparam)) == win.BN_CLICKED {
 			button_notify(h)

@@ -7,8 +7,9 @@ package nv
 //
 // Widgets: a scrolling list (`list_create`), a text label (`label_create`), a text input
 // (`input_create`), a push button (`button_create`), a custom-drawn canvas (`canvas_create`), an
-// image (`image_create`) and Flutter-style Row / Column stacks (`row_create`, `column_create`,
-// `flex_create`). Images are decoded into a Bitmap from bytes, a file or a URL (`bitmap_from_bytes`,
+// image (`image_create`), Flutter-style Row / Column stacks (`row_create`, `column_create`,
+// `flex_create`) and a Container (`container_create`): a box with margin, border, background,
+// rounded corners and padding around one child. Images are decoded into a Bitmap from bytes, a file or a URL (`bitmap_from_bytes`,
 // `bitmap_from_file`, `bitmap_fetch`), which the canvas can draw too (`draw_image`). Pages stack
 // with `push` / `pop`; `run` shows the root page. A page's bar carries its title, a back button
 // and its `actions` (`page_set_title`, `page_set_actions`). A dialog (`dialog_show`,
@@ -361,6 +362,70 @@ column_create :: proc(children: []Flex_Child, spacing: f64 = 0) -> View {
 	return _flex_create({axis = .Vertical, spacing = spacing, children = children})
 }
 
+// Per-side distances in points / dp (Flutter's EdgeInsets).
+Insets :: struct {
+	left, top, right, bottom: f64,
+}
+
+insets_all :: proc(v: f64) -> Insets {
+	return {v, v, v, v}
+}
+
+insets_symmetric :: proc(horizontal, vertical: f64) -> Insets {
+	return {horizontal, vertical, horizontal, vertical}
+}
+
+// Flutter's Container: `margin` outside, then a `border_width` border in `border_color` and the
+// `color` background, both rounded by `radius`, then `padding`, then `child` filling what is left.
+// `width` / `height` are the natural size including the padding and the border but not the margin;
+// 0 takes it from the child. Like Image, the cross axis of a Row / Column still stretches and a
+// flex > 0 child ignores them on the main axis. GTK treats them as a minimum.
+Container :: struct {
+	child:        View,  // optional; the container owns it
+	padding:      Insets,
+	margin:       Insets,
+	color:        Color, // background; alpha 0 = none
+	border_color: Color, // drawn when border_width > 0
+	border_width: f64,
+	radius:       f64,
+	width:        f64,
+	height:       f64,
+}
+
+Container_Handle :: struct {
+	container: Container,
+	ctx:       runtime.Context,
+	root:      View,   // the outer view, which includes the margin; embedded by the app
+	box:       rawptr, // backend: NSBox* / UIView* / GradientDrawable global ref / ^Linux_Container / HBRUSH
+}
+
+container_create :: proc(c: Container) -> ^Container_Handle {
+	h := new(Container_Handle)
+	h.container = c
+	h.ctx = context
+	_container_init(h)
+	return h
+}
+
+container_view :: proc(h: ^Container_Handle) -> View {
+	return h.root
+}
+
+// Replaces the background color (alpha 0 removes it).
+container_set_color :: proc(h: ^Container_Handle, color: Color) {
+	h.container.color = color
+	_container_set_color(h)
+}
+
+// The child's distance from the container's outer edge, per side.
+@(private)
+container_frame :: proc "contextless" (h: ^Container_Handle) -> Insets {
+	c := &h.container
+	b := c.border_width
+	return {c.margin.left + b + c.padding.left, c.margin.top + b + c.padding.top,
+		c.margin.right + b + c.padding.right, c.margin.bottom + b + c.padding.bottom}
+}
+
 // Single-line text; `bold` makes it a heading (bold and a little larger). `font` replaces the
 // system font (then `bold` only picks the heading size: load a bold face for bold text) and
 // `size` the default size, in points / dp like `draw_text`.
@@ -502,6 +567,13 @@ button_notify :: proc(h: ^Button_Handle) {
 
 // RGBA, each 0..1.
 Color :: [4]f32
+
+// Packed 0xAARRGGBB (android.graphics.Color, GDI+).
+@(private)
+color_argb :: proc "contextless" (c: Color) -> u32 {
+	b :: proc "contextless" (f: f32) -> u32 { return u32(clamp(f, 0, 1) * 255 + 0.5) }
+	return b(c.a) << 24 | b(c.r) << 16 | b(c.g) << 8 | b(c.b)
+}
 
 Pointer :: enum { Down, Move, Up }
 
