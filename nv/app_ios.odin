@@ -16,6 +16,7 @@ when IS_IOS {
 	window:       ^UI_Window,
 	nav:          ^UI_Navigation_Controller, // owned by the window
 	nav_delegate: NS.id,                     // NVNavDelegate; the controller's delegate is weak
+	nav_target:   NS.id,                     // NVNavTarget: receives the bar button items' actions
 }
 
 @(private)
@@ -41,6 +42,11 @@ _run :: proc() {
 	NS.class_addProtocol(nav_delegate, NS.objc_getProtocol("UINavigationControllerDelegate"))
 	NS.objc_registerClassPair(nav_delegate)
 	g_app.nav_delegate = NS.class_createInstance(nav_delegate, 0)
+
+	nav_target := NS.objc_allocateClassPair(NSObject, "NVNavTarget", 0)
+	NS.class_addMethod(nav_target, intrinsics.objc_find_selector("nvAction:"), auto_cast nav_action_clicked, "v@:@")
+	NS.objc_registerClassPair(nav_target)
+	g_app.nav_target = NS.class_createInstance(nav_target, 0)
 
 	args := runtime.args__
 	UIApplicationMain(i32(len(args)), raw_data(args), nil, NS.AT("NVAppDelegate"))

@@ -8,12 +8,14 @@ foreign import gtk  "system:gtk-4"
 foreign import gobj "system:gobject-2.0"
 foreign import gio  "system:gio-2.0"
 foreign import cairo "system:cairo"
+foreign import glib "system:glib-2.0"
 
 GType    :: distinct uint
 gboolean :: b32
 guint    :: u32
 gulong   :: uint
 gpointer :: rawptr
+GSourceFunc :: proc "c" (data: gpointer) -> gboolean
 
 // Opaque instance types; only ever used behind a pointer.
 GObject          :: struct {}
@@ -60,6 +62,7 @@ GtkAlign       :: enum i32 { Fill = 0, Start = 1, End = 2, Center = 3 }
 PangoEllipsizeMode :: enum i32 { None = 0, Start = 1, Middle = 2, End = 3 }
 
 G_APPLICATION_DEFAULT_FLAGS :: i32(0)
+G_SOURCE_REMOVE             :: gboolean(false)
 GTK_INVALID_LIST_POSITION   :: guint(0xffffffff)
 
 @(default_calling_convention="c")
@@ -71,6 +74,12 @@ foreign gobj {
 	g_type_register_static_simple :: proc(parent: GType, name: cstring, class_size: guint, class_init: rawptr, instance_size: guint, instance_init: rawptr, flags: i32) -> GType ---
 	g_type_add_interface_static  :: proc(instance_type, interface_type: GType, info: ^GInterfaceInfo) ---
 	g_signal_connect_data        :: proc(instance: gpointer, detailed_signal: cstring, c_handler: rawptr, data: gpointer, destroy_data: rawptr, connect_flags: i32) -> gulong ---
+	g_object_ref_sink            :: proc(object: gpointer) -> gpointer ---
+}
+
+@(default_calling_convention="c")
+foreign glib {
+	g_idle_add :: proc(function: GSourceFunc, data: gpointer) -> guint ---
 }
 
 @(default_calling_convention="c")
@@ -92,6 +101,8 @@ foreign gtk {
 
 	gtk_header_bar_new        :: proc() -> ^GtkWidget ---
 	gtk_header_bar_pack_start :: proc(bar: ^GtkWidget, child: ^GtkWidget) ---
+	gtk_header_bar_pack_end   :: proc(bar: ^GtkWidget, child: ^GtkWidget) ---
+	gtk_header_bar_remove     :: proc(bar: ^GtkWidget, child: ^GtkWidget) ---
 
 	gtk_stack_new                    :: proc() -> ^GtkWidget ---
 	gtk_stack_add_child              :: proc(stack: ^GtkWidget, child: ^GtkWidget) -> rawptr --- // GtkStackPage*, not owned
@@ -108,6 +119,7 @@ foreign gtk {
 	gtk_widget_set_valign        :: proc(widget: ^GtkWidget, align: GtkAlign) ---
 	gtk_widget_add_css_class     :: proc(widget: ^GtkWidget, css_class: cstring) ---
 	gtk_widget_set_visible       :: proc(widget: ^GtkWidget, visible: gboolean) ---
+	gtk_widget_set_tooltip_text  :: proc(widget: ^GtkWidget, text: cstring) ---
 	gtk_widget_get_first_child   :: proc(widget: ^GtkWidget) -> ^GtkWidget ---
 	gtk_widget_get_next_sibling  :: proc(widget: ^GtkWidget) -> ^GtkWidget ---
 

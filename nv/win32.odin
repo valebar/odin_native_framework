@@ -13,6 +13,7 @@ import win "core:sys/windows"
 
 foreign import user32 "system:User32.lib"
 foreign import comctl32 "system:Comctl32.lib"
+foreign import gdi32 "system:Gdi32.lib"
 
 @(default_calling_convention="system")
 foreign user32 {
@@ -24,17 +25,24 @@ foreign comctl32 {
 	RemoveWindowSubclass :: proc(hWnd: win.HWND, pfnSubclass: win.SUBCLASSPROC, uIdSubclass: win.UINT_PTR) -> win.BOOL ---
 }
 
+@(default_calling_convention="system")
+foreign gdi32 {
+	GetTextFaceW :: proc(hdc: win.HDC, c: i32, lpName: win.LPWSTR) -> i32 ---
+}
+
 @(private) g_windows: struct {
 	ctx:        runtime.Context,
 	hinstance:  win.HINSTANCE,
 	parking:    win.HWND, // main window; parent of every control until it is re-parented
 	root:       win.HWND, // the NVNav host (nav_windows.odin), which holds the pages
-	nav_back:   win.HWND, // the host's bar: a back button and the page title, shown on pushed pages
+	nav_back:   win.HWND, // the host's bar: a back button (pushed pages) and the page title
 	nav_title:  win.HWND,
+	nav_actions: [dynamic]win.HWND, // the bar's action buttons for the top page
 	dpi:        u32,
 	font:       win.HFONT, // message font (Segoe UI 9pt): list subtitles, inputs, buttons
 	bold:       win.HFONT, // bold message font: list titles
 	title:      win.HFONT, // larger bold font: labels, the bar title
+	icon_font:  win.HFONT, // Segoe MDL2 Assets at the message font size: action icons; nil if unavailable
 	font_h:     i32,       // line heights of the fonts above, in px
 	bold_h:     i32,
 	title_h:    i32,
@@ -98,6 +106,25 @@ create_fonts :: proc() {
 	g_windows.font_h = text_size(dc, g_windows.font, "Ag").cy
 	g_windows.bold_h = text_size(dc, g_windows.bold, "Ag").cy
 	g_windows.title_h = text_size(dc, g_windows.title, "Ag").cy
+
+	// The icon font, if it is really installed: GDI silently substitutes a missing face, which
+	// would show the glyphs as boxes, so the face that came out is checked.
+	ICON_FACE :: "Segoe MDL2 Assets"
+	lf = ncm.lfMessageFont
+	lf.lfHeight = lf.lfHeight * 4 / 3
+	lf.lfFaceName = {}
+	copy(lf.lfFaceName[:len(lf.lfFaceName) - 1], win.utf8_to_utf16(ICON_FACE, context.temp_allocator))
+	icon := win.CreateFontIndirectW(&lf)
+	old := win.SelectObject(dc, win.HGDIOBJ(icon))
+	got: [win.LF_FACESIZE]u16
+	n := GetTextFaceW(dc, len(got), &got[0])
+	win.SelectObject(dc, old)
+	name, _ := win.utf16_to_utf8(got[:max(n - 1, 0)], context.temp_allocator)
+	if name == ICON_FACE {
+		g_windows.icon_font = icon
+	} else {
+		win.DeleteObject(win.HGDIOBJ(icon))
+	}
 }
 
 @(private)

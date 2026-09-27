@@ -3,8 +3,10 @@ package nv
 
 // iOS navigation backend: every page is a UIViewController pushed on the UINavigationController
 // from app_ios.odin, which provides the navigation bar, the back button and the swipe gesture.
-// An NVNavDelegate keeps the Odin stack in sync with pops the user made.
+// The page's actions are the controller's right bar button items. An NVNavDelegate keeps the
+// Odin stack in sync with pops the user made.
 
+import "base:intrinsics"
 import NS "core:sys/darwin/Foundation"
 
 when IS_IOS {
@@ -20,7 +22,51 @@ page_controller_new :: proc(e: ^Nav_Page) -> ^UI_View_Controller {
 	ui_view_controller_set_view(vc, container)
 	container->release()
 	ui_view_controller_set_title(vc, ns_string(e.page.title))
+	ios_apply_actions(vc, e)
 	return vc
+}
+
+// rightBarButtonItems lays out from the right, so the declared order goes in reversed. The old
+// items may be inside their own action right now, so their array is autoreleased before it is
+// replaced.
+@(private)
+ios_apply_actions :: proc(vc: ^UI_View_Controller, e: ^Nav_Page) {
+	nav_item := ui_view_controller_navigation_item(vc)
+	if old := ui_navigation_item_right_items(nav_item); old != nil {
+		send(nil, old, "retain")
+		send(nil, old, "autorelease")
+	}
+	items := make([]^NS.Object, len(e.actions), context.temp_allocator)
+	for h, i in e.actions {
+		action := intrinsics.objc_find_selector("nvAction:")
+		title := ns_string(h.action.title)
+		item: ^UI_Bar_Button_Item
+		if name := sf_symbol_names[h.action.icon]; name != "" {
+			item = ui_bar_button_item_with_image(ui_image_system(ns_string(name)), g_app.nav_target, action)
+			ui_bar_button_item_set_accessibility_label(item, title)
+		} else {
+			item = ui_bar_button_item_with_title(title, g_app.nav_target, action)
+		}
+		object_set_tag(item, NS.Integer(uintptr(h)))
+		items[len(items) - 1 - i] = item
+	}
+	array := array_with_objects(raw_data(items), len(items)) // retains the items
+	for item in items do send(nil, item, "release")
+	ui_navigation_item_set_right_items(nav_item, array)
+}
+
+// The top of g_nav is the top controller whenever its root exists (page_set_actions skips the
+// call during `build`, when the controller doesn't exist yet).
+@(private)
+_nav_actions_changed :: proc(e: ^Nav_Page) {
+	if vc := ui_navigation_controller_top(g_app.nav); vc != nil do ios_apply_actions(vc, e)
+}
+
+// `sender` is the UIBarButtonItem; its tag is the handle.
+@(private)
+nav_action_clicked :: proc "c" (self: NS.id, _: NS.SEL, sender: NS.id) {
+	context = g_app.ctx
+	action_notify((^Action_Handle)(uintptr(object_tag((^NS.Object)(sender)))))
 }
 
 @(private)

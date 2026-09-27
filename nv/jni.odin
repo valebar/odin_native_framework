@@ -39,6 +39,8 @@ JNI_Env :: ^[^]rawptr
 @(private) JNI_GET_FLOAT_FIELD       :: 102
 @(private) JNI_GET_STATIC_METHOD_ID  :: 113
 @(private) JNI_CALL_STATIC_OBJECT_A  :: 116
+@(private) JNI_GET_STATIC_FIELD_ID    :: 144
+@(private) JNI_GET_STATIC_INT_FIELD   :: 150
 @(private) JNI_NEW_STRING_UTF        :: 167
 @(private) JNI_GET_STRING_UTF_LENGTH :: 168
 @(private) JNI_GET_STRING_UTF_CHARS  :: 169
@@ -127,6 +129,24 @@ jni_get_float_field :: proc "contextless" (env: JNI_Env, obj: jobject, name: cst
 	id := jni_fn(env, proc "c" (JNI_Env, jclass, cstring, cstring) -> rawptr, JNI_GET_FIELD_ID)(env, cls, name, "F")
 	jni_delete_local_ref(env, cls)
 	res := jni_fn(env, proc "c" (JNI_Env, jobject, rawptr) -> f32, JNI_GET_FLOAT_FIELD)(env, obj, id)
+	jni_check(env)
+	return res
+}
+
+// Reads a static int field such as a resource id; 0 when the class or field is missing.
+jni_get_static_int_field :: proc "contextless" (env: JNI_Env, cls_name, name: cstring) -> jint {
+	cls := jni_find_class(env, cls_name)
+	if cls == nil {
+		jni_check(env)
+		return 0
+	}
+	defer jni_delete_local_ref(env, cls)
+	id := jni_fn(env, proc "c" (JNI_Env, jclass, cstring, cstring) -> rawptr, JNI_GET_STATIC_FIELD_ID)(env, cls, name, "I")
+	if id == nil {
+		jni_check(env)
+		return 0
+	}
+	res := jni_fn(env, proc "c" (JNI_Env, jclass, rawptr) -> jint, JNI_GET_STATIC_INT_FIELD)(env, cls, id)
 	jni_check(env)
 	return res
 }

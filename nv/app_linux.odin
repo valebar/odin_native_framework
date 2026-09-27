@@ -3,8 +3,8 @@ package nv
 
 // Linux (GTK4) app backend. GtkApplication emits `activate` once GTK is ready, and that is
 // where the root page is built (like UIApplicationMain on iOS). The app quits when the window
-// closes. The window gets a GtkHeaderBar with a back button and a GtkStack holding the pages
-// (nav_linux.odin).
+// closes. The window gets a GtkHeaderBar with a back button and the page's action buttons, and a
+// GtkStack holding the pages (nav_linux.odin).
 
 import "base:runtime"
 import "core:strings"
@@ -12,7 +12,9 @@ import "core:strings"
 @(private) g_linux: struct {
 	ctx:    runtime.Context,
 	window: ^GtkWidget,
+	header: ^GtkWidget, // the title bar
 	back:   ^GtkWidget, // header bar back button, visible on pushed pages
+	actions: [dynamic]^GtkWidget, // the top page's action buttons, packed at the end of the header
 	stack:  ^GtkWidget, // one child per page
 	dying:  [dynamic]^GtkWidget, // popped pages waiting for the slide animation to end
 }
@@ -42,6 +44,7 @@ on_activate :: proc "c" (app: ^GtkApplication, _: gpointer) {
 	g_signal_connect(back, "clicked", rawptr(on_back_clicked), nil)
 	gtk_header_bar_pack_start(header, back)
 	gtk_window_set_titlebar(wnd, header)
+	g_linux.header = header
 	g_linux.back = back
 
 	stack := gtk_stack_new()

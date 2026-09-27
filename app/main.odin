@@ -6,7 +6,8 @@ package main
 //
 // Typing in the input filters both lists down to the items whose number contains the text.
 // Dragging on the canvas draws strokes; the button clears the filter and the strokes. Selecting
-// a row pushes a detail page, which can push another one or pop itself.
+// a row pushes a detail page, which can push another one or pop itself. The bar of the root page
+// has Add and Info actions; a detail page's Edit action swaps itself for a Done action.
 
 import "core:fmt"
 import "core:strconv"
@@ -33,6 +34,17 @@ main :: proc() {
 build :: proc(user: rawptr) -> nv.View {
 	s := (^State)(user)
 	apply_filter(s, "")
+
+	// The root page has no Page struct, so its actions are set from its build.
+	nv.page_set_actions({
+		{title = "Add", icon = .Add, user = s, on_click = proc(user: rawptr) {
+			push_detail((^State)(user), "New item", 1)
+		}},
+		{title = "Info", icon = .Info, user = s, on_click = proc(user: rawptr) {
+			s := (^State)(user)
+			fmt.printfln("%d of %d items visible, %d strokes", len(s.visible), s.items, len(s.strokes))
+		}},
+	})
 
 	l := nv.List{
 		count = proc(user: rawptr) -> int {
@@ -114,8 +126,19 @@ push_detail :: proc(s: ^State, title: string, level: int) {
 	d.s = s
 	d.title = strings.clone(title)
 	d.level = level
-	nv.push({title = d.title, build = detail_build, user = d, on_pop = detail_free})
+	nv.push({title = d.title, build = detail_build, user = d, on_pop = detail_free, actions = edit_actions})
 }
+
+// Edit swaps the bar's action for Done, which swaps it back: the runtime path of page_set_actions.
+edit_actions := []nv.Action{{title = "Edit", on_click = proc(user: rawptr) {
+	fmt.println("editing")
+	nv.page_set_actions(done_actions)
+}}}
+
+done_actions := []nv.Action{{title = "Done", icon = .Done, on_click = proc(user: rawptr) {
+	fmt.println("done editing")
+	nv.page_set_actions(edit_actions)
+}}}
 
 detail_build :: proc(user: rawptr) -> nv.View {
 	d := (^Detail)(user)

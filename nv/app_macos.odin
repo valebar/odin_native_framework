@@ -2,7 +2,7 @@
 package nv
 
 // macOS app backend: one NSWindow whose content view is the top page (nav_macos.odin) and whose
-// title bar carries the back button.
+// title bar carries the back button and the page's action buttons.
 
 import "base:runtime"
 import NS "core:sys/darwin/Foundation"
@@ -13,6 +13,8 @@ when !IS_IOS {
 	ctx:    runtime.Context,
 	window: ^NS.Window,
 	back:   ^Titlebar_Accessory_View_Controller, // hidden on the root page
+	actions: ^Titlebar_Accessory_View_Controller, // trailing; the top page's action buttons, nil when it has none
+	nav_target: NS.id, // NVNavTarget: receives the back button's and the actions' clicks
 }
 
 @(private)

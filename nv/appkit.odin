@@ -17,6 +17,36 @@ ns_string :: proc "c" (s: string) -> ^NS.String {
 	return str
 }
 
+// SF Symbol names by Icon (macOS 11+ / iOS 13+); "" shows the title as text.
+@(private) sf_symbol_names := [Icon]string{
+	.None     = "",
+	.Add      = "plus",
+	.Edit     = "pencil",
+	.Delete   = "trash",
+	.Search   = "magnifyingglass",
+	.Share    = "square.and.arrow.up",
+	.Settings = "gearshape",
+	.Refresh  = "arrow.clockwise",
+	.Done     = "checkmark",
+	.Info     = "info.circle",
+	.More     = "ellipsis",
+	.Close    = "xmark",
+}
+
+// NSControl / UIBarItem tag: room for a pointer.
+object_set_tag :: proc "c" (o: ^NS.Object, tag: NS.Integer) {
+	send(nil, o, "setTag:", tag)
+}
+
+object_tag :: proc "c" (o: ^NS.Object) -> NS.Integer {
+	return send(NS.Integer, o, "tag")
+}
+
+// Autoreleased array of the given objects (which it retains).
+array_with_objects :: proc "c" (objects: [^]^NS.Object, count: int) -> ^NS.Array {
+	return send(^NS.Array, NS.Array, "arrayWithObjects:count:", objects, NS.UInteger(count))
+}
+
 // NSLayoutConstraint exists in both AppKit and UIKit.
 @(objc_class="NSLayoutConstraint")
 Layout_Constraint :: struct { using _: NS.Object }
@@ -62,8 +92,10 @@ RESIZE_MIN_Y_MARGIN :: NS.UInteger(8)
 RESIZE_HEIGHT       :: NS.UInteger(16)
 RESIZE_MAX_Y_MARGIN :: NS.UInteger(32)
 
-// NSLayoutAttributeLeading: a titlebar accessory next to the window buttons (macOS 11+).
-LAYOUT_ATTRIBUTE_LEADING :: NS.Integer(5)
+// NSLayoutAttributeLeading: a titlebar accessory next to the window buttons (macOS 11+);
+// Trailing: at the far end of the title bar.
+LAYOUT_ATTRIBUTE_LEADING  :: NS.Integer(5)
+LAYOUT_ATTRIBUTE_TRAILING :: NS.Integer(6)
 
 // NSBezelStyleTexturedRounded (NSBezelStyleToolbar): the look of a title bar button.
 BEZEL_STYLE_TEXTURED_ROUNDED :: NS.Integer(11)
@@ -110,6 +142,10 @@ view_set_autoresizing :: proc "c" (v: ^NS.View, mask: NS.UInteger) {
 
 view_with_tag :: proc "c" (v: ^NS.View, tag: NS.Integer) -> ^NS.View {
 	return send(^NS.View, v, "viewWithTag:", tag)
+}
+
+view_set_tool_tip :: proc "c" (v: ^NS.View, s: ^NS.String) {
+	send(nil, v, "setToolTip:", s)
 }
 
 view_set_identifier :: proc "c" (v: ^NS.View, ident: ^NS.String) {
@@ -303,6 +339,14 @@ titlebar_accessory_set_hidden :: proc "c" (vc: ^Titlebar_Accessory_View_Controll
 // The window retains the controller.
 window_add_titlebar_accessory :: proc "c" (w: ^NS.Window, vc: ^Titlebar_Accessory_View_Controller) {
 	send(nil, w, "addTitlebarAccessoryViewController:", vc)
+}
+
+// Removes `vc` from the window's titlebarAccessoryViewControllers, releasing it.
+window_remove_titlebar_accessory :: proc "c" (w: ^NS.Window, vc: ^Titlebar_Accessory_View_Controller) {
+	all := send(^NS.Array, w, "titlebarAccessoryViewControllers")
+	index := send(NS.UInteger, all, "indexOfObject:", vc)
+	if index == NS.UInteger(NS.NotFound) do return
+	send(nil, w, "removeTitlebarAccessoryViewControllerAtIndex:", NS.Integer(index))
 }
 
 font_system :: proc "c" (size: NS.Float) -> ^Font {

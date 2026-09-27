@@ -56,6 +56,15 @@ UI_Button :: struct { using _: UI_View }
 @(objc_class="UIColor")
 UI_Color :: struct { using _: NS.Object }
 
+@(objc_class="UIImage")
+UI_Image :: struct { using _: NS.Object }
+
+@(objc_class="UIBarButtonItem")
+UI_Bar_Button_Item :: struct { using _: NS.Object }
+
+@(objc_class="UINavigationItem")
+UI_Navigation_Item :: struct { using _: NS.Object }
+
 @(objc_class="UILayoutGuide")
 UI_Layout_Guide :: struct { using _: NS.Object }
 
@@ -71,6 +80,7 @@ UI_TABLE_VIEW_CELL_STYLE_DEFAULT  :: NS.Integer(0)
 UI_TEXT_BORDER_STYLE_ROUNDED_RECT       :: NS.Integer(3)
 UI_RETURN_KEY_DONE                      :: NS.Integer(9)
 UI_BUTTON_TYPE_SYSTEM                   :: NS.Integer(1)
+UI_BAR_BUTTON_ITEM_STYLE_PLAIN          :: NS.Integer(0)
 UI_CONTROL_STATE_NORMAL                 :: NS.UInteger(0)
 UI_CONTROL_EVENT_TOUCH_UP_INSIDE        :: NS.UInteger(1 << 6)
 UI_CONTROL_EVENT_EDITING_CHANGED        :: NS.UInteger(1 << 17)
@@ -155,6 +165,45 @@ ui_navigation_controller_view_controllers :: proc "c" (nc: ^UI_Navigation_Contro
 // UINavigationControllerDelegate; not retained.
 ui_navigation_controller_set_delegate :: proc "c" (nc: ^UI_Navigation_Controller, d: NS.id) {
 	send(nil, nc, "setDelegate:", d)
+}
+
+ui_navigation_controller_top :: proc "c" (nc: ^UI_Navigation_Controller) -> ^UI_View_Controller {
+	return send(^UI_View_Controller, nc, "topViewController")
+}
+
+// The controller's item in the navigation bar; owned by the controller.
+ui_view_controller_navigation_item :: proc "c" (vc: ^UI_View_Controller) -> ^UI_Navigation_Item {
+	return send(^UI_Navigation_Item, vc, "navigationItem")
+}
+
+// Laid out from the right: the first item is the rightmost.
+ui_navigation_item_set_right_items :: proc "c" (item: ^UI_Navigation_Item, items: ^NS.Array) {
+	send(nil, item, "setRightBarButtonItems:", items)
+}
+
+ui_navigation_item_right_items :: proc "c" (item: ^UI_Navigation_Item) -> ^NS.Array {
+	return send(^NS.Array, item, "rightBarButtonItems")
+}
+
+// Returns an owned (+1) item; `target` is weak.
+ui_bar_button_item_with_title :: proc "c" (title: ^NS.String, target: NS.id, action: NS.SEL) -> ^UI_Bar_Button_Item {
+	item := send(^UI_Bar_Button_Item, UI_Bar_Button_Item, "alloc")
+	return send(^UI_Bar_Button_Item, item, "initWithTitle:style:target:action:", title, UI_BAR_BUTTON_ITEM_STYLE_PLAIN, target, action)
+}
+
+// Returns an owned (+1) item; `target` is weak.
+ui_bar_button_item_with_image :: proc "c" (image: ^UI_Image, target: NS.id, action: NS.SEL) -> ^UI_Bar_Button_Item {
+	item := send(^UI_Bar_Button_Item, UI_Bar_Button_Item, "alloc")
+	return send(^UI_Bar_Button_Item, item, "initWithImage:style:target:action:", image, UI_BAR_BUTTON_ITEM_STYLE_PLAIN, target, action)
+}
+
+ui_bar_button_item_set_accessibility_label :: proc "c" (item: ^UI_Bar_Button_Item, s: ^NS.String) {
+	send(nil, item, "setAccessibilityLabel:", s)
+}
+
+// Autoreleased SF Symbol (iOS 13+).
+ui_image_system :: proc "c" (name: ^NS.String) -> ^UI_Image {
+	return send(^UI_Image, UI_Image, "systemImageNamed:", name)
 }
 
 // Returns an owned (+1) table view.

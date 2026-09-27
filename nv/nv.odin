@@ -8,7 +8,8 @@ package nv
 // Widgets: a scrolling list (`list_create`), a text label (`label_create`), a text input
 // (`input_create`), a push button (`button_create`), a custom-drawn canvas (`canvas_create`) and
 // Flutter-style Row / Column stacks (`row_create`, `column_create`, `flex_create`). Pages stack
-// with `push` / `pop`; `run` shows the root page.
+// with `push` / `pop`; `run` shows the root page. A page's bar carries its title, a back button
+// and its `actions` (`page_set_actions`).
 
 import "base:builtin"
 import "base:runtime"
@@ -73,23 +74,48 @@ run :: proc(title: string, build: Build_Proc, user: rawptr = nil) {
 
 // One screen of the navigation stack. `build` runs when the page is pushed; `on_pop` runs after
 // the page left the stack and its view was released, so the app can free what `build` created.
+// `actions` are the trailing buttons of the page's bar (Flutter's AppBar.actions); they are
+// copied on push and can be replaced later with `page_set_actions`.
 Page :: struct {
-	title:  string, // copied
-	build:  Build_Proc,
-	user:   rawptr,
-	on_pop: proc(user: rawptr), // optional
+	title:   string, // copied
+	build:   Build_Proc,
+	user:    rawptr,
+	on_pop:  proc(user: rawptr), // optional
+	actions: []Action,           // copied
+}
+
+// System icons every platform has (SF Symbols / android.R.drawable / GTK icon names / Segoe MDL2
+// Assets). A platform without a given icon shows the action's title as text instead.
+Icon :: enum { None, Add, Edit, Delete, Search, Share, Settings, Refresh, Done, Info, More, Close }
+
+// One button in the page's bar, shown trailing in declared order. `title` is the button text when
+// `icon` is None, and the tooltip / accessibility label otherwise.
+Action :: struct {
+	title:    string, // copied
+	icon:     Icon,
+	on_click: proc(user: rawptr), // optional
+	user:     rawptr,
+}
+
+// The owned copy of an Action. Backends find it again from the native control (the `tag` on
+// Apple, the signal data on GTK, GWLP_USERDATA on Windows, the menu item id on Android).
+@(private) Action_Handle :: struct {
+	action: Action, // action.title is an owned copy
+	ctx:    runtime.Context,
 }
 
 @(private) Nav_Page :: struct {
-	page: Page, // page.title is an owned copy
-	root: View, // owned; dropped by _nav_release
+	page:    Page,                    // page.title is an owned copy; page.actions is not used past push
+	root:    View,                    // owned; dropped by _nav_release
+	actions: [dynamic]^Action_Handle, // owned; freed by nav_actions_free
 }
 
 // The page stack: g_nav[0] is the root page from `run`, the depth is len(g_nav) - 1. Backends
 // implement _run (the platform loop; once views can exist it calls nav_show_root), _nav_push
 // (show the new top page, already in g_nav, with its title and chrome), _nav_pop (the native
 // transition back to `below`, already the top of g_nav; false if the platform refused) and
-// _nav_release (drop the ownership of a page's root view). They never modify g_nav; a system back
+// _nav_release (drop the ownership of a page's root view) and _nav_actions_changed (the shown
+// page's actions were replaced; push and pop read them on their own). They never modify g_nav; a system back
 // (iOS swipe, Android relaunch) that already removed the native page calls nav_system_pop for the
 // bookkeeping. Inside this package `pop` shadows the builtin, hence builtin.pop.
 @(private) g_nav: [dynamic]Nav_Page
@@ -97,7 +123,7 @@ Page :: struct {
 // A push from inside a page's `build` (a deep link from the root page, say) waits until that page
 // is shown, so the pages stack in call order.
 @(private) g_nav_building: int
-@(private) g_nav_pending:  [dynamic]Page // titles already cloned
+@(private) g_nav_pending:  [dynamic]Nav_Page // titles and actions already cloned
 
 // Builds and shows a page on top of the stack; the title is shown in the navigation bar / window
 // title, and a back button (or the platform's back gesture / key) pops it. Called from `build`,
@@ -106,8 +132,10 @@ push :: proc(p: Page) {
 	assert(len(g_nav) > 0, "nv.push before nv.run")
 	e := Nav_Page{page = p}
 	e.page.title = strings.clone(p.title)
+	nav_actions_assign(&e, p.actions)
+	e.page.actions = nil // the app's slice; not kept
 	if g_nav_building > 0 {
-		append(&g_nav_pending, e.page)
+		append(&g_nav_pending, e)
 		return
 	}
 	append(&g_nav, e) // on the stack before the build, so a nested push queues behind it
@@ -148,9 +176,8 @@ nav_show_root :: proc() {
 @(private)
 nav_flush_pending :: proc() {
 	for len(g_nav_pending) > 0 {
-		p := g_nav_pending[0]
+		e := g_nav_pending[0]
 		ordered_remove(&g_nav_pending, 0)
-		e := Nav_Page{page = p}
 		append(&g_nav, e)
 		i := len(g_nav) - 1
 		nav_build(&g_nav[i])
@@ -174,7 +201,51 @@ nav_finish_pop :: proc(top: ^Nav_Page) {
 		defer callback_exit()
 		top.page.on_pop(top.page.user)
 	}
+	nav_actions_free(top)
 	delete(top.page.title)
+}
+
+// Replaces the actions of the top page. Inside `build` that is the page being built (so the root
+// page, which has no Page struct, sets its actions here); the following push shows them. Frees
+// the old actions, including the one whose `on_click` may be making this call.
+page_set_actions :: proc(actions: []Action) {
+	assert(len(g_nav) > 0, "nv.page_set_actions before nv.run")
+	e := &g_nav[len(g_nav) - 1]
+	nav_actions_assign(e, actions)
+	if e.root != nil do _nav_actions_changed(e) // nil while `build` runs: _nav_push follows
+}
+
+@(private)
+nav_actions_assign :: proc(e: ^Nav_Page, actions: []Action) {
+	nav_actions_free(e)
+	for a in actions {
+		h := new(Action_Handle)
+		h.action = a
+		h.action.title = strings.clone(a.title)
+		h.ctx = context
+		append(&e.actions, h)
+	}
+}
+
+@(private)
+nav_actions_free :: proc(e: ^Nav_Page) {
+	for h in e.actions {
+		delete(h.action.title)
+		free(h)
+	}
+	delete(e.actions)
+	e.actions = nil
+}
+
+// Called by the backends when an action was clicked. The callback may replace the page's actions
+// or pop the page, which frees `h`, so nothing is read from it afterwards.
+@(private)
+action_notify :: proc(h: ^Action_Handle) {
+	cb, user := h.action.on_click, h.action.user
+	if cb == nil do return
+	callback_enter()
+	defer callback_exit()
+	cb(user)
 }
 
 list_create :: proc(l: List) -> ^List_Handle {
