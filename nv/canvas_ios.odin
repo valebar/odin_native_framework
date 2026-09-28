@@ -20,7 +20,7 @@ _canvas_init :: proc(h: ^Canvas_Handle) {
 		{"touchesCancelled:withEvent:", auto_cast canvas_touches_ended, "v@:@@"},
 	})
 	obj := objc_alloc_with_handle(cls, h)
-	view := send(^UI_View, (^UI_View)(obj), "initWithFrame:", NS.Rect{})
+	view := objc_own(send(^UI_View, (^UI_View)(obj), "initWithFrame:", NS.Rect{}))
 	send(nil, view, "setContentMode:", UI_VIEW_CONTENT_MODE_REDRAW) // redraw on resize instead of stretching
 
 	h.root = View(view)

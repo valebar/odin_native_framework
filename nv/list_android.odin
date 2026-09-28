@@ -17,9 +17,9 @@ _list_init :: proc(h: ^List_Handle) {
 	list_view_set_adapter(env, lv, adapter)
 	adapter_view_set_on_item_click_listener(env, lv, adapter)
 
-	h.root = View(jni_new_global_ref(env, lv))
+	h.root = View(android_own_ref(env, lv))
 	h.table = rawptr(h.root)
-	h.data_source = rawptr(jni_new_global_ref(env, adapter))
+	h.data_source = rawptr(android_own_ref(env, adapter))
 	jni_delete_local_ref(env, adapter)
 	jni_delete_local_ref(env, lv)
 }

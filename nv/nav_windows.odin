@@ -11,7 +11,7 @@ package nv
 import "core:slice"
 import win "core:sys/windows"
 
-@(private) WM_NV_DESTROY :: win.WM_APP + 1 // lparam: the HWND to destroy
+@(private) WM_NV_DESTROY :: win.WM_APP + 1 // lparam: the HWND to destroy; wparam: a ^Scope to retire after it, or 0
 
 // Segoe MDL2 Assets glyphs by Icon; "" shows the title as text.
 @(private) mdl2_glyphs := [Icon]string{
@@ -72,7 +72,8 @@ _nav_pop :: proc(top, below: ^Page_Handle) -> bool {
 
 @(private)
 _nav_release :: proc(e: ^Page_Handle) {
-	win.PostMessageW(g_windows.root, WM_NV_DESTROY, 0, win.LPARAM(uintptr(e.root)))
+	// The scope goes after the tree: DestroyWindow's WM_NCDESTROYs still read the widget handles.
+	win.PostMessageW(g_windows.root, WM_NV_DESTROY, win.WPARAM(uintptr(e.scope)), win.LPARAM(uintptr(e.root)))
 }
 
 // The bar shows the top page only; a lower page's changes are picked up when it is shown again.
@@ -196,6 +197,7 @@ nav_proc :: proc "system" (hwnd: win.HWND, msg: win.UINT, wparam: win.WPARAM, lp
 		return ctlcolor_static(wparam, lparam)
 	case WM_NV_DESTROY:
 		win.DestroyWindow(win.HWND(uintptr(lparam)))
+		scope_retire((^Scope)(uintptr(wparam)))
 		return 0
 	}
 	return win.DefWindowProcW(hwnd, msg, wparam, lparam)

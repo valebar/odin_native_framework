@@ -26,10 +26,10 @@ _canvas_init :: proc(h: ^Canvas_Handle) {
 	cap := paint_cap_value_of(env, "ROUND")
 	paint_set_stroke_cap(env, stroke, cap)
 
-	h.root = View(jni_new_global_ref(env, v))
+	h.root = View(android_own_ref(env, v))
 	h.view = rawptr(h.root)
-	h.fill = rawptr(jni_new_global_ref(env, fill))
-	h.stroke = rawptr(jni_new_global_ref(env, stroke))
+	h.fill = rawptr(android_own_ref(env, fill))
+	h.stroke = rawptr(android_own_ref(env, stroke))
 	jni_delete_local_ref(env, cap)
 	jni_delete_local_ref(env, style)
 	jni_delete_local_ref(env, stroke)

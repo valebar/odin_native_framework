@@ -15,11 +15,11 @@ when !IS_IOS {
 @(private)
 _list_init :: proc(h: ^List_Handle) {
 	frame := NS.Rect{{0, 0}, {400, 600}}
-	scroll := scroll_view_new(frame)
+	scroll := objc_own(scroll_view_new(frame))
 	scroll_view_set_has_vertical_scroller(scroll, true)
 	view_set_autoresizing(scroll, RESIZE_WIDTH | RESIZE_HEIGHT)
 
-	table := table_view_new(frame)
+	table := objc_own(table_view_new(frame)) // the scroll view retains it too (setDocumentView:)
 	table_view_set_style(table, Table_View_Style_Plain)
 	table_view_set_header_view(table, nil)
 	table_view_set_row_height(table, NS.Float(h.list.item_height))
@@ -29,9 +29,11 @@ _list_init :: proc(h: ^List_Handle) {
 	table_view_add_column(table, col)
 	col->release()
 
-	ds := list_data_source_alloc(h)
-	table_view_set_data_source(table, ds)
+	ds := objc_own(list_data_source_alloc(h))
+	table_view_set_data_source(table, ds) // both weak
 	table_view_set_delegate(table, ds)
+	objc_clear_data_source_on_dispose(table)
+	objc_clear_delegate_on_dispose(table)
 
 	scroll_view_set_document_view(scroll, table)
 	table_view_size_last_column_to_fit(table)

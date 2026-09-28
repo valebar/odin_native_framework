@@ -7,7 +7,8 @@ package nv
 // to its ancestors only, so the scrim blocks the page from the pointer by existing; the keyboard
 // is blocked by making the stack and the header bar's buttons insensitive while a modal dialog is
 // visible. The card and the scrim hold a reference of their own (ref_sink) that goes in an idle
-// callback, since the close often runs inside one of the card's own buttons' "clicked" emission.
+// callback, since the close often runs inside one of the card's own buttons' "clicked" emission;
+// the body's scope is retired by the idle after them, once the card and the body are finalized.
 
 @(private)
 _dialog_show :: proc(h: ^Dialog_Handle) {
@@ -45,7 +46,15 @@ _dialog_close :: proc(h: ^Dialog_Handle) {
 		gtk_overlay_remove_overlay(g_linux.overlay, (^GtkWidget)(w))
 		g_idle_add(unref_widget_idle, w)
 	}
+	g_idle_add(dialog_retire_idle, h.scope) // same priority: runs after the unrefs
 	linux_dialog_apply_modal()
+}
+
+@(private)
+dialog_retire_idle :: proc "c" (data: gpointer) -> gboolean {
+	context = g_linux.ctx
+	scope_retire((^Scope)(data))
+	return G_SOURCE_REMOVE
 }
 
 @(private)

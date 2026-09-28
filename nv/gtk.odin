@@ -163,6 +163,7 @@ foreign gtk {
 	gtk_css_provider_new              :: proc() -> ^GtkCssProvider ---
 	gtk_css_provider_load_from_data   :: proc(provider: ^GtkCssProvider, data: cstring, length: int) --- // every 4.x (4.12+ prefers load_from_string)
 	gtk_style_context_add_provider_for_display :: proc(display: ^GdkDisplay, provider: gpointer, priority: guint) ---
+	gtk_style_context_remove_provider_for_display :: proc(display: ^GdkDisplay, provider: gpointer) ---
 	gdk_display_get_default           :: proc() -> ^GdkDisplay ---
 
 	gtk_scrolled_window_new       :: proc() -> ^GtkWidget ---

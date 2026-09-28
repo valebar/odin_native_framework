@@ -42,8 +42,8 @@ _dialog_show :: proc(h: ^Dialog_Handle) {
 	ios_dialog_apply_modal()
 }
 
-// The body's own reference goes with the card's: autoreleased, since the close often runs from
-// one of the body's buttons.
+// The card and the scrim are autoreleased, since the close often runs from one of the body's
+// buttons; the body's views go with the dialog's scope.
 @(private)
 _dialog_close :: proc(h: ^Dialog_Handle) {
 	for v in ([]rawptr{h.card, h.scrim}) {
@@ -52,7 +52,7 @@ _dialog_close :: proc(h: ^Dialog_Handle) {
 		send(nil, (^NS.Object)(v), "autorelease")
 		ui_view_remove_from_superview((^UI_View)(v)) // also drops the constraints that mention it
 	}
-	send(nil, (^NS.Object)(h.body), "autorelease")
+	scope_retire(h.scope)
 	ios_dialog_apply_modal()
 }
 

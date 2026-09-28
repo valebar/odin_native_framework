@@ -15,7 +15,7 @@ when IS_IOS {
 
 @(private)
 _input_init :: proc(h: ^Input_Handle) {
-	field := ui_text_field_new()
+	field := objc_own(ui_text_field_new())
 	ui_text_field_set_border_style(field, UI_TEXT_BORDER_STYLE_ROUNDED_RECT)
 	ui_text_field_set_return_key_type(field, UI_RETURN_KEY_DONE)
 	ui_text_field_set_text(field, ns_string(h.input.text))
@@ -24,7 +24,7 @@ _input_init :: proc(h: ^Input_Handle) {
 		send(nil, field, "setFont:", text_font(h.input.font, h.input.size != 0 ? h.input.size : 17, false))
 	}
 
-	t := input_target_alloc(h) // not retained by the field; lives as long as the handle
+	t := objc_own(input_target_alloc(h)) // not retained by the field; lives as long as the handle's scope
 	ui_control_add_target(field, t, intrinsics.objc_find_selector("nvChanged:"), UI_CONTROL_EVENT_EDITING_CHANGED)
 	ui_control_add_target(field, t, intrinsics.objc_find_selector("nvSubmit:"), UI_CONTROL_EVENT_EDITING_DID_END_ON_EXIT)
 

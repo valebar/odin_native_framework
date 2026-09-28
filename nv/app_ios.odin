@@ -18,6 +18,8 @@ when IS_IOS {
 	nav:          ^UI_Navigation_Controller, // owned by the window
 	nav_delegate: NS.id,                     // NVNavDelegate; the controller's delegate is weak
 	nav_target:   NS.id,                     // NVNavTarget: receives the bar button items' actions
+	popping:      ^Page_Handle,              // set by _nav_pop for the _nav_release that follows
+	retiring:     [dynamic]^Scope,           // scopes of pages pop() removed, until nav_did_show
 }
 
 @(private)

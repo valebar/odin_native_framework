@@ -20,7 +20,7 @@ _container_init :: proc(h: ^Container_Handle) {
 	m := c.margin
 	inset := inset_drawable_new(env, bg, android_dp(m.left), android_dp(m.top), android_dp(m.right), android_dp(m.bottom))
 	view_set_background(env, view, inset)
-	h.box = rawptr(jni_new_global_ref(env, bg))
+	h.box = rawptr(android_own_ref(env, bg))
 
 	f := container_frame(h)
 	view_set_padding(env, view, android_dp(f.left), android_dp(f.top), android_dp(f.right), android_dp(f.bottom))
@@ -34,7 +34,7 @@ _container_init :: proc(h: ^Container_Handle) {
 		jni_delete_local_ref(env, lp)
 	}
 
-	h.root = View(jni_new_global_ref(env, view))
+	h.root = View(android_own_ref(env, view))
 	jni_delete_local_ref(env, inset)
 	jni_delete_local_ref(env, bg)
 	jni_delete_local_ref(env, view)

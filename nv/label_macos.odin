@@ -11,7 +11,7 @@ _label_init :: proc(h: ^Label_Handle) {
 	label := text_field_label(ns_string(h.label.text)) // autoreleased; *_create returns owned views
 	size := h.label.size != 0 ? h.label.size : (h.label.bold ? 17 : 15)
 	text_field_set_font(label, (^NS_Font)(text_font(h.label.font, size, h.label.bold)))
-	label->retain()
+	objc_own(label)->retain()
 
 	h.root = View(label)
 }

@@ -30,12 +30,12 @@ _nav_pop :: proc(top, below: ^Page_Handle) -> bool {
 	return true
 }
 
-// Autoreleased rather than released: when pop() runs from a button on the page itself, the
-// container already dropped its reference in removeFromSuperview and the button's action is
-// still on the stack. The pool drains once the event is handled.
+// _nav_pop already removed the root from the window, so the scope can go: it autoreleases the
+// page's views rather than releasing them, since when pop() runs from a button on the page itself
+// the button's action is still on the stack. The pool drains once the event is handled.
 @(private)
 _nav_release :: proc(e: ^Page_Handle) {
-	send(nil, (^NS.Object)(e.root), "autorelease")
+	scope_retire(e.scope)
 }
 
 // The bar shows the top page only; a lower page's changes are picked up when it is shown again.

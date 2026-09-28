@@ -22,9 +22,9 @@ _input_init :: proc(h: ^Input_Handle) {
 	text_view_add_text_changed_listener(env, et, listener)
 	text_view_set_on_editor_action_listener(env, et, listener)
 
-	h.root = View(jni_new_global_ref(env, et))
+	h.root = View(android_own_ref(env, et))
 	h.field = rawptr(h.root)
-	h.delegate = rawptr(jni_new_global_ref(env, listener))
+	h.delegate = rawptr(android_own_ref(env, listener))
 	jni_delete_local_ref(env, listener)
 	jni_delete_local_ref(env, et)
 }

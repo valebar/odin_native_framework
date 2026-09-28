@@ -7,7 +7,7 @@ when IS_IOS {
 
 @(private)
 _label_init :: proc(h: ^Label_Handle) {
-	label := ui_label_new() // owned
+	label := objc_own(ui_label_new())
 	ui_label_set_text(label, ns_string(h.label.text))
 	size := h.label.size != 0 ? h.label.size : 17
 	ui_label_set_font(label, (^UI_Font)(text_font(h.label.font, size, h.label.bold)))

@@ -33,8 +33,9 @@ _container_init :: proc(h: ^Container_Handle) {
 	gtk_widget_set_vexpand(box, false)
 
 	g_container_seq += 1
-	lc := new(Linux_Container)
+	lc := scope_new_in(Linux_Container)
 	lc^ = {gtk_css_provider_new(), g_container_seq}
+	scope_on_dispose(container_dispose, lc)
 	gtk_widget_add_css_class(box, strings.clone_to_cstring(fmt.tprintf("nv-c%d", lc.seq), context.temp_allocator))
 	gtk_style_context_add_provider_for_display(gdk_display_get_default(), lc.provider, GTK_STYLE_PROVIDER_PRIORITY_APPLICATION)
 	h.box = lc
@@ -47,6 +48,14 @@ _container_init :: proc(h: ^Container_Handle) {
 		gtk_widget_set_vexpand(child, true)
 		gtk_box_append(box, child)
 	}
+}
+
+// The provider stays on the display (and keeps its rule) until the container's scope dies.
+@(private)
+container_dispose :: proc(data: rawptr) {
+	lc := (^Linux_Container)(data)
+	gtk_style_context_remove_provider_for_display(gdk_display_get_default(), lc.provider)
+	g_object_unref(lc.provider)
 }
 
 @(private)

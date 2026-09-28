@@ -46,7 +46,8 @@ _dialog_close :: proc(h: ^Dialog_Handle) {
 	for w in ([]rawptr{h.card, h.scrim}) {
 		if w == nil do continue
 		win.ShowWindow(win.HWND(w), win.SW_HIDE)
-		win.PostMessageW(g_windows.root, WM_NV_DESTROY, 0, win.LPARAM(uintptr(w)))
+		scope := w == h.card ? h.scope : nil // the body dies with the card
+		win.PostMessageW(g_windows.root, WM_NV_DESTROY, win.WPARAM(uintptr(scope)), win.LPARAM(uintptr(w)))
 	}
 	dialog_apply_modal()
 }

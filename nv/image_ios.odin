@@ -23,12 +23,12 @@ _image_init :: proc(h: ^Image_Handle) {
 		{"intrinsicContentSize", auto_cast image_intrinsic_size, "{CGSize=dd}@:"},
 	})
 	obj := objc_alloc_with_handle(cls, h)
-	view := send(^UI_View, (^UI_View)(obj), "initWithFrame:", NS.Rect{})
+	view := objc_own(send(^UI_View, (^UI_View)(obj), "initWithFrame:", NS.Rect{}))
 	send(nil, view, "setContentMode:", image_content_modes[h.image.fit])
 	send(nil, view, "setClipsToBounds:", NS.BOOL(true))
 
 	h.root = View(view)
-	h.view = send(^UI_View, view, "retain") // the handle's own reference: a download may land after its page popped
+	h.view = view
 	_image_set_bitmap(h)
 }
 

@@ -12,7 +12,7 @@ when !IS_IOS {
 
 @(private)
 _flex_create :: proc(f: Flex) -> View {
-	stack := stack_view_new({{0, 0}, {400, 600}})
+	stack := objc_own(stack_view_new({{0, 0}, {400, 600}})) // arranged subviews are retained by the stack
 	stack_view_set_orientation(stack, NS.Integer(f.axis))
 	stack_view_set_spacing(stack, NS.Float(f.spacing))
 	stack_view_set_distribution(stack, STACK_DISTRIBUTION_FILL)

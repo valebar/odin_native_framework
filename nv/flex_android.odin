@@ -33,7 +33,7 @@ _flex_create :: proc(f: Flex) -> View {
 		jni_delete_local_ref(env, lp)
 	}
 
-	root := jni_new_global_ref(env, ll)
+	root := android_own_ref(env, ll)
 	jni_delete_local_ref(env, ll)
 	return View(root)
 }

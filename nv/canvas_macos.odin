@@ -21,7 +21,7 @@ _canvas_init :: proc(h: ^Canvas_Handle) {
 		{"mouseUp:", auto_cast canvas_mouse_up, "v@:@"},
 	})
 	obj := objc_alloc_with_handle(cls, h)
-	view := send(^NS.View, (^NS.View)(obj), "initWithFrame:", NS.Rect{{0, 0}, {400, 300}})
+	view := objc_own(send(^NS.View, (^NS.View)(obj), "initWithFrame:", NS.Rect{{0, 0}, {400, 300}}))
 
 	h.root = View(view)
 	h.view = view

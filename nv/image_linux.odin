@@ -74,7 +74,7 @@ _image_init :: proc(h: ^Image_Handle) {
 	area := gtk_drawing_area_new()
 	gtk_drawing_area_set_draw_func(area, rawptr(on_image_draw), h, nil)
 	h.root = View(area)
-	h.view = g_object_ref_sink(area) // the handle's own reference: a download may land after its page popped
+	h.view = area // owned by the tree; a download that lands after the scope died is dropped (image_dispose)
 	image_update_size(h)
 }
 

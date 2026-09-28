@@ -52,7 +52,7 @@ _image_init :: proc(h: ^Image_Handle) {
 	v := nv_image_view_new(env, g_android.activity)
 	scale := image_view_scale_type_value_of(env, image_scale_types[h.image.fit])
 	image_view_set_scale_type(env, v, scale)
-	h.root = View(jni_new_global_ref(env, v)) // also the handle's reference: a download may land after its page popped
+	h.root = View(android_own_ref(env, v))
 	h.view = rawptr(h.root)
 	jni_delete_local_ref(env, scale)
 	jni_delete_local_ref(env, v)

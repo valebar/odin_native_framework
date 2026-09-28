@@ -14,9 +14,9 @@ when !IS_IOS {
 
 @(private)
 _button_init :: proc(h: ^Button_Handle) {
-	t := button_target_alloc(h) // weak target; lives as long as the handle
+	t := objc_own(button_target_alloc(h)) // weak target; lives as long as the handle's scope
 	button := button_push(ns_string(h.button.title), t, intrinsics.objc_find_selector("nvClick:")) // autoreleased
-	button->retain() // *_create returns owned views
+	objc_own(button)->retain()
 	if h.button.font != nil || h.button.size != 0 { // else the button's own 13pt system font
 		send(nil, button, "setFont:", text_font(h.button.font, h.button.size != 0 ? h.button.size : 13, false))
 	}

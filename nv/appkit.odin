@@ -52,6 +52,30 @@ objc_handle :: #force_inline proc "c" (self: NS.id, $T: typeid) -> ^T {
 	return (^^T)(NS.object_getIndexedIvars(self))^
 }
 
+// Hands the creator's +1 on `obj` to the current scope (see Scope), which autoreleases it when
+// the page or dialog body dies: autoreleased, not released, since that may happen right after a
+// pop from the object's own action. Parents hold references of their own (addSubview,
+// addArrangedSubview), so the views go once the tree is gone.
+objc_own :: proc(obj: $T) -> T {
+	scope_on_dispose(objc_autorelease, rawptr(obj))
+	return obj
+}
+
+@(private)
+objc_autorelease :: proc(data: rawptr) {
+	send(nil, (^NS.Object)(data), "autorelease")
+}
+
+// Weak delegate / data source slots are cleared when the scope dies, so a view that outlives its
+// delegate for a moment (the autorelease pool drains in any order) never calls a dead one.
+objc_clear_delegate_on_dispose :: proc(obj: rawptr) {
+	scope_on_dispose(proc(data: rawptr) { send(nil, (^NS.Object)(data), "setDelegate:", NS.id(nil)) }, obj)
+}
+
+objc_clear_data_source_on_dispose :: proc(obj: rawptr) {
+	scope_on_dispose(proc(data: rawptr) { send(nil, (^NS.Object)(data), "setDataSource:", NS.id(nil)) }, obj)
+}
+
 // SF Symbol names by Icon (macOS 11+ / iOS 13+); "" shows the title as text.
 @(private) sf_symbol_names := [Icon]string{
 	.None     = "",

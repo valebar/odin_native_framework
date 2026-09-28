@@ -77,13 +77,22 @@ _nav_push :: proc(e: ^Page_Handle) {
 // UIKit refuses a pop while another transition is still animating and returns nil.
 @(private)
 _nav_pop :: proc(top, below: ^Page_Handle) -> bool {
-	return ui_navigation_controller_pop(g_app.nav, true) != nil
+	if ui_navigation_controller_pop(g_app.nav, true) == nil do return false
+	g_app.popping = top
+	return true
 }
 
-// The page's container view still holds the root through the pop animation.
+// A page popped by pop() is still on screen for the pop animation (drawRect:, table cells and
+// touches can still reach its handles), so its scope waits for nav_did_show. A back button or
+// swipe reaches here from nav_did_show, after the transition.
 @(private)
 _nav_release :: proc(e: ^Page_Handle) {
-	send(nil, (^NS.Object)(e.root), "release")
+	if e == g_app.popping {
+		g_app.popping = nil
+		append(&g_app.retiring, e.scope)
+	} else {
+		scope_retire(e.scope)
+	}
 }
 
 // navigationController:didShowViewController:animated:. After a programmatic pop() the Odin
@@ -98,6 +107,8 @@ nav_did_show :: proc "c" (self: NS.id, _: NS.SEL, nav: NS.id, _: NS.id, _: NS.BO
 	defer callback_exit()
 	count := int(ui_navigation_controller_view_controllers((^UI_Navigation_Controller)(nav))->count())
 	for len(g_nav) > count do nav_system_pop()
+	for s in g_app.retiring do scope_retire(s) // the popped pages' animations are over
+	clear(&g_app.retiring)
 }
 
 }

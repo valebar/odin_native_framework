@@ -18,8 +18,8 @@ import win "core:sys/windows"
 _flex_create :: proc(f: Flex) -> View {
 	box := win.CreateWindowExW(0, wstr(CLASS_FLEX), nil, win.WS_CHILD | win.WS_VISIBLE | win.WS_CLIPCHILDREN,
 		0, 0, 0, 0, g_windows.parking, nil, g_windows.hinstance, nil)
-	d := new(Flex_Data)
-	d^ = {f.axis, px(f.spacing), slice.clone(f.children)}
+	d := scope_new_in(Flex_Data) // lives as long as the page: its scope dies after the window
+	d^ = {f.axis, px(f.spacing), slice.clone(f.children, scope_allocator(scope_current()))}
 	for c in f.children do win.SetParent(win.HWND(c.view), box)
 	win.SetWindowLongPtrW(box, win.GWLP_USERDATA, win.LONG_PTR(uintptr(d)))
 	return View(box)
@@ -56,12 +56,6 @@ flex_proc :: proc "system" (hwnd: win.HWND, msg: win.UINT, wparam: win.WPARAM, l
 	case win.WM_ERASEBKGND: // the class brush would paint the window color over a container's fill
 		erase_background(hwnd, win.HDC(wparam))
 		return 1
-	case win.WM_NCDESTROY: // a popped page is destroyed with its children
-		if d := flex_data(hwnd); d != nil {
-			delete(d.children)
-			free(d)
-		}
-		return 0
 	}
 	return win.DefWindowProcW(hwnd, msg, wparam, lparam)
 }

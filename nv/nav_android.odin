@@ -39,7 +39,7 @@ _nav_pop :: proc(top, below: ^Page_Handle) -> bool {
 
 @(private)
 _nav_release :: proc(e: ^Page_Handle) {
-	jni_delete_global_ref(g_android.env, jobject(e.root))
+	scope_retire(e.scope) // setContentView already detached it; the scope holds the global refs
 }
 
 @(private)

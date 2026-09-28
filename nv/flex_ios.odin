@@ -10,7 +10,7 @@ when IS_IOS {
 
 @(private)
 _flex_create :: proc(f: Flex) -> View {
-	stack := ui_stack_view_new()
+	stack := objc_own(ui_stack_view_new()) // arranged subviews are retained by the stack
 	ui_stack_view_set_axis(stack, NS.Integer(f.axis))
 	ui_stack_view_set_spacing(stack, NS.Float(f.spacing))
 

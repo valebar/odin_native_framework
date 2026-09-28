@@ -45,7 +45,8 @@ jni_on_create :: proc "c" (env: JNI_Env, _: jclass, activity: jobject) {
 		defer callback_exit()
 		for len(g_nav) > 1 do nav_system_pop() // pushed pages are gone with the old Activity
 		dialog_close_page(g_nav[0]) // and so are the root's dialogs
-		jni_delete_global_ref(env, jobject(g_nav[0].root))
+		scope_retire(g_nav[0].scope) // the old root's widgets, once this callback returns
+		g_nav[0].scope = scope_new()
 		g_nav[0].root = nil // rebuilt by set_content; nil means "building" to page_set_*
 		set_content()
 		return
@@ -122,4 +123,18 @@ logcat_pump :: proc "c" (arg: rawptr) -> rawptr {
 		buf[n] = 0
 		__android_log_write(ANDROID_LOG_INFO, "nv", cstring(&buf[0]))
 	}
+}
+
+// A global ref to `obj` that the current scope deletes when it dies: every widget's views,
+// listeners and Paints, so a popped page's Java objects become collectable.
+@(private)
+android_own_ref :: proc(env: JNI_Env, obj: jobject) -> jobject {
+	ref := jni_new_global_ref(env, obj)
+	scope_on_dispose(android_release_ref, rawptr(ref))
+	return ref
+}
+
+@(private)
+android_release_ref :: proc(data: rawptr) {
+	jni_delete_global_ref(g_android.env, jobject(data))
 }

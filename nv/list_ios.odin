@@ -11,14 +11,16 @@ when IS_IOS {
 
 @(private)
 _list_init :: proc(h: ^List_Handle) {
-	table := ui_table_view_new(UI_TABLE_VIEW_STYLE_PLAIN)
+	table := objc_own(ui_table_view_new(UI_TABLE_VIEW_STYLE_PLAIN))
 	// Self-sizing rows; item_height is only an estimate since UIKit's subtitle cell needs ~60pt.
 	ui_table_view_set_row_height(table, UI_TABLE_VIEW_AUTOMATIC_DIMENSION)
 	ui_table_view_set_estimated_row_height(table, NS.Float(h.list.item_height))
 
-	ds := list_data_source_alloc(h)
-	ui_table_view_set_data_source(table, ds)
+	ds := objc_own(list_data_source_alloc(h))
+	ui_table_view_set_data_source(table, ds) // both weak
 	ui_table_view_set_delegate(table, ds)
+	objc_clear_data_source_on_dispose(table)
+	objc_clear_delegate_on_dispose(table)
 
 	h.root = View(table)
 	h.table = table

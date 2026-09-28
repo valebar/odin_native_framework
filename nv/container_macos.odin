@@ -19,7 +19,7 @@ _container_init :: proc(h: ^Container_Handle) {
 		{"intrinsicContentSize", auto_cast container_intrinsic_size, "{CGSize=dd}@:"},
 	})
 	obj := objc_alloc_with_handle(cls, h)
-	root := send(^NS.View, (^NS.View)(obj), "initWithFrame:", NS.Rect{})
+	root := objc_own(send(^NS.View, (^NS.View)(obj), "initWithFrame:", NS.Rect{}))
 	c := &h.container
 
 	box := box_new({})
@@ -35,7 +35,7 @@ _container_init :: proc(h: ^Container_Handle) {
 	if c.child != nil {
 		child := (^NS.View)(c.child)
 		view_set_translates_autoresizing_mask(child, false)
-		box_content_view(box)->addSubview(child) // the child keeps the app's +1, like a stack's arranged subview
+		box_content_view(box)->addSubview(child) // retains it; the child's +1 belongs to its creator's scope
 		b := c.border_width
 		layout_pin_insets(child, box, NS.Float(c.padding.top + b), NS.Float(c.padding.left + b), NS.Float(c.padding.bottom + b), NS.Float(c.padding.right + b))
 	}

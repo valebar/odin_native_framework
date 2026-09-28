@@ -75,7 +75,7 @@ _dialog_close :: proc(h: ^Dialog_Handle) {
 		}
 		jni_delete_global_ref(env, jobject(v))
 	}
-	jni_delete_global_ref(env, jobject(h.body)) // the card held the only other reference
+	scope_retire(h.scope) // the body's global refs
 }
 
 @(private)

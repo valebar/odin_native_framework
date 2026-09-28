@@ -56,7 +56,8 @@ List_Handle :: struct {
 	cells_created: int,    // debug: proves reuse (always 0 on Windows: the virtual ListView has no row objects)
 }
 
-// Temp memory belongs to the callback in progress and is freed when the outermost one returns.
+// Temp memory belongs to the callback in progress and is freed when the outermost one returns,
+// after the scopes retired meanwhile (see Scope) were destroyed.
 // Callbacks nest: an on_click that calls input_set_text, list_reload or push can trigger a change
 // notification, a row callback or a page build, and a Win32 layout re-enters the procs of nested
 // views. An inner callback that freed would wipe strings the outer one (and the app) still holds.
@@ -72,14 +73,18 @@ callback_enter :: proc "contextless" () {
 @(private)
 callback_exit :: proc() {
 	g_callback_depth -= 1
-	if g_callback_depth == 0 do free_all(context.temp_allocator)
+	if g_callback_depth > 0 do return
+	scope_flush_retired()
+	free_all(context.temp_allocator)
 }
 
 // One screen of the navigation stack. `build` runs when the page is pushed and gets the page's
-// handle; `on_pop` runs after the page left the stack and its view was released, so the app can
-// free what `build` created (it is the last call the page's handle is valid for). `actions` are
-// the trailing buttons of the page's bar (Flutter's AppBar.actions). Dialogs shown while the page
-// is on top belong to it: they hide under a pushed page and close when the page pops.
+// handle; `on_pop` runs after the page left the stack, so the app can free its own data (it is
+// the last call the page's handle is valid for). The widgets created while the page was on top
+// belong to it, and their handles stay valid through `on_pop`: nv frees them, with their native
+// views, once the page's views are gone. `actions` are the trailing buttons of the page's bar
+// (Flutter's AppBar.actions). Dialogs shown while the page is on top belong to it: they hide under
+// a pushed page and close when the page pops.
 Page :: struct {
 	title:   string, // copied
 	build:   Build_Proc,
@@ -111,19 +116,22 @@ Action :: struct {
 }
 
 // A page on the stack, from `run` / `push` until its `on_pop` returned. Heap-allocated, so the
-// pointer is stable while the stack grows.
+// pointer is stable while the stack grows. The page's widgets live in its `scope`, which outlives
+// the handle: the backend retires it once the popped page's views are gone (`_nav_release`).
 Page_Handle :: struct {
 	page:    Page,                    // page.title is an owned copy; page.actions is not used past push
 	root:    View,                    // owned; nil while `build` runs and once released
 	actions: [dynamic]^Action_Handle, // owned; freed by nav_actions_free
 	native:  rawptr,                  // backend per-page object: the UIViewController on iOS
+	scope:   ^Scope,                  // the page's widgets; handed to the backend by _nav_release
 }
 
 // The page stack: g_nav[0] is the root page from `run`, the depth is len(g_nav) - 1. Backends
 // implement _run (the platform loop; once views can exist it calls nav_show_root), _nav_push
 // (show the new top page, already in g_nav, with its title and chrome), _nav_pop (the native
 // transition back to `below`, already the top of g_nav; false if the platform refused),
-// _nav_release (drop the ownership of a page's root view), _nav_title_changed and
+// _nav_release (the page left for good: retire `h.scope` once its views are gone; the scope's
+// disposers release the views, the backend only detaches them), _nav_title_changed and
 // _nav_actions_changed (a shown page's title / actions were replaced; it may or may not be the
 // top page, and push / pop read them on their own). They never modify g_nav; a system back (iOS swipe, Android relaunch) that
 // already removed the native page calls nav_system_pop for the bookkeeping. Inside this package
@@ -194,6 +202,7 @@ page_set_actions :: proc(h: ^Page_Handle, actions: []Action) {
 nav_page_new :: proc(p: Page) -> ^Page_Handle {
 	h := new(Page_Handle)
 	h.page = p
+	h.scope = scope_new()
 	h.page.title = strings.clone(p.title)
 	h.page.actions = nil // the app's slice; not kept
 	nav_actions_assign(h, p.actions)
@@ -253,8 +262,8 @@ nav_system_pop :: proc() {
 @(private)
 nav_finish_pop :: proc(top: ^Page_Handle) {
 	dialog_close_page(top)
-	_nav_release(top)
-	top.root, top.native = nil, nil // a page_set_* from on_pop has nothing to show
+	_nav_release(top) // retires top.scope now or later: the widget handles stay valid through on_pop
+	top.root, top.native, top.scope = nil, nil, nil // a page_set_* from on_pop has nothing to show
 	if top.page.on_pop != nil {
 		callback_enter()
 		defer callback_exit()
@@ -312,7 +321,7 @@ action_notify :: proc(h: ^Action_Handle) {
 }
 
 list_create :: proc(l: List) -> ^List_Handle {
-	h := new(List_Handle)
+	h := scope_new_in(List_Handle)
 	h.list = l
 	if h.list.item_height <= 0 do h.list.item_height = 44
 	h.ctx = context
@@ -349,7 +358,8 @@ Flex :: struct {
 	children: []Flex_Child,
 }
 
-// Children are fixed at creation, like Flutter. The returned view owns its children.
+// Children are fixed at creation, like Flutter. Every view lives until the page (or dialog) that
+// created it is gone.
 flex_create :: proc(f: Flex) -> View {
 	return _flex_create(f)
 }
@@ -400,7 +410,7 @@ Container_Handle :: struct {
 }
 
 container_create :: proc(c: Container) -> ^Container_Handle {
-	h := new(Container_Handle)
+	h := scope_new_in(Container_Handle)
 	h.container = c
 	h.ctx = context
 	_container_init(h)
@@ -442,12 +452,20 @@ Label_Handle :: struct {
 }
 
 label_create :: proc(l: Label) -> ^Label_Handle {
-	h := new(Label_Handle)
+	h := scope_new_in(Label_Handle)
 	h.label = l
-	h.label.text = strings.clone(l.text)
+	h.label.text = strings.clone(l.text, runtime.heap_allocator())
 	font_retain(l.font)
+	scope_on_dispose(label_dispose, h)
 	_label_init(h)
 	return h
+}
+
+@(private)
+label_dispose :: proc(data: rawptr) {
+	h := (^Label_Handle)(data)
+	delete(h.label.text, runtime.heap_allocator())
+	font_free(h.label.font)
 }
 
 label_view :: proc(h: ^Label_Handle) -> View {
@@ -457,8 +475,8 @@ label_view :: proc(h: ^Label_Handle) -> View {
 // Replaces the text; `text` is copied. The size of a flex-0 label follows on the next layout.
 label_set_text :: proc(h: ^Label_Handle, text: string) {
 	old := h.label.text
-	h.label.text = strings.clone(text)
-	delete(old)
+	h.label.text = strings.clone(text, runtime.heap_allocator())
+	delete(old, runtime.heap_allocator())
 	_label_set_text(h, text)
 }
 
@@ -484,12 +502,18 @@ Input_Handle :: struct {
 }
 
 input_create :: proc(i: Input) -> ^Input_Handle {
-	h := new(Input_Handle)
+	h := scope_new_in(Input_Handle)
 	h.input = i
 	h.ctx = context
 	font_retain(i.font)
+	scope_on_dispose(input_dispose, h)
 	_input_init(h)
 	return h
+}
+
+@(private)
+input_dispose :: proc(data: rawptr) {
+	font_free((^Input_Handle)(data).input.font)
 }
 
 input_view :: proc(h: ^Input_Handle) -> View {
@@ -535,13 +559,21 @@ Button_Handle :: struct {
 }
 
 button_create :: proc(b: Button) -> ^Button_Handle {
-	h := new(Button_Handle)
+	h := scope_new_in(Button_Handle)
 	h.button = b
-	h.button.title = strings.clone(b.title)
+	h.button.title = strings.clone(b.title, runtime.heap_allocator())
 	h.ctx = context
 	font_retain(b.font)
+	scope_on_dispose(button_dispose, h)
 	_button_init(h)
 	return h
+}
+
+@(private)
+button_dispose :: proc(data: rawptr) {
+	h := (^Button_Handle)(data)
+	delete(h.button.title, runtime.heap_allocator())
+	font_free(h.button.font)
 }
 
 button_view :: proc(h: ^Button_Handle) -> View {
@@ -551,8 +583,8 @@ button_view :: proc(h: ^Button_Handle) -> View {
 // Replaces the title; `title` is copied. The size of a flex-0 button follows on the next layout.
 button_set_title :: proc(h: ^Button_Handle, title: string) {
 	old := h.button.title
-	h.button.title = strings.clone(title)
-	delete(old)
+	h.button.title = strings.clone(title, runtime.heap_allocator())
+	delete(old, runtime.heap_allocator())
 	_button_set_title(h, title)
 }
 
@@ -603,7 +635,7 @@ Painter :: struct {
 }
 
 canvas_create :: proc(c: Canvas) -> ^Canvas_Handle {
-	h := new(Canvas_Handle)
+	h := scope_new_in(Canvas_Handle)
 	h.canvas = c
 	h.ctx = context
 	_canvas_init(h)
@@ -839,21 +871,32 @@ Image_Handle :: struct {
 	view:   rawptr,  // NVImageView* / ImageView / GtkDrawingArea* / NVImage HWND; the handle holds a reference
 	bitmap: ^Bitmap, // the one shown; owned reference
 	seq:    int,     // bumped by every image_set_bitmap, so a fetch that lost the race is dropped
+	fetch:  ^Image_Fetch, // the download of `url` in flight; the handle's death detaches it
 }
 
 image_create :: proc(i: Image) -> ^Image_Handle {
-	h := new(Image_Handle)
+	h := scope_new_in(Image_Handle)
 	h.image = i
 	h.image.bitmap, h.image.url = nil, ""
 	h.ctx = context
 	h.bitmap = bitmap_retain(i.bitmap)
+	scope_on_dispose(image_dispose, h)
 	_image_init(h)
 	if i.bitmap == nil && i.url != "" {
-		t := new(Image_Fetch)
+		// On the heap: the download can land after the page and its scope are gone.
+		t := new(Image_Fetch, runtime.heap_allocator())
 		t^ = {h, h.seq}
+		h.fetch = t
 		bitmap_fetch(i.url, image_fetched, t)
 	}
 	return h
+}
+
+@(private)
+image_dispose :: proc(data: rawptr) {
+	h := (^Image_Handle)(data)
+	if h.fetch != nil do h.fetch.h = nil // the download lands on nothing
+	bitmap_free(h.bitmap)
 }
 
 image_view :: proc(h: ^Image_Handle) -> View {
@@ -870,15 +913,18 @@ image_set_bitmap :: proc(h: ^Image_Handle, b: ^Bitmap) {
 }
 
 @(private) Image_Fetch :: struct {
-	h:   ^Image_Handle,
+	h:   ^Image_Handle, // nil once the handle's scope died
 	seq: int,
 }
 
 @(private)
 image_fetched :: proc(user: rawptr, b: ^Bitmap) {
 	t := (^Image_Fetch)(user)
-	defer free(t)
-	if t.h.seq == t.seq && b != nil do image_set_bitmap(t.h, b)
+	defer free(t, runtime.heap_allocator())
+	if t.h != nil {
+		t.h.fetch = nil
+		if t.h.seq == t.seq && b != nil do image_set_bitmap(t.h, b)
+	}
 	bitmap_free(b)
 }
 
@@ -936,6 +982,7 @@ Dialog_Handle :: struct {
 	card:    rawptr,               // NSBox* / UIView* / FrameLayout global ref / GtkBox* / NVDialog HWND
 	scrim:   rawptr,               // the dimming layer, modal only
 	hidden:  bool,                 // another page is on top of its page
+	scope:   ^Scope,               // the body's widgets; handed to the backend by _dialog_close
 }
 
 @(private) Dialog_Button_Handle :: struct {
@@ -974,8 +1021,8 @@ dialog_show :: proc(d: Dialog) -> ^Dialog_Handle {
 	return h
 }
 
-// Removes the dialog, calls `on_close` and frees the handle. The widget handles of the title and
-// the buttons leak, like a popped page's: handles have no destroy.
+// Removes the dialog, calls `on_close` and frees the handle. The title and the buttons live in the
+// dialog's own scope, which the backend retires once the card is gone.
 dialog_close :: proc(h: ^Dialog_Handle) {
 	if i, found := slice.linear_search(g_dialogs_pending[:], h); found {
 		ordered_remove(&g_dialogs_pending, i) // never shown: nothing to take down
@@ -983,8 +1030,8 @@ dialog_close :: proc(h: ^Dialog_Handle) {
 		i, found := slice.linear_search(g_dialogs[:], h)
 		if !found do return
 		ordered_remove(&g_dialogs, i) // before _dialog_close: the backend reads dialog_top_modal for the state after
-		_dialog_close(h)
-		h.card, h.scrim, h.body = nil, nil, nil
+		_dialog_close(h) // retires h.scope now or later
+		h.card, h.scrim, h.body, h.scope = nil, nil, nil, nil
 	}
 	if h.dialog.on_close != nil {
 		callback_enter()
@@ -996,8 +1043,13 @@ dialog_close :: proc(h: ^Dialog_Handle) {
 
 // Builds the body from the framework's own widgets, so the backends only add the card and the
 // scrim: a Column of the title (a bold label), the content and a Row of the buttons (equal widths).
+// These belong to the dialog's scope; the app's `content` stays in the page's.
 @(private)
 dialog_present :: proc(h: ^Dialog_Handle) {
+	h.scope = scope_new()
+	outer := g_scope_override
+	g_scope_override = h.scope
+	defer g_scope_override = outer
 	children := make([dynamic]Flex_Child, context.temp_allocator)
 	if h.dialog.title != "" {
 		h.title = label_create({text = h.dialog.title, bold = true})

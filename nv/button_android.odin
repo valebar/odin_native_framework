@@ -15,9 +15,9 @@ _button_init :: proc(h: ^Button_Handle) {
 	listener := nv_click_listener_new(env, i64(uintptr(h)))
 	view_set_on_click_listener(env, b, listener)
 
-	h.root = View(jni_new_global_ref(env, b))
+	h.root = View(android_own_ref(env, b))
 	h.control = rawptr(h.root)
-	h.target = rawptr(jni_new_global_ref(env, listener))
+	h.target = rawptr(android_own_ref(env, listener))
 	jni_delete_local_ref(env, listener)
 	jni_delete_local_ref(env, b)
 }

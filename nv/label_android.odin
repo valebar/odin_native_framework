@@ -18,7 +18,7 @@ _label_init :: proc(h: ^Label_Handle) {
 	size := h.label.size != 0 ? h.label.size : (h.label.bold ? 20 : 16) // sp
 	android_apply_font(env, tv, h.label.font, size)
 
-	h.root = View(jni_new_global_ref(env, tv))
+	h.root = View(android_own_ref(env, tv))
 	jni_delete_local_ref(env, tv)
 }
 

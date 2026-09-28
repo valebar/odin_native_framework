@@ -18,7 +18,7 @@ import "core:strings"
 	actions: [dynamic]^GtkWidget, // the top page's action buttons, packed at the end of the header
 	overlay: ^GtkWidget, // the window child: the stack below, dialogs on top
 	stack:  ^GtkWidget, // one child per page
-	dying:  [dynamic]^GtkWidget, // popped pages waiting for the slide animation to end
+	dying:  [dynamic]Linux_Dying, // popped pages waiting for the slide animation to end
 }
 
 // GTK4's default theme has no card style (libadwaita's .card), so the dialog brings its own,

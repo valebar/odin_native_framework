@@ -38,15 +38,23 @@ _nav_pop :: proc(top, below: ^Page_Handle) -> bool {
 	return true
 }
 
+// A popped page and its scope, until the slide ends.
+@(private) Linux_Dying :: struct {
+	root:  ^GtkWidget,
+	scope: ^Scope,
+}
+
 // Removing a page from the stack while it slides out would cut the animation short (and could
-// finalize a button inside its own "clicked" emission), so it waits for the transition to end.
+// finalize a button inside its own "clicked" emission), so it waits for the transition to end; the
+// sliding page still draws and lays out, so its scope waits with it.
 @(private)
 _nav_release :: proc(e: ^Page_Handle) {
 	root := (^GtkWidget)(e.root)
 	if gtk_stack_get_transition_running(g_linux.stack) {
-		append(&g_linux.dying, root)
+		append(&g_linux.dying, Linux_Dying{root, e.scope})
 	} else {
 		gtk_stack_remove(g_linux.stack, root) // drops the stack's reference: the page tree is finalized
+		scope_retire(e.scope)
 	}
 }
 
@@ -120,6 +128,9 @@ unref_widget_idle :: proc "c" (data: gpointer) -> gboolean {
 on_transition_running :: proc "c" (_: ^GObject, _: rawptr, _: gpointer) {
 	context = g_linux.ctx
 	if gtk_stack_get_transition_running(g_linux.stack) do return
-	for w in g_linux.dying do gtk_stack_remove(g_linux.stack, w)
+	for d in g_linux.dying {
+		gtk_stack_remove(g_linux.stack, d.root)
+		scope_retire(d.scope)
+	}
 	clear(&g_linux.dying)
 }

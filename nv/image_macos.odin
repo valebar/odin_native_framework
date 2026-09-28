@@ -19,10 +19,10 @@ _image_init :: proc(h: ^Image_Handle) {
 		{"intrinsicContentSize", auto_cast image_intrinsic_size, "{CGSize=dd}@:"},
 	})
 	obj := objc_alloc_with_handle(cls, h)
-	view := send(^NS.View, (^NS.View)(obj), "initWithFrame:", NS.Rect{})
+	view := objc_own(send(^NS.View, (^NS.View)(obj), "initWithFrame:", NS.Rect{}))
 
 	h.root = View(view)
-	h.view = send(^NS.View, view, "retain") // the handle's own reference: a download may land after its page popped
+	h.view = view
 }
 
 @(private)
