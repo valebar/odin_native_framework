@@ -8,8 +8,6 @@ package nv
 // global refs and are set as content again on pop: setContentView removes the previous content
 // first, so a page never has a stale parent.
 
-import "core:strings"
-
 // android.R.drawable names by Icon; "" shows the title as text.
 @(private) android_icon_names := [Icon]cstring{
 	.None     = "",
@@ -46,7 +44,7 @@ _nav_release :: proc(e: ^Page_Handle) {
 
 @(private)
 android_show :: proc(e: ^Page_Handle) {
-	jni_call_void(g_android.env, g_android.activity, "setContentView", "(Landroid/view/View;)V", jv_obj(jobject(e.root)))
+	activity_set_content_view(g_android.env, g_android.activity, jobject(e.root))
 	android_chrome(e)
 }
 
@@ -56,23 +54,23 @@ android_show :: proc(e: ^Page_Handle) {
 android_chrome :: proc(e: ^Page_Handle) {
 	env := g_android.env
 	activity := g_android.activity
-	set_char_sequence(env, activity, "setTitle", e.page.title)
-	if bar := jni_call_object(env, activity, "getActionBar", "()Landroid/app/ActionBar;"); bar != nil {
-		jni_call_void(env, bar, "setDisplayHomeAsUpEnabled", "(Z)V", jv_bool(len(g_nav) > 1))
+	activity_set_title(env, activity, e.page.title)
+	if bar := activity_get_action_bar(env, activity); bar != nil {
+		action_bar_set_display_home_as_up_enabled(env, bar, len(g_nav) > 1)
 		jni_delete_local_ref(env, bar)
 	}
-	jni_call_void(env, activity, "invalidateOptionsMenu", "()V")
+	activity_invalidate_options_menu(env, activity)
 }
 
 // The ActionBar shows the top page only; a lower page's changes are picked up when it is shown again.
 @(private)
 _nav_title_changed :: proc(e: ^Page_Handle) {
-	if e == g_nav[len(g_nav) - 1] do set_char_sequence(g_android.env, g_android.activity, "setTitle", e.page.title)
+	if e == g_nav[len(g_nav) - 1] do activity_set_title(g_android.env, g_android.activity, e.page.title)
 }
 
 @(private)
 _nav_actions_changed :: proc(e: ^Page_Handle) {
-	if e == g_nav[len(g_nav) - 1] do jni_call_void(g_android.env, g_android.activity, "invalidateOptionsMenu", "()V")
+	if e == g_nav[len(g_nav) - 1] do activity_invalidate_options_menu(g_android.env, g_android.activity)
 }
 
 // onCreateOptionsMenu: fills the (empty) menu with the top page's actions.
@@ -85,17 +83,14 @@ jni_on_create_menu :: proc "c" (env: JNI_Env, _: jclass, menu: jobject) {
 	defer callback_exit()
 	e := g_nav[len(g_nav) - 1]
 	for h, i in e.actions {
-		title := jni_string(env, strings.clone_to_cstring(h.action.title, context.temp_allocator))
-		item := jni_call_object(env, menu, "add", "(IIILjava/lang/CharSequence;)Landroid/view/MenuItem;",
-			jv_int(0), jv_int(i + 1), jv_int(i), jv_obj(title))
-		jni_delete_local_ref(env, title)
+		item := menu_add(env, menu, 0, i + 1, i, h.action.title)
 		if item == nil do continue
 		if name := android_icon_names[h.action.icon]; name != "" {
 			if id := jni_get_static_int_field(env, "android/R$drawable", name); id != 0 {
-				jni_delete_local_ref(env, jni_call_object(env, item, "setIcon", "(I)Landroid/view/MenuItem;", jv_int(int(id))))
+				jni_delete_local_ref(env, menu_item_set_icon(env, item, int(id)))
 			}
 		}
-		jni_call_void(env, item, "setShowAsAction", "(I)V", jv_int(MENU_SHOW_AS_ACTION_IF_ROOM))
+		menu_item_set_show_as_action(env, item, MENU_SHOW_AS_ACTION_IF_ROOM)
 		jni_delete_local_ref(env, item)
 	}
 }

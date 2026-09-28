@@ -10,6 +10,8 @@ import NS "core:sys/darwin/Foundation"
 
 when !IS_IOS {
 
+@(private) nav_target_class: NS.Class // NVNavTarget, the back button's and the actions' target
+
 @(private) g_macos: struct {
 	ctx:    runtime.Context,
 	window: ^NS.Window,

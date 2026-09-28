@@ -8,27 +8,23 @@ package nv
 _button_init :: proc(h: ^Button_Handle) {
 	env := g_android.env
 
-	b_cls := jni_find_class(env, "android/widget/Button")
-	b := jni_new_object(env, b_cls, "(Landroid/content/Context;)V", jv_obj(g_android.activity))
-	set_char_sequence(env, b, "setText", h.button.title)
+	b := button_new(env, g_android.activity)
+	text_view_set_text(env, b, h.button.title)
 	android_apply_font(env, b, h.button.font, h.button.size)
 
-	l_cls := jni_find_class(env, "nv/NvClickListener")
-	listener := jni_new_object(env, l_cls, "(J)V", jv_long(i64(uintptr(h))))
-	jni_call_void(env, b, "setOnClickListener", "(Landroid/view/View$OnClickListener;)V", jv_obj(listener))
+	listener := nv_click_listener_new(env, i64(uintptr(h)))
+	view_set_on_click_listener(env, b, listener)
 
 	h.root = View(jni_new_global_ref(env, b))
 	h.control = rawptr(h.root)
 	h.target = rawptr(jni_new_global_ref(env, listener))
 	jni_delete_local_ref(env, listener)
-	jni_delete_local_ref(env, l_cls)
 	jni_delete_local_ref(env, b)
-	jni_delete_local_ref(env, b_cls)
 }
 
 @(private)
 _button_set_title :: proc(h: ^Button_Handle, title: string) {
-	set_char_sequence(g_android.env, jobject(h.control), "setText", title)
+	text_view_set_text(g_android.env, jobject(h.control), title)
 }
 
 @(export, link_name="Java_nv_NvClickListener_nativeOnClick")

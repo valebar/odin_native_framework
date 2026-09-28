@@ -4,7 +4,6 @@ package nv
 // iOS canvas backend: a UIView subclass, NVCanvasView, registered at runtime. It draws in
 // drawRect: through cg.odin and reports a single touch (UIView ignores extra touches by default).
 
-import "base:intrinsics"
 import NS "core:sys/darwin/Foundation"
 
 when IS_IOS {
@@ -13,17 +12,14 @@ when IS_IOS {
 
 @(private)
 _canvas_init :: proc(h: ^Canvas_Handle) {
-	if canvas_class == nil {
-		canvas_class = NS.objc_allocateClassPair(intrinsics.objc_find_class("UIView"), "NVCanvasView", 0)
-		NS.class_addMethod(canvas_class, intrinsics.objc_find_selector("drawRect:"), auto_cast canvas_draw_rect, "v@:{CGRect={CGPoint=dd}{CGSize=dd}}")
-		NS.class_addMethod(canvas_class, intrinsics.objc_find_selector("touchesBegan:withEvent:"), auto_cast canvas_touches_began, "v@:@@")
-		NS.class_addMethod(canvas_class, intrinsics.objc_find_selector("touchesMoved:withEvent:"), auto_cast canvas_touches_moved, "v@:@@")
-		NS.class_addMethod(canvas_class, intrinsics.objc_find_selector("touchesEnded:withEvent:"), auto_cast canvas_touches_ended, "v@:@@")
-		NS.class_addMethod(canvas_class, intrinsics.objc_find_selector("touchesCancelled:withEvent:"), auto_cast canvas_touches_ended, "v@:@@")
-		NS.objc_registerClassPair(canvas_class)
-	}
-	obj := NS.class_createInstance(canvas_class, size_of(^Canvas_Handle)) // owned, like alloc
-	(^^Canvas_Handle)(NS.object_getIndexedIvars(obj))^ = h
+	cls := objc_class(&canvas_class, "NVCanvasView", "UIView", {
+		{"drawRect:", auto_cast canvas_draw_rect, "v@:{CGRect={CGPoint=dd}{CGSize=dd}}"},
+		{"touchesBegan:withEvent:", auto_cast canvas_touches_began, "v@:@@"},
+		{"touchesMoved:withEvent:", auto_cast canvas_touches_moved, "v@:@@"},
+		{"touchesEnded:withEvent:", auto_cast canvas_touches_ended, "v@:@@"},
+		{"touchesCancelled:withEvent:", auto_cast canvas_touches_ended, "v@:@@"},
+	})
+	obj := objc_alloc_with_handle(cls, h)
 	view := send(^UI_View, (^UI_View)(obj), "initWithFrame:", NS.Rect{})
 	send(nil, view, "setContentMode:", UI_VIEW_CONTENT_MODE_REDRAW) // redraw on resize instead of stretching
 
@@ -47,13 +43,8 @@ canvas_color :: proc "c" (c: Color) -> ^NS.Object {
 }
 
 @(private)
-canvas_handle_of :: #force_inline proc "c" (self: NS.id) -> ^Canvas_Handle {
-	return (^^Canvas_Handle)(NS.object_getIndexedIvars(self))^
-}
-
-@(private)
 canvas_draw_rect :: proc "c" (self: NS.id, _: NS.SEL, _: NS.Rect) {
-	h := canvas_handle_of(self)
+	h := objc_handle(self, Canvas_Handle)
 	context = h.ctx
 	bounds := send(NS.Rect, (^NS.Object)(self), "bounds")
 	canvas_draw_notify(h, rawptr(UIGraphicsGetCurrentContext()), f64(bounds.size.width), f64(bounds.size.height))
@@ -61,7 +52,7 @@ canvas_draw_rect :: proc "c" (self: NS.id, _: NS.SEL, _: NS.Rect) {
 
 @(private)
 canvas_touch :: proc "c" (self: NS.id, touches: NS.id, kind: Pointer) {
-	h := canvas_handle_of(self)
+	h := objc_handle(self, Canvas_Handle)
 	context = h.ctx
 	touch := send(^NS.Object, (^NS.Object)(touches), "anyObject")
 	p := send(NS.Point, touch, "locationInView:", self)

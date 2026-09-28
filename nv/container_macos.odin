@@ -7,7 +7,6 @@ package nv
 // corner radius and border) is pinned by the margin, and the child is pinned inside the box by the
 // padding plus the border width. NSBox does not clip its subviews to the corners.
 
-import "base:intrinsics"
 import NS "core:sys/darwin/Foundation"
 
 when !IS_IOS {
@@ -16,13 +15,10 @@ when !IS_IOS {
 
 @(private)
 _container_init :: proc(h: ^Container_Handle) {
-	if container_class == nil {
-		container_class = NS.objc_allocateClassPair(intrinsics.objc_find_class("NSView"), "NVContainerView", 0)
-		NS.class_addMethod(container_class, intrinsics.objc_find_selector("intrinsicContentSize"), auto_cast container_intrinsic_size, "{CGSize=dd}@:")
-		NS.objc_registerClassPair(container_class)
-	}
-	obj := NS.class_createInstance(container_class, size_of(^Container_Handle)) // owned, like alloc
-	(^^Container_Handle)(NS.object_getIndexedIvars(obj))^ = h
+	cls := objc_class(&container_class, "NVContainerView", "NSView", {
+		{"intrinsicContentSize", auto_cast container_intrinsic_size, "{CGSize=dd}@:"},
+	})
+	obj := objc_alloc_with_handle(cls, h)
 	root := send(^NS.View, (^NS.View)(obj), "initWithFrame:", NS.Rect{})
 	c := &h.container
 
@@ -65,7 +61,7 @@ _container_set_color :: proc(h: ^Container_Handle) {
 @(private)
 container_forward_hugging :: proc "c" (v: ^NS.View, priority: f32, axis: Axis) {
 	if container_class == nil || NS.object_getClass(NS.id(v)) != container_class do return
-	h := (^^Container_Handle)(NS.object_getIndexedIvars(NS.id(v)))^
+	h := objc_handle(NS.id(v), Container_Handle)
 	if h.container.child == nil do return
 	if (axis == .Horizontal ? h.container.width : h.container.height) > 0 do return
 	child := (^NS.View)(h.container.child)
@@ -75,7 +71,7 @@ container_forward_hugging :: proc "c" (v: ^NS.View, priority: f32, axis: Axis) {
 
 @(private)
 container_intrinsic_size :: proc "c" (self: NS.id, _: NS.SEL) -> NS.Size {
-	h := (^^Container_Handle)(NS.object_getIndexedIvars(self))^
+	h := objc_handle(self, Container_Handle)
 	return container_intrinsic(h)
 }
 

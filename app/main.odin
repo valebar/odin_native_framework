@@ -36,19 +36,22 @@ State :: struct {
 	strokes: [dynamic][dynamic][2]f64,
 }
 
-state := State{items = 10_000}
-
 main :: proc() {
+	// On the heap, not main's stack: on Android `run` returns while the app keeps running. It lives
+	// as long as the process, so it is never freed.
+	state := new(State)
+	defer free(state)
+	state.items = 10_000
 	nv.run({
 		title = "Native List",
 		build = build,
-		user  = &state,
+		user_data = state,
 		actions = {
-			{title = "Add", icon = .Add, user = &state, on_click = proc(user: rawptr) {
+			{title = "Add", icon = .Add, user = state, on_click = proc(user: rawptr) {
 				push_detail((^State)(user), "New item", 1)
 			}},
-			{title = "Ask", icon = .Edit, user = &state, on_click = ask_filter},
-			{title = "Info", icon = .Info, user = &state, on_click = proc(user: rawptr) {
+			{title = "Ask", icon = .Edit, user = state, on_click = ask_filter},
+			{title = "Info", icon = .Info, user = state, on_click = proc(user: rawptr) {
 				s := (^State)(user)
 				fmt.printfln("%d of %d items visible, %d strokes", len(s.visible), s.items, len(s.strokes))
 			}},
@@ -201,7 +204,7 @@ push_detail :: proc(s: ^State, title: string, level: int) {
 	d.title = strings.clone(title)
 	d.level = level
 	nv.push({
-		title = d.title, build = detail_build, user = d, on_pop = detail_free,
+		title = d.title, build = detail_build, user_data = d, on_pop = detail_free,
 		actions = {{title = "Edit", user = d, on_click = detail_edit}},
 	})
 }

@@ -83,7 +83,7 @@ callback_exit :: proc() {
 Page :: struct {
 	title:   string, // copied
 	build:   Build_Proc,
-	user:    rawptr,
+	user_data:    rawptr,
 	on_pop:  proc(user: rawptr), // optional
 	actions: []Action,           // copied
 }
@@ -205,7 +205,7 @@ nav_build :: proc(h: ^Page_Handle) {
 	callback_enter()
 	defer callback_exit()
 	g_nav_building += 1
-	h.root = h.page.build(h, h.page.user)
+	h.root = h.page.build(h, h.page.user_data)
 	g_nav_building -= 1
 }
 
@@ -258,7 +258,7 @@ nav_finish_pop :: proc(top: ^Page_Handle) {
 	if top.page.on_pop != nil {
 		callback_enter()
 		defer callback_exit()
-		top.page.on_pop(top.page.user)
+		top.page.on_pop(top.page.user_data)
 	}
 	nav_actions_free(top)
 	delete(top.page.title)

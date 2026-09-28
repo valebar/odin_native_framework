@@ -26,11 +26,16 @@ mkdir -p "$OUT/stage/lib/arm64-v8a" "$OUT/classes" "$OUT/stubs"
 # Android has pthreads in libc, but core:thread links -lpthread: satisfy it with an empty archive.
 [ -f "$OUT/stubs/libpthread.a" ] || "$ODIN_ANDROID_NDK_TOOLCHAIN/bin/llvm-ar" rc "$OUT/stubs/libpthread.a"
 
+"$JAVA_HOME/bin/javac" --release 11 -nowarn -cp "$PLATFORM_JAR" -d "$OUT/classes" nv/android/java/nv/*.java
+
+# Typed JNI wrappers from nv/android/jni_api.txt, every descriptor checked with javap against
+# android.jar and the nv shims just compiled. The output is committed; a spec change updates it.
+odin run android/jnigen -out:"$OUT/jnigen" -- -jar:"$PLATFORM_JAR" -classes:"$OUT/classes" \
+	-spec:nv/android/jni_api.txt -out:nv/jni_api_android.odin -javap:"$JAVA_HOME/bin/javap"
+
 odin build app -target:linux_arm64 -subtarget:android -build-mode:shared -debug \
 	-extra-linker-flags:"-L$PWD/$OUT/stubs -Wl,-z,max-page-size=16384" \
 	-out:"$OUT/stage/lib/arm64-v8a/libapp.so"
-
-"$JAVA_HOME/bin/javac" --release 11 -nowarn -cp "$PLATFORM_JAR" -d "$OUT/classes" nv/android/java/nv/*.java
 "$BT/d8" --min-api 34 --lib "$PLATFORM_JAR" --output "$OUT/stage" $(find "$OUT/classes" -name '*.class')
 
 # app/assets become the APK's assets, which bitmap_from_file reads for relative paths.

@@ -105,10 +105,10 @@ nav_rebuild_actions :: proc(e: ^Page_Handle) {
 
 @(private)
 nav_install_back_button :: proc(wnd: ^NS.Window) {
-	cls := NS.objc_allocateClassPair(intrinsics.objc_find_class("NSObject"), "NVNavTarget", 0)
-	NS.class_addMethod(cls, intrinsics.objc_find_selector("nvBack:"), auto_cast nav_back_clicked, "v@:@")
-	NS.class_addMethod(cls, intrinsics.objc_find_selector("nvAction:"), auto_cast nav_action_clicked, "v@:@")
-	NS.objc_registerClassPair(cls)
+	cls := objc_class(&nav_target_class, "NVNavTarget", "NSObject", {
+		{"nvBack:", auto_cast nav_back_clicked, "v@:@"},
+		{"nvAction:", auto_cast nav_action_clicked, "v@:@"},
+	})
 	target := NS.class_createInstance(cls, 0) // lives for the whole run
 	g_macos.nav_target = target
 

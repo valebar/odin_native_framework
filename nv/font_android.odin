@@ -8,7 +8,6 @@ package nv
 
 import "core:fmt"
 import "core:os"
-import "core:strings"
 
 @(private) g_font_seq: int
 
@@ -16,9 +15,9 @@ import "core:strings"
 _font_load :: proc(f: ^Font, data: []u8) -> bool {
 	env := g_android.env
 	if g_android.cache_dir == "" {
-		dir := jni_call_object(env, g_android.activity, "getCacheDir", "()Ljava/io/File;")
+		dir := context_get_cache_dir(env, g_android.activity)
 		defer jni_delete_local_ref(env, dir)
-		path := jni_call_object(env, dir, "getAbsolutePath", "()Ljava/lang/String;")
+		path := file_get_absolute_path(env, dir)
 		defer jni_delete_local_ref(env, path)
 		g_android.cache_dir = jni_string_clone(env, path)
 	}
@@ -27,9 +26,7 @@ _font_load :: proc(f: ^Font, data: []u8) -> bool {
 	if os.write_entire_file(path, data) != nil do return false
 	defer os.remove(path)
 
-	s := jni_string(env, strings.clone_to_cstring(path, context.temp_allocator))
-	defer jni_delete_local_ref(env, s)
-	tf := jni_call_static_object(env, "android/graphics/Typeface", "createFromFile", "(Ljava/lang/String;)Landroid/graphics/Typeface;", jv_obj(s))
+	tf := typeface_create_from_file(env, path)
 	if tf == nil do return false // not a font: the RuntimeException is logged and cleared by jni_check
 	defer jni_delete_local_ref(env, tf)
 	f.native = rawptr(jni_new_global_ref(env, tf))
@@ -44,6 +41,6 @@ _font_free :: proc(f: ^Font) {
 // Sets a TextView's typeface and text size (sp); either is left alone when not given.
 @(private)
 android_apply_font :: proc "contextless" (env: JNI_Env, view: jobject, font: ^Font, size: f64) {
-	if font != nil do jni_call_void(env, view, "setTypeface", "(Landroid/graphics/Typeface;)V", jv_obj(jobject(font.native)))
-	if size != 0 do jni_call_void(env, view, "setTextSize", "(F)V", jv_float(f32(size)))
+	if font != nil do text_view_set_typeface(env, view, jobject(font.native))
+	if size != 0 do text_view_set_text_size(env, view, f32(size))
 }

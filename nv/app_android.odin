@@ -83,14 +83,19 @@ set_content :: proc() {
 android_dp :: proc "contextless" (dp: f64) -> int {
 	if g_android.density == 0 {
 		env := g_android.env
-		res := jni_call_object(env, g_android.activity, "getResources", "()Landroid/content/res/Resources;")
-		metrics := jni_call_object(env, res, "getDisplayMetrics", "()Landroid/util/DisplayMetrics;")
-		g_android.density = jni_get_float_field(env, metrics, "density")
+		res := context_get_resources(env, g_android.activity)
+		metrics := resources_get_display_metrics(env, res)
+		g_android.density = display_metrics_density(env, metrics)
 		jni_delete_local_ref(env, metrics)
 		jni_delete_local_ref(env, res)
 		if g_android.density == 0 do g_android.density = 1
 	}
 	return int(dp * f64(g_android.density) + 0.5)
+}
+
+// A Color as the int android.graphics.Color / GradientDrawable / Paint take.
+android_argb :: proc "contextless" (c: Color) -> int {
+	return int(i32(color_argb(c)))
 }
 
 // stdout/stderr go nowhere on Android; pipe them into logcat (tag "nv").

@@ -4,7 +4,6 @@ package nv
 // iOS image backend: a UIImageView subclass, NVImageView, registered at runtime only to report the
 // natural size as its intrinsicContentSize. UIKit scales the image by contentMode and clips.
 
-import "base:intrinsics"
 import NS "core:sys/darwin/Foundation"
 
 when IS_IOS {
@@ -20,13 +19,10 @@ when IS_IOS {
 
 @(private)
 _image_init :: proc(h: ^Image_Handle) {
-	if image_class == nil {
-		image_class = NS.objc_allocateClassPair(intrinsics.objc_find_class("UIImageView"), "NVImageView", 0)
-		NS.class_addMethod(image_class, intrinsics.objc_find_selector("intrinsicContentSize"), auto_cast image_intrinsic_size, "{CGSize=dd}@:")
-		NS.objc_registerClassPair(image_class)
-	}
-	obj := NS.class_createInstance(image_class, size_of(^Image_Handle)) // owned, like alloc
-	(^^Image_Handle)(NS.object_getIndexedIvars(obj))^ = h
+	cls := objc_class(&image_class, "NVImageView", "UIImageView", {
+		{"intrinsicContentSize", auto_cast image_intrinsic_size, "{CGSize=dd}@:"},
+	})
+	obj := objc_alloc_with_handle(cls, h)
 	view := send(^UI_View, (^UI_View)(obj), "initWithFrame:", NS.Rect{})
 	send(nil, view, "setContentMode:", image_content_modes[h.image.fit])
 	send(nil, view, "setClipsToBounds:", NS.BOOL(true))
@@ -47,7 +43,7 @@ _image_set_bitmap :: proc(h: ^Image_Handle) {
 
 @(private)
 image_intrinsic_size :: proc "c" (self: NS.id, _: NS.SEL) -> NS.Size {
-	s := image_natural_size((^^Image_Handle)(NS.object_getIndexedIvars(self))^)
+	s := image_natural_size(objc_handle(self, Image_Handle))
 	return {NS.Float(s.x), NS.Float(s.y)}
 }
 

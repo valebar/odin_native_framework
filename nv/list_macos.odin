@@ -3,7 +3,6 @@ package nv
 
 // macOS list backend: NSTableView inside NSScrollView, with cell reuse.
 
-import "base:intrinsics"
 import NS "core:sys/darwin/Foundation"
 
 when !IS_IOS {
@@ -49,39 +48,30 @@ _list_reload :: proc(h: ^List_Handle) {
 
 @(private)
 list_data_source_alloc :: proc(h: ^List_Handle) -> NS.id {
-	if list_class == nil {
-		list_class = NS.objc_allocateClassPair(intrinsics.objc_find_class("NSObject"), "NVListDataSource", 0)
-		NS.class_addMethod(list_class, intrinsics.objc_find_selector("numberOfRowsInTableView:"), auto_cast number_of_rows, "q@:@")
-		NS.class_addMethod(list_class, intrinsics.objc_find_selector("tableView:viewForTableColumn:row:"), auto_cast view_for_row, "@@:@@q")
-		NS.class_addMethod(list_class, intrinsics.objc_find_selector("tableView:heightOfRow:"), auto_cast height_of_row, "d@:@q")
-		NS.class_addMethod(list_class, intrinsics.objc_find_selector("tableViewSelectionDidChange:"), auto_cast selection_did_change, "v@:@")
-		NS.objc_registerClassPair(list_class)
-	}
-	obj := NS.class_createInstance(list_class, size_of(^List_Handle))
-	(^^List_Handle)(NS.object_getIndexedIvars(obj))^ = h
-	return obj
-}
-
-@(private)
-handle_of :: #force_inline proc "c" (self: NS.id) -> ^List_Handle {
-	return (^^List_Handle)(NS.object_getIndexedIvars(self))^
+	cls := objc_class(&list_class, "NVListDataSource", "NSObject", {
+		{"numberOfRowsInTableView:", auto_cast number_of_rows, "q@:@"},
+		{"tableView:viewForTableColumn:row:", auto_cast view_for_row, "@@:@@q"},
+		{"tableView:heightOfRow:", auto_cast height_of_row, "d@:@q"},
+		{"tableViewSelectionDidChange:", auto_cast selection_did_change, "v@:@"},
+	})
+	return objc_alloc_with_handle(cls, h)
 }
 
 @(private)
 number_of_rows :: proc "c" (self: NS.id, _: NS.SEL, _: ^Table_View) -> NS.Integer {
-	h := handle_of(self)
+	h := objc_handle(self, List_Handle)
 	context = h.ctx
 	return NS.Integer(h.list.count(h.list.user))
 }
 
 @(private)
 height_of_row :: proc "c" (self: NS.id, _: NS.SEL, _: ^Table_View, _: NS.Integer) -> NS.Float {
-	return NS.Float(handle_of(self).list.item_height)
+	return NS.Float(objc_handle(self, List_Handle).list.item_height)
 }
 
 @(private)
 selection_did_change :: proc "c" (self: NS.id, _: NS.SEL, _: ^NS.Notification) {
-	h := handle_of(self)
+	h := objc_handle(self, List_Handle)
 	context = h.ctx
 	callback_enter()
 	defer callback_exit()
@@ -92,7 +82,7 @@ selection_did_change :: proc "c" (self: NS.id, _: NS.SEL, _: ^NS.Notification) {
 
 @(private)
 view_for_row :: proc "c" (self: NS.id, _: NS.SEL, tv: ^Table_View, _: ^Table_Column, row: NS.Integer) -> ^NS.View {
-	h := handle_of(self)
+	h := objc_handle(self, List_Handle)
 	context = h.ctx
 	callback_enter()
 	defer callback_exit()

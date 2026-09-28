@@ -3,7 +3,6 @@ package nv
 
 // iOS list backend: UITableView with cell reuse.
 
-import "base:intrinsics"
 import NS "core:sys/darwin/Foundation"
 
 when IS_IOS {
@@ -33,33 +32,24 @@ _list_reload :: proc(h: ^List_Handle) {
 
 @(private)
 list_data_source_alloc :: proc(h: ^List_Handle) -> NS.id {
-	if list_class == nil {
-		list_class = NS.objc_allocateClassPair(intrinsics.objc_find_class("NSObject"), "NVListDataSource", 0)
-		NS.class_addMethod(list_class, intrinsics.objc_find_selector("tableView:numberOfRowsInSection:"), auto_cast number_of_rows, "q@:@q")
-		NS.class_addMethod(list_class, intrinsics.objc_find_selector("tableView:cellForRowAtIndexPath:"), auto_cast cell_for_row, "@@:@@")
-		NS.class_addMethod(list_class, intrinsics.objc_find_selector("tableView:didSelectRowAtIndexPath:"), auto_cast did_select_row, "v@:@@")
-		NS.objc_registerClassPair(list_class)
-	}
-	obj := NS.class_createInstance(list_class, size_of(^List_Handle))
-	(^^List_Handle)(NS.object_getIndexedIvars(obj))^ = h
-	return obj
-}
-
-@(private)
-handle_of :: #force_inline proc "c" (self: NS.id) -> ^List_Handle {
-	return (^^List_Handle)(NS.object_getIndexedIvars(self))^
+	cls := objc_class(&list_class, "NVListDataSource", "NSObject", {
+		{"tableView:numberOfRowsInSection:", auto_cast number_of_rows, "q@:@q"},
+		{"tableView:cellForRowAtIndexPath:", auto_cast cell_for_row, "@@:@@"},
+		{"tableView:didSelectRowAtIndexPath:", auto_cast did_select_row, "v@:@@"},
+	})
+	return objc_alloc_with_handle(cls, h)
 }
 
 @(private)
 number_of_rows :: proc "c" (self: NS.id, _: NS.SEL, _: ^UI_Table_View, _: NS.Integer) -> NS.Integer {
-	h := handle_of(self)
+	h := objc_handle(self, List_Handle)
 	context = h.ctx
 	return NS.Integer(h.list.count(h.list.user))
 }
 
 @(private)
 cell_for_row :: proc "c" (self: NS.id, _: NS.SEL, tv: ^UI_Table_View, ip: ^Index_Path) -> ^UI_Table_View_Cell {
-	h := handle_of(self)
+	h := objc_handle(self, List_Handle)
 	context = h.ctx
 	callback_enter()
 	defer callback_exit()
@@ -80,7 +70,7 @@ cell_for_row :: proc "c" (self: NS.id, _: NS.SEL, tv: ^UI_Table_View, ip: ^Index
 
 @(private)
 did_select_row :: proc "c" (self: NS.id, _: NS.SEL, tv: ^UI_Table_View, ip: ^Index_Path) {
-	h := handle_of(self)
+	h := objc_handle(self, List_Handle)
 	context = h.ctx
 	callback_enter()
 	defer callback_exit()

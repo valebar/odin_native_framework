@@ -17,6 +17,41 @@ ns_string :: proc "c" (s: string) -> ^NS.String {
 	return str
 }
 
+// A method for objc_class: selector name, IMP (a `proc "c" (self: NS.id, _: NS.SEL, ..)`, passed
+// through auto_cast) and its type encoding.
+Objc_Method :: struct {
+	sel:   cstring,
+	imp:   NS.IMP,
+	types: cstring,
+}
+
+// Registers `name` as a runtime subclass of `super` with `methods` (and `protocols`) the first time
+// it is called with `cls^` nil, stores the class in `cls^` and returns it. Every backend delegate,
+// target and view subclass goes through here; `cls` is the caller's package-level cache.
+objc_class :: proc(cls: ^NS.Class, name, super: cstring, methods: []Objc_Method, protocols: []cstring = nil) -> NS.Class {
+	if cls^ != nil do return cls^
+	c := NS.objc_allocateClassPair(NS.objc_lookUpClass(super), name, 0)
+	for m in methods do NS.class_addMethod(c, NS.sel_registerName(m.sel), m.imp, m.types)
+	for p in protocols do NS.class_addProtocol(c, NS.objc_getProtocol(p))
+	NS.objc_registerClassPair(c)
+	cls^ = c
+	return c
+}
+
+// class_createInstance with room for one pointer in the indexed ivars, set to `h`. Owned, like
+// alloc; a view subclass still needs its initWithFrame:, a plain delegate needs no init.
+objc_alloc_with_handle :: proc(cls: NS.Class, h: ^$T) -> NS.id {
+	obj := NS.class_createInstance(cls, size_of(^T))
+	(^^T)(NS.object_getIndexedIvars(obj))^ = h
+	return obj
+}
+
+// The handle stored by objc_alloc_with_handle; contextless so an IMP can read it first and then
+// set `context = h.ctx`.
+objc_handle :: #force_inline proc "c" (self: NS.id, $T: typeid) -> ^T {
+	return (^^T)(NS.object_getIndexedIvars(self))^
+}
+
 // SF Symbol names by Icon (macOS 11+ / iOS 13+); "" shows the title as text.
 @(private) sf_symbol_names := [Icon]string{
 	.None     = "",

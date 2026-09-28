@@ -42,25 +42,16 @@ _input_set_text :: proc(h: ^Input_Handle, text: string) {
 
 @(private)
 input_delegate_alloc :: proc(h: ^Input_Handle) -> NS.id {
-	if input_class == nil {
-		input_class = NS.objc_allocateClassPair(intrinsics.objc_find_class("NSObject"), "NVInputDelegate", 0)
-		NS.class_addMethod(input_class, intrinsics.objc_find_selector("controlTextDidChange:"), auto_cast input_did_change, "v@:@")
-		NS.class_addMethod(input_class, intrinsics.objc_find_selector("control:textView:doCommandBySelector:"), auto_cast input_do_command, "B@:@@:")
-		NS.objc_registerClassPair(input_class)
-	}
-	obj := NS.class_createInstance(input_class, size_of(^Input_Handle))
-	(^^Input_Handle)(NS.object_getIndexedIvars(obj))^ = h
-	return obj
-}
-
-@(private)
-input_handle_of :: #force_inline proc "c" (self: NS.id) -> ^Input_Handle {
-	return (^^Input_Handle)(NS.object_getIndexedIvars(self))^
+	cls := objc_class(&input_class, "NVInputDelegate", "NSObject", {
+		{"controlTextDidChange:", auto_cast input_did_change, "v@:@"},
+		{"control:textView:doCommandBySelector:", auto_cast input_do_command, "B@:@@:"},
+	})
+	return objc_alloc_with_handle(cls, h)
 }
 
 @(private)
 input_did_change :: proc "c" (self: NS.id, _: NS.SEL, _: ^NS.Notification) {
-	h := input_handle_of(self)
+	h := objc_handle(self, Input_Handle)
 	context = h.ctx
 	input_notify(h, h.input.on_change)
 }
@@ -68,7 +59,7 @@ input_did_change :: proc "c" (self: NS.id, _: NS.SEL, _: ^NS.Notification) {
 // Returns false so the field still handles the command (Return ends editing and selects the text).
 @(private)
 input_do_command :: proc "c" (self: NS.id, _: NS.SEL, _: NS.id, _: NS.id, command: NS.SEL) -> NS.BOOL {
-	h := input_handle_of(self)
+	h := objc_handle(self, Input_Handle)
 	context = h.ctx
 	if command == intrinsics.objc_find_selector("insertNewline:") do input_notify(h, h.input.on_submit)
 	return false

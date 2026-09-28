@@ -1,0 +1,121 @@
+# Java members the Android backend calls through JNI. android/jnigen turns this into
+# nv/jni_api_android.odin (typed wrappers, descriptors verified with javap against android.jar and
+# the nv shims). Format: `class member`, where member is `[return-type] name(type [name], ..)`,
+# `<init>(..)` for a constructor, or `.field`; `= odin_name` overrides the derived name. The class
+# is the *declaring* class (a method ID works on subclass instances). See android/jnigen/main.odin.
+
+# ---- Activity, resources, window ----
+android.app.Activity              getWindow()
+android.app.Activity              setContentView(android.view.View view)
+android.app.Activity              setTitle(java.lang.CharSequence title)
+android.app.Activity              getActionBar()
+android.app.Activity              invalidateOptionsMenu()
+android.content.Context           getResources()
+android.content.Context           getTheme()
+android.content.Context           getCacheDir()
+android.content.res.Resources     getDisplayMetrics()
+android.content.res.Resources$Theme resolveAttribute(int attr, android.util.TypedValue out, boolean resolve_refs)
+android.util.DisplayMetrics       .density
+android.util.DisplayMetrics       .widthPixels
+android.util.TypedValue           <init>()
+android.util.TypedValue           .data
+android.view.Window               getDecorView()
+android.app.ActionBar             setDisplayHomeAsUpEnabled(boolean enabled)
+java.io.File                      getAbsolutePath()
+java.lang.Object                  toString()
+
+# ---- Options menu ----
+android.view.Menu                 add(int group, int id, int order, java.lang.CharSequence title)
+android.view.MenuItem             setIcon(int res)
+android.view.MenuItem             setShowAsAction(int mode)
+
+# ---- Views and layouts ----
+android.view.View                 <init>(android.content.Context ctx)
+android.view.View                 setBackground(android.graphics.drawable.Drawable drawable)
+android.view.View                 setBackgroundColor(int argb)
+android.view.View                 setPadding(int left, int top, int right, int bottom)
+android.view.View                 setClickable(boolean clickable)
+android.view.View                 setElevation(float elevation)
+android.view.View                 setVisibility(int visibility)
+android.view.View                 getParent()
+android.view.View                 getContext()
+android.view.View                 findViewById(int id)
+android.view.View                 invalidate()
+android.view.View                 setOnClickListener(android.view.View$OnClickListener listener)
+android.view.ViewGroup            addView(android.view.View child, android.view.ViewGroup$LayoutParams params)
+android.view.ViewGroup            removeView(android.view.View child)
+android.view.ViewGroup$MarginLayoutParams setMargins(int left, int top, int right, int bottom)
+android.widget.FrameLayout        <init>(android.content.Context ctx)
+android.widget.FrameLayout$LayoutParams <init>(int width, int height)                = frame_lp_new
+android.widget.FrameLayout$LayoutParams <init>(int width, int height, int gravity)   = frame_lp_new_gravity
+android.widget.LinearLayout       <init>(android.content.Context ctx)
+android.widget.LinearLayout       setOrientation(int orientation)
+android.widget.LinearLayout$LayoutParams <init>(int width, int height, float weight) = linear_lp_new
+android.view.LayoutInflater       from(android.content.Context ctx)
+android.view.LayoutInflater       inflate(int resource, android.view.ViewGroup root, boolean attach)
+
+# ---- Text ----
+android.widget.TextView           <init>(android.content.Context ctx)
+android.widget.TextView           setText(java.lang.CharSequence text)
+android.widget.TextView           setHint(java.lang.CharSequence hint)
+android.widget.TextView           setTypeface(android.graphics.Typeface typeface)
+android.widget.TextView           setTypeface(android.graphics.Typeface typeface, int style) = text_view_set_typeface_style
+android.widget.TextView           setTextSize(float sp)
+android.widget.TextView           setSingleLine()
+android.widget.TextView           setImeOptions(int options)
+android.widget.TextView           addTextChangedListener(android.text.TextWatcher watcher)
+android.widget.TextView           setOnEditorActionListener(android.widget.TextView$OnEditorActionListener listener)
+android.widget.Button             <init>(android.content.Context ctx)
+android.widget.EditText           <init>(android.content.Context ctx)
+android.widget.EditText           android.text.Editable getText()
+
+# ---- List ----
+android.widget.ListView           <init>(android.content.Context ctx)
+android.widget.ListView           setAdapter(android.widget.ListAdapter adapter)
+android.widget.AdapterView        setOnItemClickListener(android.widget.AdapterView$OnItemClickListener listener)
+android.widget.BaseAdapter        notifyDataSetChanged()
+
+# ---- Drawing ----
+android.graphics.Paint            <init>(int flags)
+android.graphics.Paint            setStyle(android.graphics.Paint$Style style)
+android.graphics.Paint            setStrokeCap(android.graphics.Paint$Cap cap)
+android.graphics.Paint            setColor(int argb)
+android.graphics.Paint            setStrokeWidth(float width)
+android.graphics.Paint            setTextSize(float size)
+android.graphics.Paint            setTypeface(android.graphics.Typeface typeface)
+android.graphics.Paint            ascent()
+android.graphics.Paint$Style      valueOf(java.lang.String name)
+android.graphics.Paint$Cap        valueOf(java.lang.String name)
+android.graphics.Canvas           drawRect(float left, float top, float right, float bottom, android.graphics.Paint paint)
+android.graphics.Canvas           drawLine(float x0, float y0, float x1, float y1, android.graphics.Paint paint)
+android.graphics.Canvas           drawOval(float left, float top, float right, float bottom, android.graphics.Paint paint)
+android.graphics.Canvas           drawText(java.lang.String text, float x, float y, android.graphics.Paint paint)
+android.graphics.Canvas           drawBitmap(android.graphics.Bitmap bitmap, android.graphics.Rect src, android.graphics.RectF dst, android.graphics.Paint paint)
+android.graphics.Canvas           scale(float sx, float sy)
+android.graphics.RectF            <init>(float left, float top, float right, float bottom)
+android.graphics.drawable.GradientDrawable <init>()
+android.graphics.drawable.GradientDrawable setColor(int argb)
+android.graphics.drawable.GradientDrawable setCornerRadius(float radius)
+android.graphics.drawable.GradientDrawable setStroke(int width, int argb)
+android.graphics.drawable.InsetDrawable <init>(android.graphics.drawable.Drawable drawable, int left, int top, int right, int bottom)
+
+# ---- Images and fonts ----
+android.graphics.Bitmap           getWidth()
+android.graphics.Bitmap           getHeight()
+android.graphics.BitmapFactory    decodeByteArray(byte[] data, int offset, int length)
+android.widget.ImageView          setScaleType(android.widget.ImageView$ScaleType type)
+android.widget.ImageView          setImageBitmap(android.graphics.Bitmap bitmap)
+android.widget.ImageView$ScaleType valueOf(java.lang.String name)
+android.graphics.Typeface         createFromFile(java.lang.String path)
+
+# ---- nv shims (nv/android/java/nv) ----
+nv.NvClickListener                <init>(long handle)
+nv.NvInputListener                <init>(long handle)
+nv.NvListAdapter                  <init>(long handle)
+nv.NvCanvasView                   <init>(android.content.Context ctx, long handle)
+nv.NvContainerView                <init>(android.content.Context ctx)
+nv.NvContainerView                setNaturalSize(int width, int height)
+nv.NvImageView                    <init>(android.content.Context ctx)
+nv.NvImageView                    setNaturalSize(int width, int height)
+nv.NvFetch                        readAsset(android.content.Context ctx, java.lang.String name)
+nv.NvFetch                        start(long req, java.lang.String url)

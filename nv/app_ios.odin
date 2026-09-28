@@ -5,11 +5,12 @@ package nv
 // The window's root is a UINavigationController whose root view controller wraps the root page
 // (nav_ios.odin).
 
-import "base:intrinsics"
 import "base:runtime"
 import NS "core:sys/darwin/Foundation"
 
 when IS_IOS {
+
+@(private) app_delegate_class, scene_delegate_class, nav_delegate_class, nav_target_class: NS.Class
 
 @(private) g_app: struct {
 	ctx:          runtime.Context,
@@ -23,29 +24,22 @@ when IS_IOS {
 _run :: proc() {
 	g_app.ctx = context
 
-	UIResponder := intrinsics.objc_find_class("UIResponder")
-	NSObject := intrinsics.objc_find_class("NSObject")
-
-	app_delegate := NS.objc_allocateClassPair(UIResponder, "NVAppDelegate", 0)
-	NS.class_addMethod(app_delegate, intrinsics.objc_find_selector("application:didFinishLaunchingWithOptions:"), auto_cast did_finish_launching, "B@:@@")
-	NS.class_addProtocol(app_delegate, NS.objc_getProtocol("UIApplicationDelegate"))
-	NS.objc_registerClassPair(app_delegate)
-
-	scene_delegate := NS.objc_allocateClassPair(UIResponder, "NVSceneDelegate", 0)
-	NS.class_addMethod(scene_delegate, intrinsics.objc_find_selector("scene:willConnectToSession:options:"), auto_cast scene_will_connect, "v@:@@@")
-	NS.class_addMethod(scene_delegate, intrinsics.objc_find_selector("window"), auto_cast scene_window, "@@:")
-	NS.class_addProtocol(scene_delegate, NS.objc_getProtocol("UIWindowSceneDelegate"))
-	NS.objc_registerClassPair(scene_delegate)
-
-	nav_delegate := NS.objc_allocateClassPair(NSObject, "NVNavDelegate", 0)
-	NS.class_addMethod(nav_delegate, intrinsics.objc_find_selector("navigationController:didShowViewController:animated:"), auto_cast nav_did_show, "v@:@@B")
-	NS.class_addProtocol(nav_delegate, NS.objc_getProtocol("UINavigationControllerDelegate"))
-	NS.objc_registerClassPair(nav_delegate)
+	// UIKit instantiates the app and scene delegates itself (the scene delegate by the name in
+	// ios/Info.plist); the nav delegate and target are singletons with no ivars.
+	objc_class(&app_delegate_class, "NVAppDelegate", "UIResponder", {
+		{"application:didFinishLaunchingWithOptions:", auto_cast did_finish_launching, "B@:@@"},
+	}, {"UIApplicationDelegate"})
+	objc_class(&scene_delegate_class, "NVSceneDelegate", "UIResponder", {
+		{"scene:willConnectToSession:options:", auto_cast scene_will_connect, "v@:@@@"},
+		{"window", auto_cast scene_window, "@@:"},
+	}, {"UIWindowSceneDelegate"})
+	nav_delegate := objc_class(&nav_delegate_class, "NVNavDelegate", "NSObject", {
+		{"navigationController:didShowViewController:animated:", auto_cast nav_did_show, "v@:@@B"},
+	}, {"UINavigationControllerDelegate"})
 	g_app.nav_delegate = NS.class_createInstance(nav_delegate, 0)
-
-	nav_target := NS.objc_allocateClassPair(NSObject, "NVNavTarget", 0)
-	NS.class_addMethod(nav_target, intrinsics.objc_find_selector("nvAction:"), auto_cast nav_action_clicked, "v@:@")
-	NS.objc_registerClassPair(nav_target)
+	nav_target := objc_class(&nav_target_class, "NVNavTarget", "NSObject", {
+		{"nvAction:", auto_cast nav_action_clicked, "v@:@"},
+	})
 	g_app.nav_target = NS.class_createInstance(nav_target, 0)
 
 	args := runtime.args__

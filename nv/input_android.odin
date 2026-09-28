@@ -5,41 +5,35 @@ package nv
 // (Java shim) forwards its TextWatcher and OnEditorActionListener callbacks. setText also fires
 // the TextWatcher, which h.silent mutes.
 
-import "core:strings"
-
 @(private) ANDROID_IME_ACTION_DONE :: 6 // EditorInfo.IME_ACTION_DONE
 
 @(private)
 _input_init :: proc(h: ^Input_Handle) {
 	env := g_android.env
 
-	et_cls := jni_find_class(env, "android/widget/EditText")
-	et := jni_new_object(env, et_cls, "(Landroid/content/Context;)V", jv_obj(g_android.activity))
-	jni_call_void(env, et, "setSingleLine", "()V")
-	jni_call_void(env, et, "setImeOptions", "(I)V", jv_int(ANDROID_IME_ACTION_DONE))
-	set_char_sequence(env, et, "setText", h.input.text)
-	if h.input.placeholder != "" do set_char_sequence(env, et, "setHint", h.input.placeholder)
+	et := edit_text_new(env, g_android.activity)
+	text_view_set_single_line(env, et)
+	text_view_set_ime_options(env, et, ANDROID_IME_ACTION_DONE)
+	text_view_set_text(env, et, h.input.text)
+	if h.input.placeholder != "" do text_view_set_hint(env, et, h.input.placeholder)
 	android_apply_font(env, et, h.input.font, h.input.size)
 
-	l_cls := jni_find_class(env, "nv/NvInputListener")
-	listener := jni_new_object(env, l_cls, "(J)V", jv_long(i64(uintptr(h))))
-	jni_call_void(env, et, "addTextChangedListener", "(Landroid/text/TextWatcher;)V", jv_obj(listener))
-	jni_call_void(env, et, "setOnEditorActionListener", "(Landroid/widget/TextView$OnEditorActionListener;)V", jv_obj(listener))
+	listener := nv_input_listener_new(env, i64(uintptr(h)))
+	text_view_add_text_changed_listener(env, et, listener)
+	text_view_set_on_editor_action_listener(env, et, listener)
 
 	h.root = View(jni_new_global_ref(env, et))
 	h.field = rawptr(h.root)
 	h.delegate = rawptr(jni_new_global_ref(env, listener))
 	jni_delete_local_ref(env, listener)
-	jni_delete_local_ref(env, l_cls)
 	jni_delete_local_ref(env, et)
-	jni_delete_local_ref(env, et_cls)
 }
 
 @(private)
 _input_text :: proc(h: ^Input_Handle, allocator := context.allocator) -> string {
 	env := g_android.env
-	editable := jni_call_object(env, jobject(h.field), "getText", "()Landroid/text/Editable;")
-	s := jni_call_object(env, editable, "toString", "()Ljava/lang/String;")
+	editable := edit_text_get_text(env, jobject(h.field))
+	s := object_to_string(env, editable)
 	text := jni_string_clone(env, s, allocator)
 	jni_delete_local_ref(env, s)
 	jni_delete_local_ref(env, editable)
@@ -48,15 +42,7 @@ _input_text :: proc(h: ^Input_Handle, allocator := context.allocator) -> string 
 
 @(private)
 _input_set_text :: proc(h: ^Input_Handle, text: string) {
-	set_char_sequence(g_android.env, jobject(h.field), "setText", text)
-}
-
-// Calls a TextView `(CharSequence)V` setter such as setText or setHint.
-@(private)
-set_char_sequence :: proc(env: JNI_Env, view: jobject, method: cstring, text: string) {
-	s := jni_string(env, strings.clone_to_cstring(text, context.temp_allocator))
-	jni_call_void(env, view, method, "(Ljava/lang/CharSequence;)V", jv_obj(s))
-	jni_delete_local_ref(env, s)
+	text_view_set_text(g_android.env, jobject(h.field), text)
 }
 
 @(export, link_name="Java_nv_NvInputListener_nativeOnChange")

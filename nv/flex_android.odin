@@ -12,11 +12,9 @@ package nv
 _flex_create :: proc(f: Flex) -> View {
 	env := g_android.env
 
-	ll_cls := jni_find_class(env, "android/widget/LinearLayout")
-	ll := jni_new_object(env, ll_cls, "(Landroid/content/Context;)V", jv_obj(g_android.activity))
-	jni_call_void(env, ll, "setOrientation", "(I)V", jv_int(int(f.axis)))
+	ll := linear_layout_new(env, g_android.activity)
+	linear_layout_set_orientation(env, ll, int(f.axis))
 
-	lp_cls := jni_find_class(env, "android/widget/LinearLayout$LayoutParams")
 	gap := android_dp(f.spacing)
 	for c, i in f.children {
 		main := c.flex > 0 ? 0 : LAYOUT_WRAP_CONTENT
@@ -29,14 +27,11 @@ _flex_create :: proc(f: Flex) -> View {
 		} else if i > 0 {
 			left = gap
 		}
-		lp := jni_new_object(env, lp_cls, "(IIF)V", jv_int(w), jv_int(h), jv_float(weight))
-		jni_call_void(env, lp, "setMargins", "(IIII)V", jv_int(left), jv_int(top), jv_int(0), jv_int(0))
-		jni_call_void(env, ll, "addView", "(Landroid/view/View;Landroid/view/ViewGroup$LayoutParams;)V",
-			jv_obj(jobject(c.view)), jv_obj(lp))
+		lp := linear_lp_new(env, w, h, weight)
+		view_group_margin_layout_params_set_margins(env, lp, left, top, 0, 0)
+		view_group_add_view(env, ll, jobject(c.view), lp)
 		jni_delete_local_ref(env, lp)
 	}
-	jni_delete_local_ref(env, lp_cls)
-	jni_delete_local_ref(env, ll_cls)
 
 	root := jni_new_global_ref(env, ll)
 	jni_delete_local_ref(env, ll)

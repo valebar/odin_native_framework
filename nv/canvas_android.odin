@@ -5,8 +5,6 @@ package nv
 // through android.graphics.Canvas, scaled by the display density so units are dp. Two
 // anti-aliased Paints (fill, stroke) are kept per canvas and recolored on every primitive.
 
-import "core:strings"
-
 @(private) ANDROID_ANTI_ALIAS_FLAG :: 1 // Paint.ANTI_ALIAS_FLAG
 
 // MotionEvent.getActionMasked values.
@@ -19,16 +17,14 @@ import "core:strings"
 _canvas_init :: proc(h: ^Canvas_Handle) {
 	env := g_android.env
 
-	v_cls := jni_find_class(env, "nv/NvCanvasView")
-	v := jni_new_object(env, v_cls, "(Landroid/content/Context;J)V", jv_obj(g_android.activity), jv_long(i64(uintptr(h))))
+	v := nv_canvas_view_new(env, g_android.activity, i64(uintptr(h)))
 
-	p_cls := jni_find_class(env, "android/graphics/Paint")
-	fill := jni_new_object(env, p_cls, "(I)V", jv_int(ANDROID_ANTI_ALIAS_FLAG))
-	stroke := jni_new_object(env, p_cls, "(I)V", jv_int(ANDROID_ANTI_ALIAS_FLAG))
-	style := enum_value(env, "android/graphics/Paint$Style", "(Ljava/lang/String;)Landroid/graphics/Paint$Style;", "STROKE")
-	jni_call_void(env, stroke, "setStyle", "(Landroid/graphics/Paint$Style;)V", jv_obj(style))
-	cap := enum_value(env, "android/graphics/Paint$Cap", "(Ljava/lang/String;)Landroid/graphics/Paint$Cap;", "ROUND")
-	jni_call_void(env, stroke, "setStrokeCap", "(Landroid/graphics/Paint$Cap;)V", jv_obj(cap))
+	fill := paint_new(env, ANDROID_ANTI_ALIAS_FLAG)
+	stroke := paint_new(env, ANDROID_ANTI_ALIAS_FLAG)
+	style := paint_style_value_of(env, "STROKE")
+	paint_set_style(env, stroke, style)
+	cap := paint_cap_value_of(env, "ROUND")
+	paint_set_stroke_cap(env, stroke, cap)
 
 	h.root = View(jni_new_global_ref(env, v))
 	h.view = rawptr(h.root)
@@ -38,22 +34,12 @@ _canvas_init :: proc(h: ^Canvas_Handle) {
 	jni_delete_local_ref(env, style)
 	jni_delete_local_ref(env, stroke)
 	jni_delete_local_ref(env, fill)
-	jni_delete_local_ref(env, p_cls)
 	jni_delete_local_ref(env, v)
-	jni_delete_local_ref(env, v_cls)
-}
-
-// Enum constant by name, through the enum's static valueOf. Returns a local ref.
-@(private)
-enum_value :: proc "contextless" (env: JNI_Env, cls, sig, name: cstring) -> jobject {
-	s := jni_string(env, name)
-	defer jni_delete_local_ref(env, s)
-	return jni_call_static_object(env, cls, "valueOf", sig, jv_obj(s))
 }
 
 @(private)
 _canvas_redraw :: proc(h: ^Canvas_Handle) {
-	jni_call_void(g_android.env, jobject(h.view), "invalidate", "()V")
+	view_invalidate(g_android.env, jobject(h.view))
 }
 
 @(private)
@@ -67,58 +53,48 @@ android_density :: proc "contextless" () -> f64 {
 paint :: proc "contextless" (p: ^Painter, c: Color, stroke := false, width: f64 = 0) -> jobject {
 	env := g_android.env
 	obj := jobject(stroke ? p.h.stroke : p.h.fill)
-	jni_call_void(env, obj, "setColor", "(I)V", jv_argb(c))
-	if stroke do jni_call_void(env, obj, "setStrokeWidth", "(F)V", jv_float(f32(width)))
+	paint_set_color(env, obj, android_argb(c))
+	if stroke do paint_set_stroke_width(env, obj, f32(width))
 	return obj
 }
 
 @(private)
-canvas_call4 :: proc "contextless" (p: ^Painter, name: cstring, a, b, c, d: f64, pt: jobject) {
-	jni_call_void(g_android.env, jobject(p.native), name, "(FFFFLandroid/graphics/Paint;)V",
-		jv_float(f32(a)), jv_float(f32(b)), jv_float(f32(c)), jv_float(f32(d)), jv_obj(pt))
-}
-
-@(private)
 _fill_rect :: proc(p: ^Painter, x, y, w, h: f64, color: Color) {
-	canvas_call4(p, "drawRect", x, y, x + w, y + h, paint(p, color))
+	canvas_draw_rect(g_android.env, jobject(p.native), f32(x), f32(y), f32(x + w), f32(y + h), paint(p, color))
 }
 
 @(private)
 _stroke_rect :: proc(p: ^Painter, x, y, w, h: f64, color: Color, width: f64) {
-	canvas_call4(p, "drawRect", x, y, x + w, y + h, paint(p, color, true, width))
+	canvas_draw_rect(g_android.env, jobject(p.native), f32(x), f32(y), f32(x + w), f32(y + h), paint(p, color, true, width))
 }
 
 @(private)
 _draw_line :: proc(p: ^Painter, x0, y0, x1, y1: f64, color: Color, width: f64) {
-	canvas_call4(p, "drawLine", x0, y0, x1, y1, paint(p, color, true, width))
+	canvas_draw_line(g_android.env, jobject(p.native), f32(x0), f32(y0), f32(x1), f32(y1), paint(p, color, true, width))
 }
 
 @(private)
 _fill_ellipse :: proc(p: ^Painter, x, y, w, h: f64, color: Color) {
-	canvas_call4(p, "drawOval", x, y, x + w, y + h, paint(p, color))
+	canvas_draw_oval(g_android.env, jobject(p.native), f32(x), f32(y), f32(x + w), f32(y + h), paint(p, color))
 }
 
 @(private)
 _stroke_ellipse :: proc(p: ^Painter, x, y, w, h: f64, color: Color, width: f64) {
-	canvas_call4(p, "drawOval", x, y, x + w, y + h, paint(p, color, true, width))
+	canvas_draw_oval(g_android.env, jobject(p.native), f32(x), f32(y), f32(x + w), f32(y + h), paint(p, color, true, width))
 }
 
 // drawText takes the baseline; ascent() is negative, so baseline = top - ascent. The typeface is
 // set on every call (null for the system font), since the Paint is shared; setTypeface returns
-// the Typeface, hence the object call.
+// the previous Typeface, a local ref to drop.
 @(private)
 _draw_text :: proc(p: ^Painter, text: string, x, y: f64, size: f64, color: Color, font: ^Font) {
 	env := g_android.env
 	pt := paint(p, color)
-	jni_call_void(env, pt, "setTextSize", "(F)V", jv_float(f32(size)))
-	tf := jni_call_object(env, pt, "setTypeface", "(Landroid/graphics/Typeface;)Landroid/graphics/Typeface;",
-		jv_obj(font != nil ? jobject(font.native) : nil))
+	paint_set_text_size(env, pt, f32(size))
+	tf := paint_set_typeface(env, pt, font != nil ? jobject(font.native) : nil)
 	if tf != nil do jni_delete_local_ref(env, tf)
-	ascent := jni_call_float(env, pt, "ascent", "()F")
-	s := jni_string(env, strings.clone_to_cstring(text, context.temp_allocator))
-	defer jni_delete_local_ref(env, s)
-	jni_call_void(env, jobject(p.native), "drawText", "(Ljava/lang/String;FFLandroid/graphics/Paint;)V",
-		jv_obj(s), jv_float(f32(x)), jv_float(f32(y) - ascent), jv_obj(pt))
+	ascent := paint_ascent(env, pt)
+	canvas_draw_text(env, jobject(p.native), text, f32(x), f32(y) - ascent, pt)
 }
 
 @(export, link_name="Java_nv_NvCanvasView_nativeOnDraw")
@@ -127,7 +103,7 @@ jni_canvas_on_draw :: proc "c" (env: JNI_Env, _: jclass, handle: jlong, canvas: 
 	context = h.ctx
 	g_android.env = env
 	d := android_density()
-	jni_call_void(env, canvas, "scale", "(FF)V", jv_float(f32(d)), jv_float(f32(d)))
+	canvas_scale(env, canvas, f32(d), f32(d))
 	canvas_draw_notify(h, rawptr(canvas), f64(width) / d, f64(height) / d)
 }
 
