@@ -31,10 +31,15 @@ _font_load :: proc(f: ^Font, data: []u8) -> bool {
 	if tf == nil do return false // not a font: the RuntimeException is logged and cleared by jni_check
 	defer jni_delete_local_ref(env, tf)
 	f.native = rawptr(jni_new_global_ref(env, tf))
+	f.extra = new(Typeface_Cache) // the weights / slants derived from it (theme_android.odin)
 	return true
 }
 
 @(private)
 _font_free :: proc(f: ^Font) {
-	jni_delete_global_ref(g_android.env, jobject(f.native))
+	env := g_android.env
+	cache := (^Typeface_Cache)(f.extra)
+	for slants in cache do for tf in slants do if tf != nil do jni_delete_global_ref(env, tf)
+	free(cache)
+	jni_delete_global_ref(env, jobject(f.native))
 }

@@ -102,6 +102,7 @@ android.graphics.Canvas           drawText(java.lang.String text, float x, float
 android.graphics.Canvas           drawBitmap(android.graphics.Bitmap bitmap, android.graphics.Rect src, android.graphics.RectF dst, android.graphics.Paint paint)
 android.graphics.Canvas           scale(float sx, float sy)
 android.graphics.RectF            <init>(float left, float top, float right, float bottom)
+android.graphics.RectF            set(float left, float top, float right, float bottom)
 android.graphics.drawable.GradientDrawable <init>()
 android.graphics.drawable.GradientDrawable setColor(int argb)
 android.graphics.drawable.GradientDrawable setCornerRadius(float radius)

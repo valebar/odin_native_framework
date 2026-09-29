@@ -25,6 +25,7 @@ _canvas_init :: proc(h: ^Canvas_Handle) {
 
 	h.root = View(view)
 	h.view = view
+	apple_canvas_init(h)
 }
 
 @(private)
@@ -46,6 +47,7 @@ canvas_yes :: proc "c" (_: NS.id, _: NS.SEL) -> NS.BOOL {
 canvas_draw_rect :: proc "c" (self: NS.id, _: NS.SEL, _: NS.Rect) {
 	h := objc_handle(self, Canvas_Handle)
 	context = h.ctx
+	NS.scoped_autoreleasepool() // the frame's strings, colors and fonts go with the frame
 	gc := send(^Graphics_Context, Graphics_Context, "currentContext")
 	bounds := send(NS.Rect, (^NS.Object)(self), "bounds")
 	canvas_draw_notify(h, send(rawptr, gc, "CGContext"), f64(bounds.size.width), f64(bounds.size.height))

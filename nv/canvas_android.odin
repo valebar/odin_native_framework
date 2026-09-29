@@ -3,9 +3,25 @@ package nv
 
 // Android canvas backend: nv.NvCanvasView (Java shim) forwards onDraw and touches. Drawing goes
 // through android.graphics.Canvas, scaled by the display density so units are dp. Two
-// anti-aliased Paints (fill, stroke) are kept per canvas and recolored on every primitive.
+// anti-aliased Paints (fill, stroke) are kept per canvas; Android_Canvas remembers what they were
+// last set to, so a primitive in the same colour (width, font) costs one JNI call, not two or
+// more. The memory is cleared per frame. jni_check's ExceptionCheck after every call stays: it
+// never enters Java, and it is what turns a bad draw call into a log line instead of an abort.
 
 @(private) ANDROID_ANTI_ALIAS_FLAG :: 1 // Paint.ANTI_ALIAS_FLAG
+
+// Per-canvas draw state (Canvas_Handle.extra, in the page's arena).
+@(private) Android_Canvas :: struct {
+	color:    [2]int,  // last ARGB set on the fill / stroke Paint ..
+	color_ok: [2]bool, // .. and whether it is known
+	width:    f32,     // last stroke width
+	width_ok: bool,
+	typeface: jobject, // last text state on the fill Paint
+	size:     f32,
+	ascent:   f32,
+	text_ok:  bool,
+	rect:     jobject, // a RectF global ref that _draw_image reuses
+}
 
 // MotionEvent.getActionMasked values.
 @(private) ANDROID_ACTION_DOWN   :: 0
@@ -30,6 +46,11 @@ _canvas_init :: proc(h: ^Canvas_Handle) {
 	h.view = rawptr(h.root)
 	h.fill = rawptr(android_own_ref(env, fill))
 	h.stroke = rawptr(android_own_ref(env, stroke))
+	c := scope_new_in(Android_Canvas)
+	h.extra = c
+	rect := rect_f_new(env, 0, 0, 0, 0)
+	c.rect = android_own_ref(env, rect)
+	jni_delete_local_ref(env, rect)
 	jni_delete_local_ref(env, cap)
 	jni_delete_local_ref(env, style)
 	jni_delete_local_ref(env, stroke)
@@ -48,13 +69,22 @@ android_density :: proc "contextless" () -> f64 {
 	return f64(g_android.density)
 }
 
-// Paint with `c` as ARGB, and the stroke width for the stroke Paint.
+// Paint with `color` as ARGB, and the stroke width for the stroke Paint; each is set only when
+// it differs from what the Paint already has.
 @(private)
-paint :: proc "contextless" (p: ^Painter, c: Color, stroke := false, width: f64 = 0) -> jobject {
+paint :: proc "contextless" (p: ^Painter, color: Color, stroke := false, width: f64 = 0) -> jobject {
 	env := g_android.env
 	obj := jobject(stroke ? p.h.stroke : p.h.fill)
-	paint_set_color(env, obj, android_argb(c))
-	if stroke do paint_set_stroke_width(env, obj, f32(width))
+	c := (^Android_Canvas)(p.h.extra)
+	i := stroke ? 1 : 0
+	if argb := android_argb(color); !c.color_ok[i] || c.color[i] != argb {
+		paint_set_color(env, obj, argb)
+		c.color[i], c.color_ok[i] = argb, true
+	}
+	if w := f32(width); stroke && (!c.width_ok || c.width != w) {
+		paint_set_stroke_width(env, obj, w)
+		c.width, c.width_ok = w, true
+	}
 	return obj
 }
 
@@ -83,19 +113,22 @@ _stroke_ellipse :: proc(p: ^Painter, x, y, w, h: f64, color: Color, width: f64) 
 	canvas_draw_oval(g_android.env, jobject(p.native), f32(x), f32(y), f32(x + w), f32(y + h), paint(p, color, true, width))
 }
 
-// drawText takes the baseline; ascent() is negative, so baseline = top - ascent. The typeface is
-// set on every call (the style's, from android_style_typeface), since the Paint is shared;
+// drawText takes the baseline; ascent() is negative, so baseline = top - ascent. The size and
+// typeface (the style's, from android_style_typeface: a cached global ref, so the same style
+// gives the same object) go on the shared fill Paint when they differ from the last text drawn;
 // setTypeface returns the previous Typeface, a local ref to drop.
 @(private)
 _draw_text :: proc(p: ^Painter, text: string, x, y: f64, style: Text_Style) {
 	env := g_android.env
+	c := (^Android_Canvas)(p.h.extra)
 	pt := paint(p, style.color)
-	paint_set_text_size(env, pt, f32(style.size))
 	tf := android_style_typeface(env, style, false)
-	defer if tf.owned do jni_delete_local_ref(env, tf.ref)
-	if old := paint_set_typeface(env, pt, tf.ref); old != nil do jni_delete_local_ref(env, old)
-	ascent := paint_ascent(env, pt)
-	canvas_draw_text(env, jobject(p.native), text, f32(x), f32(y) - ascent, pt)
+	if size := f32(style.size); !c.text_ok || tf != c.typeface || size != c.size {
+		paint_set_text_size(env, pt, size)
+		if old := paint_set_typeface(env, pt, tf); old != nil do jni_delete_local_ref(env, old)
+		c.typeface, c.size, c.ascent, c.text_ok = tf, size, paint_ascent(env, pt), true
+	}
+	canvas_draw_text(env, jobject(p.native), text, f32(x), f32(y) - c.ascent, pt)
 }
 
 @(export, link_name="Java_nv_NvCanvasView_nativeOnDraw")
@@ -103,6 +136,8 @@ jni_canvas_on_draw :: proc "c" (env: JNI_Env, _: jclass, handle: jlong, canvas: 
 	h := (^Canvas_Handle)(uintptr(handle))
 	context = h.ctx
 	g_android.env = env
+	c := (^Android_Canvas)(h.extra)
+	c.color_ok, c.width_ok, c.text_ok = {}, false, false // forget the Paints' state every frame
 	d := android_density()
 	canvas_scale(env, canvas, f32(d), f32(d))
 	canvas_draw_notify(h, rawptr(canvas), f64(width) / d, f64(height) / d)

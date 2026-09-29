@@ -15,11 +15,13 @@ package main
 // downloaded from the network. The header, the Tip button, the Ask dialog's input and the canvas
 // text use a font loaded from an asset file (Tuffy Bold, public domain). The theme sets an accent
 // and follows the OS light / dark; the Theme action cycles System → Light → Dark, and the canvas
-// redraws with the palette on a flip.
+// redraws with the palette on a flip. The Bench action pushes a page that times the canvas draw
+// path over a fixed workload.
 
 import "core:fmt"
 import "core:strconv"
 import "core:strings"
+import "core:time"
 import nv "../nv"
 
 State :: struct {
@@ -66,6 +68,9 @@ main :: proc() {
 			{title = "Info", icon = .Info, user = state, on_click = proc(user: rawptr) {
 				s := (^State)(user)
 				fmt.printfln("%d of %d items visible, %d strokes", len(s.visible), s.items, len(s.strokes))
+			}},
+			{title = "Bench", icon = .Refresh, user = state, on_click = proc(user: rawptr) {
+				push_bench((^State)(user))
 			}},
 			{title = "Theme", icon = .Settings, on_click = proc(_: rawptr) {
 				next := nv.Mode((int(nv.theme_mode()) + 1) % len(nv.Mode))
@@ -321,5 +326,120 @@ apply_filter :: proc(s: ^State, text: string) {
 	buf: [32]byte
 	for n in 0..<s.items {
 		if strings.contains(strconv.write_int(buf[:], i64(n), 10), text) do append(&s.visible, n)
+	}
+}
+
+// A page that times the canvas draw path: each button repaints a fixed workload for 60 frames and
+// reports the average time spent inside `on_draw` (the draw calls themselves) and per frame (wall
+// time, so it includes the platform's own rasterizing and compositing).
+Bench :: struct {
+	s:           ^State,
+	kind:        Bench_Kind,
+	frames_left: int,
+	frames:      int,
+	draw:        time.Duration, // inside on_draw's workload, summed
+	start:       time.Tick,
+	label:       ^nv.Label_Handle,
+	canvas:      ^nv.Canvas_Handle,
+}
+
+Bench_Kind :: enum { Rects, Lines, Text, Mixed }
+BENCH_FRAMES :: 60
+BENCH_COLORS :: [4]nv.Color{{0.9, 0.3, 0.3, 1}, {0.3, 0.7, 0.4, 1}, {0.3, 0.5, 0.9, 1}, {0.9, 0.7, 0.2, 1}}
+
+push_bench :: proc(s: ^State) {
+	b := new(Bench)
+	b.s = s
+	nv.push({
+		title = "Bench", build = bench_build, user_data = b,
+		on_pop = proc(user: rawptr) { free((^Bench)(user)) },
+	})
+}
+
+bench_build :: proc(page: ^nv.Page_Handle, user: rawptr) -> nv.View {
+	b := (^Bench)(user)
+	b.label = nv.label_create({text = "Pick a workload", heading = true})
+	b.canvas = nv.canvas_create({on_draw = bench_draw, user = b})
+	buttons: [len(Bench_Kind)]nv.Flex_Child
+	for kind, i in Bench_Kind {
+		// One proc per kind: a callback carries nothing but `user`.
+		on_click: proc(user: rawptr)
+		switch kind {
+		case .Rects: on_click = proc(user: rawptr) { bench_start((^Bench)(user), .Rects) }
+		case .Lines: on_click = proc(user: rawptr) { bench_start((^Bench)(user), .Lines) }
+		case .Text:  on_click = proc(user: rawptr) { bench_start((^Bench)(user), .Text) }
+		case .Mixed: on_click = proc(user: rawptr) { bench_start((^Bench)(user), .Mixed) }
+		}
+		button := nv.button_create({title = fmt.tprint(kind), user = b, on_click = on_click})
+		buttons[i] = {nv.button_view(button), 1}
+	}
+	row := nv.row_create(buttons[:], spacing = 8)
+	return nv.column_create({{nv.label_view(b.label), 0}, {row, 0}, {nv.canvas_view(b.canvas), 1}}, spacing = 8)
+}
+
+bench_start :: proc(b: ^Bench, kind: Bench_Kind) {
+	b.kind = kind
+	b.frames_left = BENCH_FRAMES
+	b.frames = 0
+	b.draw = 0
+	b.start = time.tick_now()
+	nv.canvas_redraw(b.canvas)
+}
+
+bench_draw :: proc(user: rawptr, p: ^nv.Painter, w, h: f64) {
+	b := (^Bench)(user)
+	pal := nv.theme_palette()
+	nv.fill_rect(p, 0, 0, w, h, pal.surface)
+	colors := BENCH_COLORS
+
+	t0 := time.tick_now()
+	switch b.kind {
+	case .Rects:
+		for i in 0..<2000 {
+			x, y := f64(i % 50) * w / 50, f64(i / 50) * h / 40
+			nv.fill_rect(p, x, y, w / 50 - 2, h / 40 - 2, colors[i % 4])
+			nv.stroke_rect(p, x, y, w / 50 - 2, h / 40 - 2, colors[(i + 1) % 4])
+		}
+	case .Lines:
+		for i in 0..<4000 {
+			x, y := f64(i % 80) * w / 80, f64(i / 80) * h / 50
+			nv.draw_line(p, x, y, x + w / 80, y + h / 50, colors[i % 4], 2)
+		}
+	case .Text:
+		for i in 0..<300 {
+			x, y := f64(i % 6) * w / 6, f64(i / 6) * h / 50
+			style := nv.Text_Style{size = 12, color = colors[i % 4]}
+			if i % 2 == 1 do style.font = b.s.font
+			nv.draw_text(p, "Native views", x, y, style)
+		}
+	case .Mixed:
+		for i in 0..<500 {
+			x, y := f64(i % 25) * w / 25, f64(i / 25) * h / 20
+			nv.fill_rect(p, x, y, w / 25 - 2, h / 20 - 2, colors[i % 4])
+			nv.draw_line(p, x, y, x + w / 25, y + h / 20, colors[(i + 2) % 4], 2)
+		}
+		for i in 0..<100 {
+			x, y := f64(i % 10) * w / 10, f64(i / 10) * h / 10
+			nv.fill_ellipse(p, x, y, w / 10 - 4, h / 10 - 4, colors[(i + 1) % 4])
+			nv.draw_text(p, "Mixed", x + 4, y + 4, {size = 12, font = i % 2 == 1 ? b.s.font : nil})
+		}
+		for i in 0..<50 do nv.draw_image(p, b.s.logo, f64(i % 10) * w / 10, f64(i / 10) * h / 5, 64, 48)
+	}
+	b.draw += time.tick_since(t0)
+	b.frames += 1
+
+	if b.frames_left > 0 {
+		b.frames_left -= 1
+		nv.canvas_redraw(b.canvas) // the next frame comes from the platform's paint cycle
+		return
+	}
+	if b.frames == BENCH_FRAMES + 1 { // the run just finished (later static repaints are not counted)
+		n := f64(b.frames)
+		draw_ms := time.duration_milliseconds(b.draw) / n
+		frame_ms := time.duration_milliseconds(time.tick_since(b.start)) / n
+		summary := fmt.tprintf("%v: %d frames, draw %.2f ms, frame %.2f ms", b.kind, b.frames, draw_ms, frame_ms)
+		fmt.println("bench", summary)
+		nv.label_set_text(b.label, summary)
+		b.frames += 1 // so a repaint after the run (the label relayout, a resize) leaves the result
 	}
 }

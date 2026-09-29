@@ -36,14 +36,14 @@ _bitmap_free :: proc(b: ^Bitmap) {
 }
 
 // The canvas is already scaled to dp. The fill Paint filters the bitmap when scaling; it is made
-// opaque first, since its alpha would fade the image.
+// opaque first, since its alpha would fade the image. The destination is the canvas's one RectF.
 @(private)
 _draw_image :: proc(p: ^Painter, b: ^Bitmap, x, y, w, h: f64) {
 	env := g_android.env
 	pt := paint(p, {0, 0, 0, 1})
-	dst := rect_f_new(env, f32(x), f32(y), f32(x + w), f32(y + h))
+	dst := (^Android_Canvas)(p.h.extra).rect
+	rect_f_set(env, dst, f32(x), f32(y), f32(x + w), f32(y + h))
 	canvas_draw_bitmap(env, jobject(p.native), jobject(b.native), nil, dst, pt)
-	jni_delete_local_ref(env, dst)
 }
 
 @(private)

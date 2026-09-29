@@ -538,6 +538,12 @@ rect_f_new :: proc "contextless" (env: JNI_Env, left: f32, top: f32, right: f32,
 	return jni_new_object(env, &jm_rect_f_new, jv_float(left), jv_float(top), jv_float(right), jv_float(bottom))
 }
 
+// android.graphics.RectF.set(float, float, float, float)
+@(private) jm_rect_f_set := Jni_Method{cls = &jc_rect_f, name = "set", sig = "(FFFF)V"}
+rect_f_set :: proc "contextless" (env: JNI_Env, self: jobject, left: f32, top: f32, right: f32, bottom: f32) {
+	jni_call_void(env, self, &jm_rect_f_set, jv_float(left), jv_float(top), jv_float(right), jv_float(bottom))
+}
+
 // android.graphics.drawable.GradientDrawable.<init>()
 @(private) jm_gradient_drawable_new := Jni_Method{cls = &jc_gradient_drawable, name = "<init>", sig = "()V"}
 gradient_drawable_new :: proc "contextless" (env: JNI_Env) -> jobject {

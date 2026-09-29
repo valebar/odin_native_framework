@@ -55,31 +55,44 @@ _theme_apply_mode :: proc() {
 @(private)
 _theme_recolor :: proc() {}
 
-// A Typeface of the weight (100..900) and slant derived from `base` (null: the default family);
-// Typeface.create(Typeface, int, boolean) is API 28. Local ref.
+// The Typefaces derived from one family by weight and slant, as global refs made on first use:
+// a loaded Font's in Font.extra (deleted with it), the system family's in g_android_typefaces.
+// Typeface.create per use would make a Java object on every canvas text draw.
+@(private) Typeface_Cache :: [Weight][2]jobject // [weight][italic]
+@(private) g_android_typefaces: Typeface_Cache
+
+// A Typeface of the weight (100..900) and slant derived from `base` (null: the default family),
+// from `cache`; Typeface.create(Typeface, int, boolean) is API 28. Never owned by the caller.
 @(private)
-android_typeface :: proc "contextless" (env: JNI_Env, base: jobject, w: Weight, bold, italic: bool) -> jobject {
-	weight := 400
-	switch text_weight(w, bold) {
-	case .Default, .Regular:
-	case .Medium:   weight = 500
-	case .Semibold: weight = 600
-	case .Bold:     weight = 700
+android_typeface :: proc "contextless" (env: JNI_Env, base: jobject, cache: ^Typeface_Cache, w: Weight, bold, italic: bool) -> jobject {
+	wt := text_weight(w, bold)
+	slot := &cache[wt][italic ? 1 : 0]
+	if slot^ == nil {
+		weight := 400
+		#partial switch wt {
+		case .Medium:   weight = 500
+		case .Semibold: weight = 600
+		case .Bold:     weight = 700
+		}
+		local := typeface_create(env, base, weight, italic)
+		if local == nil do return nil
+		slot^ = jni_new_global_ref(env, local)
+		jni_delete_local_ref(env, local)
 	}
-	return typeface_create(env, base, weight, italic)
+	return slot^
 }
 
-// The Typeface for a style: the loaded face itself (a global ref the Font owns, `owned` false)
-// unless a weight or slant is asked over it, else a system one of the style's weight; `bold` is
-// the widget's default weight. nil when the style leaves the system font alone.
+// The Typeface for a style: the loaded face itself unless a weight or slant is asked over it,
+// else a system one of the style's weight; `bold` is the widget's default weight. nil when the
+// style leaves the system font alone. Global refs the caller neither owns nor deletes.
 @(private)
-android_style_typeface :: proc "contextless" (env: JNI_Env, s: Text_Style, bold: bool) -> (tf: struct { ref: jobject, owned: bool }) {
+android_style_typeface :: proc "contextless" (env: JNI_Env, s: Text_Style, bold: bool) -> jobject {
 	if f := s.font; f != nil {
-		if s.weight == .Default && !s.italic do return {jobject(f.native), false}
-		return {android_typeface(env, jobject(f.native), s.weight, false, s.italic), true}
+		if s.weight == .Default && !s.italic do return jobject(f.native)
+		return android_typeface(env, jobject(f.native), (^Typeface_Cache)(f.extra), s.weight, false, s.italic)
 	}
-	if bold || s.weight != .Default || s.italic do return {android_typeface(env, nil, s.weight, bold, s.italic), true}
-	return {}
+	if bold || s.weight != .Default || s.italic do return android_typeface(env, nil, &g_android_typefaces, s.weight, bold, s.italic)
+	return nil
 }
 
 // Applies a style to a TextView (or a Button / EditText). `size` and `bold` are the view's
@@ -87,10 +100,7 @@ android_style_typeface :: proc "contextless" (env: JNI_Env, s: Text_Style, bold:
 @(private)
 android_style_text :: proc "contextless" (env: JNI_Env, tv: jobject, s: Text_Style, size: f64 = 0, bold := false) {
 	if sz := s.size > 0 ? s.size : size; sz > 0 do text_view_set_text_size(env, tv, f32(sz)) // sp
-	if tf := android_style_typeface(env, s, bold); tf.ref != nil {
-		text_view_set_typeface(env, tv, tf.ref)
-		if tf.owned do jni_delete_local_ref(env, tf.ref)
-	}
+	if tf := android_style_typeface(env, s, bold); tf != nil do text_view_set_typeface(env, tv, tf)
 	if s.color.a > 0 do text_view_set_text_color(env, tv, android_argb(s.color))
 }
 

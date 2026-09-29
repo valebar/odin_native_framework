@@ -4,7 +4,9 @@ package nv
 // Windows canvas backend: an "NVCanvas" window painted with GDI+ (plain GDI has no
 // anti-aliasing) into an off-screen bitmap, then blitted. The GDI+ world transform scales dp to
 // px; text goes through GDI on the same bitmap in the message font, or a loaded one, at the
-// requested size.
+// requested size. The canvas keeps one brush and one pen (Windows_Canvas, in Canvas_Handle.extra)
+// and recolors them per primitive: creating a GDI+ object per call costs more than the drawing.
+// The back buffer is kept across paints too, recreated only when the client size changes.
 // The left mouse button is captured while pressed, so a drag keeps reporting outside the window.
 
 import win "core:sys/windows"
@@ -30,7 +32,22 @@ foreign import gdiplus "system:gdiplus.lib"
 @(private) GP_MATRIX_ORDER_PREPEND :: i32(0)
 @(private) GP_LINE_CAP_ROUND      :: i32(2)
 @(private) GP_INTERPOLATION_HIGH_QUALITY_BICUBIC :: i32(7)
+@(private) GP_PIXEL_OFFSET_DEFAULT               :: i32(0)
 @(private) GP_PIXEL_OFFSET_HIGH_QUALITY          :: i32(2)
+
+// Per-canvas GDI+ state (Canvas_Handle.extra, in the page's arena): the brush and pen every
+// primitive draws with, the colour / width they were last set to, and the back buffer.
+@(private) Windows_Canvas :: struct {
+	brush:      GpBrush,
+	pen:        GpPen,
+	brush_argb: u32,
+	pen_argb:   u32,
+	pen_width:  f32,
+	mem:        win.HDC, // back buffer of `size` px; nil until the first paint
+	bmp:        win.HBITMAP,
+	old:        win.HGDIOBJ,
+	size:       [2]i32,
+}
 
 @(default_calling_convention="system", private)
 foreign gdiplus {
@@ -42,8 +59,11 @@ foreign gdiplus {
 	GdipGetDC               :: proc(graphics: GpGraphics, hdc: ^win.HDC) -> i32 ---
 	GdipReleaseDC           :: proc(graphics: GpGraphics, hdc: win.HDC) -> i32 ---
 	GdipCreateSolidFill     :: proc(argb: u32, brush: ^GpBrush) -> i32 ---
+	GdipSetSolidFillColor   :: proc(brush: GpBrush, argb: u32) -> i32 ---
 	GdipDeleteBrush         :: proc(brush: GpBrush) -> i32 ---
 	GdipCreatePen1          :: proc(argb: u32, width: f32, unit: i32, pen: ^GpPen) -> i32 ---
+	GdipSetPenColor         :: proc(pen: GpPen, argb: u32) -> i32 ---
+	GdipSetPenWidth         :: proc(pen: GpPen, width: f32) -> i32 ---
 	GdipDeletePen           :: proc(pen: GpPen) -> i32 ---
 	GdipSetPenStartCap      :: proc(pen: GpPen, cap: i32) -> i32 ---
 	GdipSetPenEndCap        :: proc(pen: GpPen, cap: i32) -> i32 ---
@@ -80,6 +100,48 @@ _canvas_init :: proc(h: ^Canvas_Handle) {
 		0, 0, 0, 0, g_windows.parking, nil, g_windows.hinstance, h)
 	h.root = View(wnd)
 	h.view = rawptr(wnd)
+
+	c := scope_new_in(Windows_Canvas)
+	h.extra = c
+	GdipCreateSolidFill(0, &c.brush)
+	GdipCreatePen1(0, 1, GP_UNIT_WORLD, &c.pen)
+	c.pen_width = 1
+	// Caps only show on open figures (lines), so the rectangles and ellipses are unaffected.
+	GdipSetPenStartCap(c.pen, GP_LINE_CAP_ROUND)
+	GdipSetPenEndCap(c.pen, GP_LINE_CAP_ROUND)
+	scope_on_dispose(canvas_dispose, h)
+}
+
+// Runs from WM_NV_DESTROY after the window is gone; GDI objects do not depend on it.
+@(private)
+canvas_dispose :: proc(data: rawptr) {
+	c := (^Windows_Canvas)((^Canvas_Handle)(data).extra)
+	GdipDeletePen(c.pen)
+	GdipDeleteBrush(c.brush)
+	canvas_buffer_free(c)
+}
+
+// A top-down 32-bit DIB section for a back buffer. GDI+ draws straight into a DIB's pixels; on a
+// device-dependent bitmap (CreateCompatibleBitmap) it has to fetch and store them through GDI
+// around every anti-aliased primitive, which costs far more than the drawing.
+@(private)
+dib_section :: proc "contextless" (width, height: i32) -> win.HBITMAP {
+	bi: win.BITMAPINFO
+	bi.bmiHeader = {
+		biSize = size_of(win.BITMAPINFOHEADER), biWidth = width, biHeight = -height,
+		biPlanes = 1, biBitCount = 32, biCompression = win.BI_RGB,
+	}
+	bits: rawptr
+	return win.CreateDIBSection(nil, &bi, win.DIB_RGB_COLORS, &bits, nil, 0)
+}
+
+@(private)
+canvas_buffer_free :: proc "contextless" (c: ^Windows_Canvas) {
+	if c.mem == nil do return
+	win.SelectObject(c.mem, c.old)
+	win.DeleteObject(win.HGDIOBJ(c.bmp))
+	win.DeleteDC(c.mem)
+	c.mem, c.bmp, c.old, c.size = nil, nil, nil, {}
 }
 
 @(private)
@@ -87,6 +149,7 @@ _canvas_redraw :: proc(h: ^Canvas_Handle) {
 	win.InvalidateRect(win.HWND(h.view), nil, false)
 }
 
+// A throwaway brush / pen for a single use (the container's paint); the caller deletes it.
 @(private)
 with_brush :: proc "contextless" (c: Color) -> GpBrush {
 	brush: GpBrush
@@ -101,41 +164,54 @@ with_pen :: proc "contextless" (c: Color, width: f64) -> GpPen {
 	return pen
 }
 
+// The canvas's brush / pen, recolored (and the pen resized) only when the value changed.
+@(private)
+brush_for :: proc "contextless" (p: ^Painter, color: Color) -> GpBrush {
+	c := (^Windows_Canvas)(p.h.extra)
+	if argb := color_argb(color); argb != c.brush_argb {
+		GdipSetSolidFillColor(c.brush, argb)
+		c.brush_argb = argb
+	}
+	return c.brush
+}
+
+@(private)
+pen_for :: proc "contextless" (p: ^Painter, color: Color, width: f64) -> GpPen {
+	c := (^Windows_Canvas)(p.h.extra)
+	if argb := color_argb(color); argb != c.pen_argb {
+		GdipSetPenColor(c.pen, argb)
+		c.pen_argb = argb
+	}
+	if w := f32(width); w != c.pen_width {
+		GdipSetPenWidth(c.pen, w)
+		c.pen_width = w
+	}
+	return c.pen
+}
+
 @(private)
 _fill_rect :: proc(p: ^Painter, x, y, w, h: f64, color: Color) {
-	brush := with_brush(color)
-	defer GdipDeleteBrush(brush)
-	GdipFillRectangle(p.native, brush, f32(x), f32(y), f32(w), f32(h))
+	GdipFillRectangle(p.native, brush_for(p, color), f32(x), f32(y), f32(w), f32(h))
 }
 
 @(private)
 _stroke_rect :: proc(p: ^Painter, x, y, w, h: f64, color: Color, width: f64) {
-	pen := with_pen(color, width)
-	defer GdipDeletePen(pen)
-	GdipDrawRectangle(p.native, pen, f32(x), f32(y), f32(w), f32(h))
+	GdipDrawRectangle(p.native, pen_for(p, color, width), f32(x), f32(y), f32(w), f32(h))
 }
 
 @(private)
 _draw_line :: proc(p: ^Painter, x0, y0, x1, y1: f64, color: Color, width: f64) {
-	pen := with_pen(color, width)
-	defer GdipDeletePen(pen)
-	GdipSetPenStartCap(pen, GP_LINE_CAP_ROUND)
-	GdipSetPenEndCap(pen, GP_LINE_CAP_ROUND)
-	GdipDrawLine(p.native, pen, f32(x0), f32(y0), f32(x1), f32(y1))
+	GdipDrawLine(p.native, pen_for(p, color, width), f32(x0), f32(y0), f32(x1), f32(y1))
 }
 
 @(private)
 _fill_ellipse :: proc(p: ^Painter, x, y, w, h: f64, color: Color) {
-	brush := with_brush(color)
-	defer GdipDeleteBrush(brush)
-	GdipFillEllipse(p.native, brush, f32(x), f32(y), f32(w), f32(h))
+	GdipFillEllipse(p.native, brush_for(p, color), f32(x), f32(y), f32(w), f32(h))
 }
 
 @(private)
 _stroke_ellipse :: proc(p: ^Painter, x, y, w, h: f64, color: Color, width: f64) {
-	pen := with_pen(color, width)
-	defer GdipDeletePen(pen)
-	GdipDrawEllipse(p.native, pen, f32(x), f32(y), f32(w), f32(h))
+	GdipDrawEllipse(p.native, pen_for(p, color, width), f32(x), f32(y), f32(w), f32(h))
 }
 
 // GDI ignores the GDI+ transform, so text is placed in px. The HDC from GdipGetDC has the
@@ -172,23 +248,27 @@ canvas_paint :: proc(hwnd: win.HWND, h: ^Canvas_Handle) {
 	win.GetClientRect(hwnd, &rc)
 	if rc.right <= 0 || rc.bottom <= 0 do return
 
-	mem := win.CreateCompatibleDC(dc)
-	defer win.DeleteDC(mem)
-	bmp := win.CreateCompatibleBitmap(dc, rc.right, rc.bottom)
-	defer win.DeleteObject(win.HGDIOBJ(bmp))
-	old := win.SelectObject(mem, win.HGDIOBJ(bmp))
-	defer win.SelectObject(mem, old)
-	win.FillRect(mem, &rc, background_brush_of(win.GetParent(hwnd)))
+	c := (^Windows_Canvas)(h.extra)
+	if c.mem == nil || c.size != {rc.right, rc.bottom} {
+		canvas_buffer_free(c)
+		c.mem = win.CreateCompatibleDC(dc)
+		c.bmp = dib_section(rc.right, rc.bottom)
+		c.old = win.SelectObject(c.mem, win.HGDIOBJ(c.bmp))
+		c.size = {rc.right, rc.bottom}
+	}
+	win.FillRect(c.mem, &rc, background_brush_of(win.GetParent(hwnd)))
 
+	// A Graphics per paint: cheap, and a kept one would accumulate clip and transform state.
 	g: GpGraphics
-	GdipCreateFromHDC(mem, &g)
+	GdipCreateFromHDC(c.mem, &g)
 	GdipSetSmoothingMode(g, GP_SMOOTHING_ANTIALIAS)
+	GdipSetInterpolationMode(g, GP_INTERPOLATION_HIGH_QUALITY_BICUBIC)
 	scale := f32(g_windows.dpi) / 96
 	GdipScaleWorldTransform(g, scale, scale, GP_MATRIX_ORDER_PREPEND)
-	canvas_draw_notify(h, g, dp(rc.right), dp(rc.bottom), mem)
+	canvas_draw_notify(h, g, dp(rc.right), dp(rc.bottom), c.mem)
 	GdipDeleteGraphics(g)
 
-	win.BitBlt(dc, 0, 0, rc.right, rc.bottom, mem, 0, 0, win.SRCCOPY)
+	win.BitBlt(dc, 0, 0, rc.right, rc.bottom, c.mem, 0, 0, win.SRCCOPY)
 }
 
 @(private)

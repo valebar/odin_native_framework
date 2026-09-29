@@ -104,7 +104,7 @@ container_paint :: proc(hwnd: win.HWND, h: ^Container_Handle) {
 
 	mem := win.CreateCompatibleDC(dc)
 	defer win.DeleteDC(mem)
-	bmp := win.CreateCompatibleBitmap(dc, rc.right, rc.bottom)
+	bmp := dib_section(rc.right, rc.bottom)
 	defer win.DeleteObject(win.HGDIOBJ(bmp))
 	old := win.SelectObject(mem, win.HGDIOBJ(bmp))
 	defer win.SelectObject(mem, old)

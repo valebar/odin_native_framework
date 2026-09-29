@@ -154,8 +154,10 @@ parse_spec :: proc(path: string) -> [dynamic]Spec {
 
 // ---- javap ----
 
+CP_SEP :: ";" when ODIN_OS == .Windows else ":" // the Java classpath separator
+
 run_javap :: proc(javap, jar, classes: string, class_names: []string) -> map[string][dynamic]Javap_Member {
-	cp := classes == "" ? jar : fmt.tprintf("%s:%s", jar, classes)
+	cp := classes == "" ? jar : fmt.tprintf("%s%s%s", jar, CP_SEP, classes)
 	cmd := make([dynamic]string)
 	append(&cmd, javap, "-s", "-p", "-cp", cp)
 	for c in class_names do append(&cmd, c)

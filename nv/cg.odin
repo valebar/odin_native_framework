@@ -77,7 +77,13 @@ foreign corefoundation {
 }
 
 // Fonts: the bytes become a CGFont, kept for the Font's lifetime; no CTFontManager registration
-// is needed to use it directly.
+// is needed to use it directly. The CTFonts made from it are cached by size (Font.extra), since
+// every widget and every canvas text draw would otherwise create one.
+@(private) Apple_Font_Cache :: struct {
+	entries: [8]struct { size: f64, font: CTFontRef }, // retained
+	n, next: int, // filled count; the slot the next eviction takes
+}
+
 @(private)
 _font_load :: proc(f: ^Font, data: []u8) -> bool {
 	ns_data := send(^NS.Data, NS.Data, "dataWithBytes:length:", raw_data(data), NS.UInteger(len(data)))
@@ -87,18 +93,36 @@ _font_load :: proc(f: ^Font, data: []u8) -> bool {
 	font := CGFontCreateWithDataProvider(provider)
 	if font == nil do return false
 	f.native = rawptr(font)
+	f.extra = new(Apple_Font_Cache)
 	return true
 }
 
 @(private)
 _font_free :: proc(f: ^Font) {
+	cache := (^Apple_Font_Cache)(f.extra)
+	for e in cache.entries[:cache.n] do CFRelease(rawptr(e.font))
+	free(cache)
 	CGFontRelease(CGFontRef(f.native))
 }
 
-// An autoreleased CTFont of the loaded face at `size`, usable wherever an NSFont / UIFont is.
+// A CTFont of the loaded face at `size`, usable wherever an NSFont / UIFont is. The Font's cache
+// owns it; a caller that keeps it retains it (setFont: does), since the oldest of the 8 cached
+// sizes is released when a ninth is made.
 @(private)
 ct_font :: proc "c" (f: ^Font, size: f64) -> ^NS.Object {
-	return (^NS.Object)(CFAutorelease(rawptr(CTFontCreateWithGraphicsFont(CGFontRef(f.native), NS.Float(size), nil, nil))))
+	cache := (^Apple_Font_Cache)(f.extra)
+	for e in cache.entries[:cache.n] do if e.size == size do return (^NS.Object)(e.font)
+	font := CTFontCreateWithGraphicsFont(CGFontRef(f.native), NS.Float(size), nil, nil)
+	if cache.n < len(cache.entries) {
+		cache.entries[cache.n] = {size, font}
+		cache.n += 1
+	} else {
+		e := &cache.entries[cache.next]
+		CFRelease(rawptr(e.font))
+		e^ = {size, font}
+		cache.next = (cache.next + 1) % len(cache.entries)
+	}
+	return (^NS.Object)(font)
 }
 
 // libdispatch: the _f variants take a function pointer instead of a block.
@@ -217,15 +241,41 @@ _stroke_ellipse :: proc(p: ^Painter, x, y, w, h: f64, color: Color, width: f64) 
 	CGContextStrokeEllipseInRect(cg_stroke(p, color, width), cg_rect(x, y, w, h))
 }
 
+// Per-canvas draw state (Canvas_Handle.extra, in the page's arena): the attribute dictionary of
+// the last text style drawn, retained and reused while the style repeats (the font, the color
+// and the dictionary itself are all objects a text draw would otherwise make).
+@(private) Apple_Canvas :: struct {
+	style: Text_Style,
+	attrs: ^NS.Object, // nil until the first text draw
+}
+
+@(private)
+apple_canvas_init :: proc(h: ^Canvas_Handle) {
+	c := scope_new_in(Apple_Canvas)
+	h.extra = c
+	scope_on_dispose(apple_canvas_dispose, c)
+}
+
+@(private)
+apple_canvas_dispose :: proc(data: rawptr) {
+	if c := (^Apple_Canvas)(data); c.attrs != nil do send(nil, c.attrs, "autorelease")
+}
+
 // NSString drawAtPoint:withAttributes: draws into the current context, which is the canvas's
 // during drawRect:. "NSFont" / "NSColor" are the values of NSFontAttributeName /
 // NSForegroundColorAttributeName in both AppKit and UIKit.
 @(private)
 _draw_text :: proc(p: ^Painter, text: string, x, y: f64, style: Text_Style) {
-	keys := [2]^NS.Object{NS.AT("NSFont"), NS.AT("NSColor")}
-	values := [2]^NS.Object{apple_font(style, style.size, false), canvas_color(style.color)}
-	attrs := NS.Dictionary.dictionaryWithObjects(&values[0], &keys[0], 2)
-	send(nil, ns_string(text), "drawAtPoint:withAttributes:", NS.Point{NS.Float(x), NS.Float(y)}, attrs)
+	c := (^Apple_Canvas)(p.h.extra)
+	if c.attrs == nil || c.style != style {
+		keys := [2]^NS.Object{NS.AT("NSFont"), NS.AT("NSColor")}
+		values := [2]^NS.Object{apple_font(style, style.size, false), canvas_color(style.color)}
+		attrs := (^NS.Object)(NS.Dictionary.dictionaryWithObjects(&values[0], &keys[0], 2))
+		send(nil, attrs, "retain")
+		if c.attrs != nil do send(nil, c.attrs, "release")
+		c.attrs, c.style = attrs, style
+	}
+	send(nil, ns_string(text), "drawAtPoint:withAttributes:", NS.Point{NS.Float(x), NS.Float(y)}, c.attrs)
 }
 
 // NSFont and UIFont share the selectors below, and so do NSColor and UIColor.

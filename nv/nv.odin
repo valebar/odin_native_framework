@@ -627,6 +627,7 @@ Canvas_Handle :: struct {
 	view:   rawptr, // NVCanvasView* / NvCanvasView / GtkDrawingArea* / NVCanvas HWND
 	fill:   rawptr, // Android: fill and stroke Paint global refs
 	stroke: rawptr,
+	extra:  rawptr, // per-backend draw state (Android_Canvas / Apple_Canvas / Windows_Canvas; nil on Linux)
 }
 
 // Drawing target, valid only during `on_draw`.
@@ -675,11 +676,11 @@ stroke_ellipse :: proc(p: ^Painter, x, y, w, h: f64, color: Color, width: f64 = 
 }
 
 // One line of text in the system font, or in `style.font`; (x, y) is the top-left of its line box. `style` is over
-// the theme's body style; a size of 0 is 15, a color of 0 is the palette's text color.
+// the theme's body style; a size of 0 is 15, a color of 0 is the palette's text color. The weight
+// is left to the backend: `.Default` is regular for the system font and a loaded face's own.
 draw_text :: proc(p: ^Painter, text: string, x, y: f64, style: Text_Style = {}) {
 	s := text_style_merge(style, g_theme.body)
 	if s.size <= 0 do s.size = 15
-	if s.weight == .Default do s.weight = .Regular
 	if s.color.a == 0 do s.color = theme_palette().text
 	_draw_text(p, text, x, y, s)
 }

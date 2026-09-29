@@ -54,11 +54,14 @@ _bitmap_free :: proc(b: ^Bitmap) {
 	(^win.IUnknown)(b.extra)->Release()
 }
 
+// The interpolation mode is set once per Graphics (canvas_paint / image_paint). The pixel offset
+// mode is bracketed: HighQuality removes the half-pixel seam at the image's edges but would
+// shift every later primitive by half a pixel.
 @(private)
 _draw_image :: proc(p: ^Painter, b: ^Bitmap, x, y, w, h: f64) {
-	GdipSetInterpolationMode(p.native, GP_INTERPOLATION_HIGH_QUALITY_BICUBIC)
-	GdipSetPixelOffsetMode(p.native, GP_PIXEL_OFFSET_HIGH_QUALITY) // no half-pixel seam at the edges
+	GdipSetPixelOffsetMode(p.native, GP_PIXEL_OFFSET_HIGH_QUALITY)
 	GdipDrawImageRect(p.native, b.native, f32(x), f32(y), f32(w), f32(h))
+	GdipSetPixelOffsetMode(p.native, GP_PIXEL_OFFSET_DEFAULT)
 }
 
 @(private)
@@ -97,7 +100,7 @@ image_paint :: proc(hwnd: win.HWND, h: ^Image_Handle) {
 
 	mem := win.CreateCompatibleDC(dc)
 	defer win.DeleteDC(mem)
-	bmp := win.CreateCompatibleBitmap(dc, rc.right, rc.bottom)
+	bmp := dib_section(rc.right, rc.bottom)
 	defer win.DeleteObject(win.HGDIOBJ(bmp))
 	old := win.SelectObject(mem, win.HGDIOBJ(bmp))
 	defer win.SelectObject(mem, old)
@@ -106,6 +109,7 @@ image_paint :: proc(hwnd: win.HWND, h: ^Image_Handle) {
 	if h.bitmap != nil {
 		g: GpGraphics
 		GdipCreateFromHDC(mem, &g)
+		GdipSetInterpolationMode(g, GP_INTERPOLATION_HIGH_QUALITY_BICUBIC)
 		scale := f32(g_windows.dpi) / 96
 		GdipScaleWorldTransform(g, scale, scale, GP_MATRIX_ORDER_PREPEND)
 		r := image_fit_rect(h.image.fit, h.bitmap, dp(rc.right), dp(rc.bottom))
