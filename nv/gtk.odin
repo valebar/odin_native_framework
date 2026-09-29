@@ -98,6 +98,7 @@ foreign gobj {
 	g_signal_connect_data        :: proc(instance: gpointer, detailed_signal: cstring, c_handler: rawptr, data: gpointer, destroy_data: rawptr, connect_flags: i32) -> gulong ---
 	g_object_ref_sink            :: proc(object: gpointer) -> gpointer ---
 	g_object_ref                 :: proc(object: gpointer) -> gpointer ---
+	g_object_set                 :: proc(object: gpointer, first_property_name: cstring, #c_vararg args: ..any) ---
 }
 
 @(default_calling_convention="c")
@@ -113,6 +114,12 @@ foreign gio {
 	g_list_model_get_type      :: proc() -> GType ---
 	g_list_model_items_changed :: proc(list: gpointer, position, removed, added: guint) ---
 	g_application_run          :: proc(application: gpointer, argc: i32, argv: [^]cstring) -> i32 ---
+	g_settings_schema_source_get_default :: proc() -> gpointer ---
+	g_settings_schema_source_lookup      :: proc(source: gpointer, schema_id: cstring, recursive: gboolean) -> gpointer ---
+	g_settings_schema_has_key            :: proc(schema: gpointer, name: cstring) -> gboolean ---
+	g_settings_schema_unref              :: proc(schema: gpointer) ---
+	g_settings_new                       :: proc(schema_id: cstring) -> gpointer ---
+	g_settings_get_enum                  :: proc(settings: gpointer, key: cstring) -> i32 ---
 }
 
 @(default_calling_convention="c")
@@ -165,6 +172,7 @@ foreign gtk {
 	gtk_style_context_add_provider_for_display :: proc(display: ^GdkDisplay, provider: gpointer, priority: guint) ---
 	gtk_style_context_remove_provider_for_display :: proc(display: ^GdkDisplay, provider: gpointer) ---
 	gdk_display_get_default           :: proc() -> ^GdkDisplay ---
+	gtk_settings_get_default          :: proc() -> gpointer ---
 
 	gtk_scrolled_window_new       :: proc() -> ^GtkWidget ---
 	gtk_scrolled_window_set_child :: proc(scrolled_window: ^GtkWidget, child: ^GtkWidget) ---

@@ -16,10 +16,11 @@ when !IS_IOS {
 _button_init :: proc(h: ^Button_Handle) {
 	t := objc_own(button_target_alloc(h)) // weak target; lives as long as the handle's scope
 	button := button_push(ns_string(h.button.title), t, intrinsics.objc_find_selector("nvClick:")) // autoreleased
-	objc_own(button)->retain()
-	if h.button.font != nil || h.button.size != 0 { // else the button's own 13pt system font
-		send(nil, button, "setFont:", text_font(h.button.font, h.button.size != 0 ? h.button.size : 13, false))
-	}
+	objc_own(button)->retain() // *_create returns owned views
+	s := h.button.style
+	if style_sets_font(s) do send(nil, button, "setFont:", apple_font(s, font_point_size(send(^NS.Object, button, "font")), false))
+	if s.color.a > 0 do send(nil, button, "setContentTintColor:", canvas_color(s.color))
+	if g_theme.accent.a > 0 do send(nil, button, "setBezelColor:", canvas_color(g_theme.accent))
 
 	h.root = View(button)
 	h.control = button

@@ -48,13 +48,6 @@ foreign gdi32 {
 	font_h:     i32,       // line heights of the fonts above, in px
 	bold_h:     i32,
 	title_h:    i32,
-	sized_fonts: [dynamic]Win_Font, // the message / title font at sizes the app asked for (windows_font)
-}
-
-// One HFONT of a face at a size (font_windows.odin); `height` is the LOGFONT's, negative.
-@(private) Win_Font :: struct {
-	height, weight: i32,
-	hfont:          win.HFONT,
 }
 
 @(private) CLASS_WINDOW :: "NVWindow"
@@ -82,7 +75,8 @@ px :: proc "contextless" (dp: f64) -> i32 {
 
 @(private)
 register_classes :: proc() {
-	register :: proc(name: string, wndproc: win.WNDPROC, background := win.HBRUSH(uintptr(win.COLOR_WINDOW + 1))) {
+	// No class brush: a container erases with the palette (erase_background, theme_windows.odin).
+	register :: proc(name: string, wndproc: win.WNDPROC, background: win.HBRUSH = nil) {
 		wc := win.WNDCLASSEXW{
 			cbSize        = size_of(win.WNDCLASSEXW),
 			lpfnWndProc   = wndproc,
@@ -123,6 +117,9 @@ create_fonts :: proc() {
 	g_windows.font_h = text_size(dc, g_windows.font, "Ag").cy
 	g_windows.bold_h = text_size(dc, g_windows.bold, "Ag").cy
 	g_windows.title_h = text_size(dc, g_windows.title, "Ag").cy
+	g_theme_windows.heights[g_windows.font] = g_windows.font_h
+	g_theme_windows.heights[g_windows.bold] = g_windows.bold_h
+	g_theme_windows.heights[g_windows.title] = g_windows.title_h
 
 	// The icon font, if it is really installed: GDI silently substitutes a missing face, which
 	// would show the glyphs as boxes, so the face that came out is checked.
@@ -142,20 +139,6 @@ create_fonts :: proc() {
 	} else {
 		win.DeleteObject(win.HGDIOBJ(icon))
 	}
-}
-
-// The line height in px of the font a control was given, for its natural size.
-@(private)
-font_height :: proc "contextless" (hwnd: win.HWND) -> i32 {
-	font := win.HFONT(uintptr(win.SendMessageW(hwnd, win.WM_GETFONT, 0, 0)))
-	if font == nil do return g_windows.font_h
-	dc := win.GetDC(hwnd)
-	defer win.ReleaseDC(hwnd, dc)
-	old := win.SelectObject(dc, win.HGDIOBJ(font))
-	defer win.SelectObject(dc, old)
-	tm: win.TEXTMETRICW
-	win.GetTextMetricsW(dc, &tm)
-	return tm.tmHeight
 }
 
 @(private)
@@ -195,8 +178,9 @@ class_is :: proc "contextless" (hwnd: win.HWND, name: string) -> bool {
 }
 
 // The brush a window's background is painted with: the fill of the nearest NVContainer around (or
-// at) `hwnd` that has a color, else the window color. Labels, Row / Column, buttons, images and the
-// canvas all erase with it, so they don't punch white holes into a colored container.
+// at) `hwnd` that has a color, else the palette's page background (theme_windows.odin). Labels,
+// Row / Column, buttons, images and the canvas all erase with it, so they don't punch holes into
+// a colored container.
 @(private)
 background_brush_of :: proc "contextless" (hwnd: win.HWND) -> win.HBRUSH {
 	for p := hwnd; p != nil; p = win.GetParent(p) {
@@ -204,13 +188,5 @@ background_brush_of :: proc "contextless" (hwnd: win.HWND) -> win.HBRUSH {
 		h := (^Container_Handle)(uintptr(win.GetWindowLongPtrW(p, win.GWLP_USERDATA)))
 		if h != nil && h.box != nil && h.container.color.a > 0 do return win.HBRUSH(h.box)
 	}
-	return win.GetSysColorBrush(win.COLOR_WINDOW)
-}
-
-// WM_CTLCOLORSTATIC for every parent of a label: the text goes transparently on the background
-// brush of the label (`lparam`).
-@(private)
-ctlcolor_static :: proc "contextless" (wparam: win.WPARAM, lparam: win.LPARAM) -> win.LRESULT {
-	win.SetBkMode(win.HDC(wparam), .TRANSPARENT)
-	return win.LRESULT(uintptr(background_brush_of(win.HWND(uintptr(lparam)))))
+	return g_theme_windows.bg
 }

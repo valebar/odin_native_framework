@@ -30,6 +30,7 @@ _run :: proc() {
 		applicationShouldTerminateAfterLastWindowClosed = proc(_: ^NS.Application) -> NS.BOOL { return true },
 	}, "NVAppDelegate", context)
 	app->setDelegate(delegate)
+	theme_start()
 
 	wnd := NS.Window.alloc()->initWithContentRect(
 		{{0, 0}, {400, 600}},
@@ -38,7 +39,7 @@ _run :: proc() {
 		false,
 	)
 	g_macos.window = wnd
-	content := NS.View.alloc()->initWithFrame({{0, 0}, {400, 600}})
+	content := content_view_new({{0, 0}, {400, 600}})
 	wnd->setContentView(content)
 	content->release() // the window owns it
 	g_macos.content = content

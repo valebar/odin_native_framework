@@ -45,6 +45,8 @@ List :: struct {
 	on_select:   proc(user: rawptr, index: int), // optional
 	item_height: f64, // points / dp; 44 when 0
 	user:        rawptr,
+	title_style:    Text_Style, // over the platform's row fonts (the theme's styles don't apply: rows have a fixed height)
+	subtitle_style: Text_Style,
 }
 
 List_Handle :: struct {
@@ -436,14 +438,13 @@ container_frame :: proc "contextless" (h: ^Container_Handle) -> Insets {
 		c.margin.right + b + c.padding.right, c.margin.bottom + b + c.padding.bottom}
 }
 
-// Single-line text; `bold` makes it a heading (bold and a little larger). `font` replaces the
-// system font (then `bold` only picks the heading size: load a bold face for bold text) and
-// `size` the default size, in points / dp like `draw_text`.
+// Single-line text; `heading` makes it a heading (bold and a little larger), `style` overrides
+// the theme's heading / body style (a loaded `Text_Style.font` replaces the system font; then
+// `heading` only picks the heading size: load a bold face for bold text).
 Label :: struct {
-	text: string, // copied
-	bold: bool,
-	font: ^Font,  // optional; the label keeps its own reference
-	size: f64,    // 0 = the platform default
+	text:    string, // copied
+	heading: bool,
+	style:   Text_Style,
 }
 
 Label_Handle :: struct {
@@ -455,7 +456,8 @@ label_create :: proc(l: Label) -> ^Label_Handle {
 	h := scope_new_in(Label_Handle)
 	h.label = l
 	h.label.text = strings.clone(l.text, runtime.heap_allocator())
-	font_retain(l.font)
+	h.label.style = text_style_merge(l.style, l.heading ? g_theme.heading : g_theme.body)
+	font_retain(h.label.style.font)
 	scope_on_dispose(label_dispose, h)
 	_label_init(h)
 	return h
@@ -465,7 +467,7 @@ label_create :: proc(l: Label) -> ^Label_Handle {
 label_dispose :: proc(data: rawptr) {
 	h := (^Label_Handle)(data)
 	delete(h.label.text, runtime.heap_allocator())
-	font_free(h.label.font)
+	font_free(h.label.style.font)
 }
 
 label_view :: proc(h: ^Label_Handle) -> View {
@@ -480,16 +482,15 @@ label_set_text :: proc(h: ^Label_Handle, text: string) {
 	_label_set_text(h, text)
 }
 
-// Single-line text input. Callbacks get the current text, valid only during the call. `font` and
-// `size` are as on Label.
+// Single-line text input. Callbacks get the current text, valid only during the call. `style` is
+// as on Label.
 Input :: struct {
 	text:        string, // initial text
 	placeholder: string,
 	on_change:   proc(user: rawptr, text: string), // optional; on every edit by the user
 	on_submit:   proc(user: rawptr, text: string), // optional; Return / Enter / the keyboard's Done key
 	user:        rawptr,
-	font:        ^Font, // optional; the input keeps its own reference
-	size:        f64,   // 0 = the platform default
+	style:       Text_Style, // over the theme's body style
 }
 
 Input_Handle :: struct {
@@ -504,8 +505,9 @@ Input_Handle :: struct {
 input_create :: proc(i: Input) -> ^Input_Handle {
 	h := scope_new_in(Input_Handle)
 	h.input = i
+	h.input.style = text_style_merge(i.style, g_theme.body)
 	h.ctx = context
-	font_retain(i.font)
+	font_retain(h.input.style.font)
 	scope_on_dispose(input_dispose, h)
 	_input_init(h)
 	return h
@@ -513,7 +515,7 @@ input_create :: proc(i: Input) -> ^Input_Handle {
 
 @(private)
 input_dispose :: proc(data: rawptr) {
-	font_free((^Input_Handle)(data).input.font)
+	font_free((^Input_Handle)(data).input.style.font)
 }
 
 input_view :: proc(h: ^Input_Handle) -> View {
@@ -541,13 +543,12 @@ input_notify :: proc(h: ^Input_Handle, cb: proc(user: rawptr, text: string)) {
 	cb(h.input.user, _input_text(h, context.temp_allocator))
 }
 
-// Push button with a text title. `font` and `size` are as on Label.
+// Push button with a text title. `style` is as on Label.
 Button :: struct {
 	title:    string, // copied
 	on_click: proc(user: rawptr), // optional
 	user:     rawptr,
-	font:     ^Font, // optional; the button keeps its own reference
-	size:     f64,   // 0 = the platform default
+	style:    Text_Style, // over the theme's body style; the color is ignored on Windows
 }
 
 Button_Handle :: struct {
@@ -562,8 +563,9 @@ button_create :: proc(b: Button) -> ^Button_Handle {
 	h := scope_new_in(Button_Handle)
 	h.button = b
 	h.button.title = strings.clone(b.title, runtime.heap_allocator())
+	h.button.style = text_style_merge(b.style, g_theme.body)
 	h.ctx = context
-	font_retain(b.font)
+	font_retain(h.button.style.font)
 	scope_on_dispose(button_dispose, h)
 	_button_init(h)
 	return h
@@ -573,7 +575,7 @@ button_create :: proc(b: Button) -> ^Button_Handle {
 button_dispose :: proc(data: rawptr) {
 	h := (^Button_Handle)(data)
 	delete(h.button.title, runtime.heap_allocator())
-	font_free(h.button.font)
+	font_free(h.button.style.font)
 }
 
 button_view :: proc(h: ^Button_Handle) -> View {
@@ -672,9 +674,14 @@ stroke_ellipse :: proc(p: ^Painter, x, y, w, h: f64, color: Color, width: f64 = 
 	_stroke_ellipse(p, x, y, w, h, color, width)
 }
 
-// One line of text in the system font, or in `font`; (x, y) is the top-left of its line box.
-draw_text :: proc(p: ^Painter, text: string, x, y: f64, size: f64, color: Color, font: ^Font = nil) {
-	_draw_text(p, text, x, y, size, color, font)
+// One line of text in the system font, or in `style.font`; (x, y) is the top-left of its line box. `style` is over
+// the theme's body style; a size of 0 is 15, a color of 0 is the palette's text color.
+draw_text :: proc(p: ^Painter, text: string, x, y: f64, style: Text_Style = {}) {
+	s := text_style_merge(style, g_theme.body)
+	if s.size <= 0 do s.size = 15
+	if s.weight == .Default do s.weight = .Regular
+	if s.color.a == 0 do s.color = theme_palette().text
+	_draw_text(p, text, x, y, s)
 }
 
 // Called by the backends on repaint; `native` / `dc` as in Painter.
@@ -753,7 +760,7 @@ bitmap_retain :: proc(b: ^Bitmap) -> ^Bitmap {
 	return b
 }
 
-// A loaded font face, for Label / Input / Button `font` and `draw_text`. Reference counted like
+// A loaded font face, for `Text_Style.font` (widgets, the theme and `draw_text`). Reference counted like
 // Bitmap: `font_free` drops the caller's reference and every widget using the font holds its own,
 // so the app can free a font right after handing it over. Each Font is one face: load a bold file
 // for bold text.
@@ -1052,7 +1059,7 @@ dialog_present :: proc(h: ^Dialog_Handle) {
 	defer g_scope_override = outer
 	children := make([dynamic]Flex_Child, context.temp_allocator)
 	if h.dialog.title != "" {
-		h.title = label_create({text = h.dialog.title, bold = true})
+		h.title = label_create({text = h.dialog.title, heading = true})
 		append(&children, Flex_Child{label_view(h.title), 0})
 	}
 	if h.dialog.content != nil do append(&children, Flex_Child{h.dialog.content, 0})
@@ -1128,4 +1135,155 @@ dialog_flush_pending :: proc() {
 		ordered_remove(&g_dialogs_pending, 0)
 		dialog_present(h)
 	}
+}
+
+// Light or dark appearance; System follows the OS setting, live.
+Mode :: enum { System, Light, Dark }
+
+// Default is the widget's own weight (bold for headings and list titles, regular otherwise).
+Weight :: enum { Default, Regular, Medium, Semibold, Bold }
+
+// A font (the system family, or a loaded `Font`) and a text color. Zero fields inherit: a widget's
+// style falls back to the theme's style for its role, and whatever is still zero is the platform's
+// default (its font size for that widget, the weight above, the adaptive label color). A loaded
+// font is one face: a `weight` or `italic` over it is best effort (Android derives a Typeface,
+// Linux and Windows pick among the family's installed faces or synthesize, Apple keeps the face).
+Text_Style :: struct {
+	size:   f64, // points / dp (sp on Android)
+	weight: Weight,
+	italic: bool,
+	color:  Color, // alpha 0 = the platform's text color, which follows light / dark
+	font:   ^Font, // nil = the system font; the widget keeps its own reference
+}
+
+// The app-wide look, set once before `run`. The mode can change later (`theme_set_mode`), and
+// with System it follows the OS; `on_change` runs whenever the resolved light / dark flips, so
+// the app can redraw its canvases with the new palette. The text styles and the accent apply to
+// widgets created afterwards.
+Theme :: struct {
+	mode:      Mode,
+	accent:    Color,      // alpha 0 = the platform's accent: buttons, the caret, list selection, the bar
+	body:      Text_Style, // labels, inputs, buttons and canvas text
+	heading:   Text_Style, // heading labels and dialog titles
+	on_change: proc(user: rawptr), // optional
+	user:      rawptr,
+}
+
+// The theme's colors for custom drawing, for the current light / dark.
+Palette :: struct {
+	background:     Color, // the page
+	surface:        Color, // cards, canvases
+	text:           Color,
+	secondary_text: Color,
+	separator:      Color,
+	accent:         Color,
+}
+
+PALETTE_LIGHT :: Palette{
+	background     = {1, 1, 1, 1},
+	surface        = {0.96, 0.96, 0.98, 1},
+	text           = {0.1, 0.1, 0.12, 1},
+	secondary_text = {0.45, 0.45, 0.5, 1},
+	separator      = {0.8, 0.8, 0.83, 1},
+	accent         = {0, 0.48, 1, 1},
+}
+
+PALETTE_DARK :: Palette{
+	background     = {0.11, 0.11, 0.12, 1},
+	surface        = {0.17, 0.17, 0.19, 1},
+	text           = {0.95, 0.95, 0.97, 1},
+	secondary_text = {0.6, 0.6, 0.65, 1},
+	separator      = {0.3, 0.3, 0.33, 1},
+	accent         = {0.04, 0.52, 1, 1},
+}
+
+// Backends implement _theme_system_dark (the OS setting), _theme_system_accent (alpha 0 if the
+// platform has none), _theme_apply_mode (make the native UI force or follow g_theme.mode) and
+// _theme_recolor (repaint what the platform doesn't adapt by itself after g_dark changed). Each
+// calls theme_start once the platform is up and before the root page is built, and theme_notify
+// when the OS appearance changed.
+@(private) g_theme:      Theme
+@(private) g_dark:       bool // resolved
+@(private) g_theme_live: bool // theme_start ran
+
+theme_set :: proc(t: Theme) {
+	assert(len(g_nav) == 0, "nv.theme_set after nv.run")
+	g_theme = t
+}
+
+theme_set_mode :: proc(m: Mode) {
+	g_theme.mode = m
+	if !g_theme_live do return
+	_theme_apply_mode()
+	theme_notify()
+}
+
+theme_mode :: proc() -> Mode {
+	return g_theme.mode
+}
+
+// The resolved appearance: true for dark.
+theme_dark :: proc() -> bool {
+	return g_theme_live ? g_dark : theme_resolve_dark()
+}
+
+theme_palette :: proc() -> Palette {
+	p := theme_dark() ? PALETTE_DARK : PALETTE_LIGHT
+	if g_theme.accent.a > 0 {
+		p.accent = g_theme.accent
+	} else if a := _theme_system_accent(); a.a > 0 {
+		p.accent = a
+	}
+	return p
+}
+
+@(private)
+theme_resolve_dark :: proc() -> bool {
+	switch g_theme.mode {
+	case .Light: return false
+	case .Dark:  return true
+	case .System: return _theme_system_dark()
+	}
+	return false
+}
+
+@(private)
+theme_start :: proc() {
+	_theme_apply_mode()
+	g_dark = theme_resolve_dark()
+	g_theme_live = true
+}
+
+// The OS appearance or the mode changed: recolors and tells the app if light / dark flipped.
+@(private)
+theme_notify :: proc() {
+	if !g_theme_live do return
+	dark := theme_resolve_dark()
+	if dark == g_dark do return
+	g_dark = dark
+	_theme_recolor()
+	if g_theme.on_change != nil {
+		callback_enter()
+		defer callback_exit()
+		g_theme.on_change(g_theme.user)
+	}
+}
+
+// `s` over `base`, field by field.
+@(private)
+text_style_merge :: proc "contextless" (s, base: Text_Style) -> Text_Style {
+	out := s
+	if out.size <= 0 do out.size = base.size
+	if out.weight == .Default do out.weight = base.weight
+	out.italic ||= base.italic
+	if out.color.a == 0 do out.color = base.color
+	if out.font == nil do out.font = base.font
+	return out
+}
+
+// The weight to use, `bold` being the widget's default.
+@(private)
+text_weight :: proc "contextless" (w: Weight, bold: bool) -> Weight {
+	if w != .Default do return w
+	return bold ? .Bold : .Regular
 }

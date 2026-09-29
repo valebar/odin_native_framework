@@ -1,10 +1,8 @@
 #+build linux:android
 package nv
 
-// Android label backend: a TextView, 20sp bold as a heading, 16sp otherwise, or in the given
-// font and size.
-
-@(private) ANDROID_TYPEFACE_BOLD :: 1 // Typeface.BOLD
+// Android label backend: a TextView, 20sp bold as a heading, 16sp otherwise, changed by the style
+// (android_style_text, theme_android.odin).
 
 @(private)
 _label_init :: proc(h: ^Label_Handle) {
@@ -12,11 +10,7 @@ _label_init :: proc(h: ^Label_Handle) {
 
 	tv := text_view_new(env, g_android.activity)
 	text_view_set_text(env, tv, h.label.text)
-	if h.label.bold && h.label.font == nil {
-		text_view_set_typeface_style(env, tv, nil, ANDROID_TYPEFACE_BOLD) // the default face, bold
-	}
-	size := h.label.size != 0 ? h.label.size : (h.label.bold ? 20 : 16) // sp
-	android_apply_font(env, tv, h.label.font, size)
+	android_style_text(env, tv, h.label.style, h.label.heading ? 20 : 16, h.label.heading) // sp
 
 	h.root = View(android_own_ref(env, tv))
 	jni_delete_local_ref(env, tv)

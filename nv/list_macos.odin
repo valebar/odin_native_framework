@@ -110,18 +110,26 @@ make_row_cell :: proc(h: ^List_Handle) -> ^NS.View {
 	cell := NS.View.alloc()->initWithFrame({{0, 0}, {width, height}})
 	view_set_identifier(cell, NS.AT(ROW_ID))
 
+	// Bold 13pt over 11pt by default; the pair is centred (the cell is not flipped: y grows upwards).
+	title_font := apple_font(h.list.title_style, 13, true)
+	subtitle_font := apple_font(h.list.subtitle_style, 11, false)
+	title_h, subtitle_h := font_line_height(title_font), font_line_height(subtitle_font)
+	bottom := (height - title_h - subtitle_h) / 2
+
 	title := text_field_label(NS.AT(""))
-	text_field_set_font(title, font_bold_system(13))
+	text_field_set_font(title, (^NS_Font)(title_font))
+	if c := h.list.title_style.color; c.a > 0 do text_field_set_text_color(title, (^NS.Color)(canvas_color(c)))
 	text_field_set_tag(title, TAG_TITLE)
-	view_set_frame(title, {{8, height / 2}, {width - 16, 18}})
+	view_set_frame(title, {{8, bottom + subtitle_h}, {width - 16, title_h}})
 	view_set_autoresizing(title, RESIZE_WIDTH)
 	cell->addSubview(title)
 
 	subtitle := text_field_label(NS.AT(""))
-	text_field_set_font(subtitle, font_system(11))
-	text_field_set_text_color(subtitle, color_secondary_label())
+	text_field_set_font(subtitle, (^NS_Font)(subtitle_font))
+	c := h.list.subtitle_style.color
+	text_field_set_text_color(subtitle, c.a > 0 ? (^NS.Color)(canvas_color(c)) : color_secondary_label())
 	text_field_set_tag(subtitle, TAG_SUBTITLE)
-	view_set_frame(subtitle, {{8, height / 2 - 18}, {width - 16, 16}})
+	view_set_frame(subtitle, {{8, bottom}, {width - 16, subtitle_h}})
 	view_set_autoresizing(subtitle, RESIZE_WIDTH)
 	cell->addSubview(subtitle)
 

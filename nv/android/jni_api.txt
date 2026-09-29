@@ -13,6 +13,11 @@ android.app.Activity              invalidateOptionsMenu()
 android.content.Context           getResources()
 android.content.Context           getTheme()
 android.content.Context           getCacheDir()
+android.content.Context           getSystemService(java.lang.String name)
+android.content.res.Resources     getSystem()
+android.content.res.Resources     getConfiguration()
+android.content.res.Configuration .uiMode
+android.app.UiModeManager         setApplicationNightMode(int mode)
 android.content.res.Resources     getDisplayMetrics()
 android.content.res.Resources$Theme resolveAttribute(int attr, android.util.TypedValue out, boolean resolve_refs)
 android.util.DisplayMetrics       .density
@@ -21,6 +26,7 @@ android.util.TypedValue           <init>()
 android.util.TypedValue           .data
 android.view.Window               getDecorView()
 android.app.ActionBar             setDisplayHomeAsUpEnabled(boolean enabled)
+android.app.ActionBar             setBackgroundDrawable(android.graphics.drawable.Drawable d)
 java.io.File                      getAbsolutePath()
 java.lang.Object                  toString()
 
@@ -33,6 +39,8 @@ android.view.MenuItem             setShowAsAction(int mode)
 android.view.View                 <init>(android.content.Context ctx)
 android.view.View                 setBackground(android.graphics.drawable.Drawable drawable)
 android.view.View                 setBackgroundColor(int argb)
+android.view.View                 setBackgroundTintList(android.content.res.ColorStateList tint)
+android.content.res.ColorStateList valueOf(int argb)
 android.view.View                 setPadding(int left, int top, int right, int bottom)
 android.view.View                 setClickable(boolean clickable)
 android.view.View                 setElevation(float elevation)
@@ -61,6 +69,7 @@ android.widget.TextView           setHint(java.lang.CharSequence hint)
 android.widget.TextView           setTypeface(android.graphics.Typeface typeface)
 android.widget.TextView           setTypeface(android.graphics.Typeface typeface, int style) = text_view_set_typeface_style
 android.widget.TextView           setTextSize(float sp)
+android.widget.TextView           setTextColor(int argb)
 android.widget.TextView           setSingleLine()
 android.widget.TextView           setImeOptions(int options)
 android.widget.TextView           addTextChangedListener(android.text.TextWatcher watcher)
@@ -98,6 +107,7 @@ android.graphics.drawable.GradientDrawable setColor(int argb)
 android.graphics.drawable.GradientDrawable setCornerRadius(float radius)
 android.graphics.drawable.GradientDrawable setStroke(int width, int argb)
 android.graphics.drawable.InsetDrawable <init>(android.graphics.drawable.Drawable drawable, int left, int top, int right, int bottom)
+android.graphics.drawable.ColorDrawable <init>(int argb)
 
 # ---- Images and fonts ----
 android.graphics.Bitmap           getWidth()
@@ -107,6 +117,7 @@ android.widget.ImageView          setScaleType(android.widget.ImageView$ScaleTyp
 android.widget.ImageView          setImageBitmap(android.graphics.Bitmap bitmap)
 android.widget.ImageView$ScaleType valueOf(java.lang.String name)
 android.graphics.Typeface         createFromFile(java.lang.String path)
+android.graphics.Typeface         create(android.graphics.Typeface family, int weight, boolean italic)
 
 # ---- nv shims (nv/android/java/nv) ----
 nv.NvClickListener                <init>(long handle)

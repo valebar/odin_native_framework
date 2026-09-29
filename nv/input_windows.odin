@@ -16,7 +16,8 @@ _input_init :: proc(h: ^Input_Handle) {
 	edit := win.CreateWindowExW(win.WS_EX_CLIENTEDGE, wstr("Edit"), wstr(h.input.text),
 		win.WS_CHILD | win.WS_VISIBLE | win.WS_TABSTOP | win.ES_AUTOHSCROLL,
 		0, 0, 0, 0, container, nil, g_windows.hinstance, nil)
-	win.SendMessageW(edit, win.WM_SETFONT, win.WPARAM(uintptr(windows_font(h.input.font, h.input.size, false))), 0)
+	win.SendMessageW(edit, win.WM_SETFONT, win.WPARAM(uintptr(style_font(h.input.style, g_windows.font))), 0)
+	theme_control(edit)
 	if h.input.placeholder != "" do win.Edit_SetCueBannerText(edit, wstr(h.input.placeholder))
 	win.SetWindowSubclass(edit, edit_subclass_proc, 0, win.DWORD_PTR(uintptr(h)))
 
@@ -38,12 +39,12 @@ _input_set_text :: proc(h: ^Input_Handle, text: string) {
 	win.SetWindowTextW(win.HWND(h.field), wstr(text)) // sends EN_CHANGE, muted by h.silent
 }
 
-// Natural size in px: one line of the edit's font plus the client edge and a little padding,
-// the height of a dialog edit box. The width is just a sensible default for a flex-0 input.
+// Natural size in px: one line of its font plus the client edge and a little padding, the height
+// of a dialog edit box. The width is just a sensible default for a flex-0 input.
 @(private)
 input_measure :: proc "contextless" (container: win.HWND) -> [2]i32 {
 	h := (^Input_Handle)(uintptr(win.GetWindowLongPtrW(container, win.GWLP_USERDATA)))
-	return {px(200), font_height(win.HWND(h.field)) + px(7)}
+	return {px(200), font_height(control_font(win.HWND(h.field))) + px(7)}
 }
 
 @(private)
@@ -62,6 +63,12 @@ input_proc :: proc "system" (hwnd: win.HWND, msg: win.UINT, wparam: win.WPARAM, 
 		win.GetClientRect(hwnd, &rc)
 		win.MoveWindow(win.HWND(h.field), 0, 0, rc.right, rc.bottom, true)
 		return 0
+	case win.WM_CTLCOLOREDIT: // the text on the palette's surface
+		p := theme_palette()
+		dc := win.HDC(wparam)
+		win.SetTextColor(dc, colorref(h.input.style.color.a > 0 ? h.input.style.color : p.text))
+		win.SetBkColor(dc, colorref(p.surface))
+		return win.LRESULT(uintptr(g_theme_windows.surface))
 	case win.WM_COMMAND:
 		if win.HWND(uintptr(lparam)) == win.HWND(h.field) && win.HIWORD(u32(wparam)) == win.EN_CHANGE {
 			input_notify(h, h.input.on_change)

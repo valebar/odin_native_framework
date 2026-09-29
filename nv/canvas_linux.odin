@@ -89,16 +89,19 @@ _stroke_ellipse :: proc(p: ^Painter, x, y, w, h: f64, color: Color, width: f64) 
 
 // Cairo's toy text API; show_text starts at the baseline, so it moves down by the ascent. A loaded
 // font is selected by family: cairo-ft resolves it through the fontconfig config it was added to.
+// The API only knows normal and bold, so Semibold is bold too.
 @(private)
-_draw_text :: proc(p: ^Painter, text: string, x, y: f64, size: f64, color: Color, font: ^Font) {
-	cr := cairo_of(p, color)
-	if font != nil {
-		cairo_select_font_face(cr, strings.clone_to_cstring(font.family, context.temp_allocator),
-			font.italic ? CAIRO_FONT_SLANT_ITALIC : 0, font.weight >= 600 ? CAIRO_FONT_WEIGHT_BOLD : 0)
-	} else {
-		cairo_select_font_face(cr, "sans-serif", 0, 0)
+_draw_text :: proc(p: ^Painter, text: string, x, y: f64, style: Text_Style) {
+	cr := cairo_of(p, style.color)
+	family: cstring = "sans-serif"
+	italic, bold := style.italic, style.weight >= .Semibold
+	if f := style.font; f != nil {
+		family = strings.clone_to_cstring(f.family, context.temp_allocator)
+		italic ||= f.italic
+		if style.weight == .Default do bold = f.weight >= 600
 	}
-	cairo_set_font_size(cr, size)
+	cairo_select_font_face(cr, family, italic ? CAIRO_FONT_SLANT_ITALIC : 0, bold ? CAIRO_FONT_WEIGHT_BOLD : 0)
+	cairo_set_font_size(cr, style.size)
 	ext: cairo_font_extents_t
 	cairo_font_extents(cr, &ext)
 	cairo_move_to(cr, x, y + ext.ascent)

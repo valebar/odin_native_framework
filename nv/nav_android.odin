@@ -57,6 +57,11 @@ android_chrome :: proc(e: ^Page_Handle) {
 	activity_set_title(env, activity, e.page.title)
 	if bar := activity_get_action_bar(env, activity); bar != nil {
 		action_bar_set_display_home_as_up_enabled(env, bar, len(g_nav) > 1)
+		if g_theme.accent.a > 0 {
+			cd := color_drawable_new(env, android_argb(g_theme.accent))
+			action_bar_set_background_drawable(env, bar, cd)
+			jni_delete_local_ref(env, cd)
+		}
 		jni_delete_local_ref(env, bar)
 	}
 	activity_invalidate_options_menu(env, activity)

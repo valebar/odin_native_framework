@@ -16,7 +16,8 @@ _input_init :: proc(h: ^Input_Handle) {
 	text_view_set_ime_options(env, et, ANDROID_IME_ACTION_DONE)
 	text_view_set_text(env, et, h.input.text)
 	if h.input.placeholder != "" do text_view_set_hint(env, et, h.input.placeholder)
-	android_apply_font(env, et, h.input.font, h.input.size)
+	android_style_text(env, et, h.input.style)
+	android_tint_accent(env, et)
 
 	listener := nv_input_listener_new(env, i64(uintptr(h)))
 	text_view_add_text_changed_listener(env, et, listener)

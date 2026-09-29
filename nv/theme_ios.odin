@@ -1,0 +1,63 @@
+#+build darwin
+package nv
+
+// iOS theme backend. The mode is the window's overrideUserInterfaceStyle (0 follows the system,
+// 1 light, 2 dark), the accent its tintColor, and the widgets use UIKit's dynamic colors. An
+// invisible NVTraitView in the window reports trait changes, the system's appearance included
+// (UIView's traitCollectionDidChange: does nothing, so it needs no super call).
+
+import "base:intrinsics"
+import NS "core:sys/darwin/Foundation"
+
+when IS_IOS {
+
+@(private)
+_theme_system_dark :: proc() -> bool {
+	screen := send(^UI_Screen, UI_Screen, "mainScreen")
+	traits := send(^NS.Object, screen, "traitCollection")
+	return send(NS.Integer, traits, "userInterfaceStyle") == 2 // UIUserInterfaceStyleDark
+}
+
+@(private)
+_theme_system_accent :: proc() -> Color {
+	return apple_color_components(send(^NS.Object, UI_Color, "systemBlueColor"))
+}
+
+// The window doesn't exist before the scene connects; scene_will_connect runs this again then.
+@(private)
+_theme_apply_mode :: proc() {
+	if g_app.window == nil do return
+	style: NS.Integer
+	switch g_theme.mode {
+	case .System: style = 0
+	case .Light:  style = 1
+	case .Dark:   style = 2
+	}
+	send(nil, g_app.window, "setOverrideUserInterfaceStyle:", style)
+}
+
+@(private)
+_theme_recolor :: proc() {}
+
+// Sets the accent on the new window and adds the view that watches the traits.
+@(private)
+theme_install :: proc(w: ^UI_Window) {
+	_theme_apply_mode()
+	if g_theme.accent.a > 0 do send(nil, w, "setTintColor:", canvas_color(g_theme.accent))
+
+	cls := NS.objc_allocateClassPair(intrinsics.objc_find_class("UIView"), "NVTraitView", 0)
+	NS.class_addMethod(cls, intrinsics.objc_find_selector("traitCollectionDidChange:"), auto_cast trait_view_changed, "v@:@")
+	NS.objc_registerClassPair(cls)
+	v := send(^UI_View, (^UI_View)(NS.class_createInstance(cls, 0)), "initWithFrame:", NS.Rect{})
+	send(nil, v, "setUserInteractionEnabled:", NS.BOOL(false))
+	ui_view_add_subview(w, v)
+	v->release()
+}
+
+@(private)
+trait_view_changed :: proc "c" (self: NS.id, _: NS.SEL, _: NS.id) {
+	context = g_app.ctx
+	theme_notify()
+}
+
+}

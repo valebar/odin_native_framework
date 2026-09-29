@@ -3,10 +3,10 @@ package nv
 
 // CoreGraphics drawing shared by the macOS and iOS canvas backends. Both hand drawRect: a
 // top-left-origin CGContext (the macOS view is flipped), so the primitives are identical.
-// Only system_font / canvas_color differ (NSFont / UIFont, NSColor / UIColor). The image decode
-// (ImageIO → CGImage), draw_image, the download helpers and the loaded fonts (a CGFont from the
-// bytes, sized into a CTFont, which is toll-free bridged to NSFont and UIFont) are shared the
-// same way.
+// Only canvas_color differs (NSColor / UIColor); fonts come from apple_font below: the system font,
+// or a loaded one (a CGFont from the bytes, sized into a CTFont, which is toll-free bridged to
+// NSFont and UIFont). The image decode (ImageIO → CGImage), draw_image and the download helpers
+// are shared the same way.
 
 import "base:runtime"
 import NS "core:sys/darwin/Foundation"
@@ -99,12 +99,6 @@ _font_free :: proc(f: ^Font) {
 @(private)
 ct_font :: proc "c" (f: ^Font, size: f64) -> ^NS.Object {
 	return (^NS.Object)(CFAutorelease(rawptr(CTFontCreateWithGraphicsFont(CGFontRef(f.native), NS.Float(size), nil, nil))))
-}
-
-// The font for a widget or for draw_text: the loaded face, or the system font, bold when asked.
-@(private)
-text_font :: proc "c" (font: ^Font, size: f64, bold: bool) -> ^NS.Object {
-	return font != nil ? ct_font(font, size) : system_font(size, bold)
 }
 
 // libdispatch: the _f variants take a function pointer instead of a block.
@@ -227,9 +221,74 @@ _stroke_ellipse :: proc(p: ^Painter, x, y, w, h: f64, color: Color, width: f64) 
 // during drawRect:. "NSFont" / "NSColor" are the values of NSFontAttributeName /
 // NSForegroundColorAttributeName in both AppKit and UIKit.
 @(private)
-_draw_text :: proc(p: ^Painter, text: string, x, y: f64, size: f64, color: Color, font: ^Font) {
+_draw_text :: proc(p: ^Painter, text: string, x, y: f64, style: Text_Style) {
 	keys := [2]^NS.Object{NS.AT("NSFont"), NS.AT("NSColor")}
-	values := [2]^NS.Object{text_font(font, size, false), canvas_color(color)}
+	values := [2]^NS.Object{apple_font(style, style.size, false), canvas_color(style.color)}
 	attrs := NS.Dictionary.dictionaryWithObjects(&values[0], &keys[0], 2)
 	send(nil, ns_string(text), "drawAtPoint:withAttributes:", NS.Point{NS.Float(x), NS.Float(y)}, attrs)
+}
+
+// NSFont and UIFont share the selectors below, and so do NSColor and UIColor.
+when IS_IOS {
+	@(private) Sys_Font  :: UI_Font
+	@(private) Sys_Color :: UI_Color
+} else {
+	@(private) Sys_Font  :: NS_Font
+	@(private) Sys_Color :: NS.Color
+}
+
+// True when the style changes the font, so a widget keeps its native one otherwise.
+@(private)
+style_sets_font :: proc "contextless" (s: Text_Style) -> bool {
+	return s.font != nil || s.size > 0 || s.weight != .Default || s.italic
+}
+
+// The font for `s` (autoreleased): the loaded face at the size (one face: its own weight and
+// slant), else the system font; `size` and `bold` are the widget's defaults for the zero fields.
+// Italic goes through the font descriptor's symbolic traits (Italic is 1 << 0 in both
+// NSFontDescriptorSymbolicTraits and UIFontDescriptorSymbolicTraits).
+@(private)
+apple_font :: proc "contextless" (s: Text_Style, size: f64, bold: bool) -> ^NS.Object {
+	sz := NS.Float(s.size > 0 ? s.size : size)
+	if s.font != nil do return ct_font(s.font, f64(sz))
+	weight: NS.Float // NSFontWeight / UIFontWeight values
+	#partial switch text_weight(s.weight, bold) {
+	case .Medium:   weight = 0.23
+	case .Semibold: weight = 0.3
+	case .Bold:     weight = 0.4
+	}
+	f := send(^NS.Object, Sys_Font, "systemFontOfSize:weight:", sz, weight)
+	if s.italic {
+		d := send(^NS.Object, f, "fontDescriptor")
+		traits := send(u32, d, "symbolicTraits")
+		d = send(^NS.Object, d, "fontDescriptorWithSymbolicTraits:", traits | 1)
+		if italic := send(^NS.Object, Sys_Font, "fontWithDescriptor:size:", d, sz); italic != nil do f = italic
+	}
+	return f
+}
+
+@(private)
+font_point_size :: proc "contextless" (f: ^NS.Object) -> f64 {
+	return f64(send(NS.Float, f, "pointSize"))
+}
+
+// The sRGB components of an NSColor / UIColor (a dynamic color resolved for the current appearance).
+@(private)
+apple_color_components :: proc "contextless" (c: ^NS.Object) -> Color {
+	c := c
+	when !IS_IOS {
+		space := send(^NS.Object, Color_Space, "sRGBColorSpace")
+		c = send(^NS.Object, c, "colorUsingColorSpace:", space)
+		if c == nil do return {}
+	}
+	r, g, b, a: NS.Float
+	send(NS.BOOL, c, "getRed:green:blue:alpha:", &r, &g, &b, &a)
+	return {f32(r), f32(g), f32(b), f32(a)}
+}
+
+// Height of a line of a label in `f`, in points (rounded up, plus a little room for the field).
+@(private)
+font_line_height :: proc "contextless" (f: ^NS.Object) -> NS.Float {
+	asc, desc := send(NS.Float, f, "ascender"), send(NS.Float, f, "descender")
+	return NS.Float(int(asc - desc + 0.999)) + 2
 }

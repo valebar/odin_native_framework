@@ -15,6 +15,8 @@ _run :: proc() {
 	win.SetProcessDpiAwarenessContext(win.DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) // also in the manifest
 	icc := win.INITCOMMONCONTROLSEX{size_of(win.INITCOMMONCONTROLSEX), win.ICC_LISTVIEW_CLASSES | win.ICC_STANDARD_CLASSES}
 	win.InitCommonControlsEx(&icc)
+	theme_start()
+	theme_windows_brushes()
 	register_classes()
 	gdiplus_init()
 
@@ -25,6 +27,7 @@ _run :: proc() {
 	g_windows.parking = wnd
 	g_windows.dpi = win.GetDpiForWindow(wnd)
 	create_fonts()
+	theme_window_frame(wnd)
 
 	// 400×600 client area at the window's DPI.
 	rc := win.RECT{0, 0, px(400), px(600)}
@@ -62,10 +65,21 @@ window_proc :: proc "system" (hwnd: win.HWND, msg: win.UINT, wparam: win.WPARAM,
 		return 0
 	case win.WM_CTLCOLORSTATIC:
 		return ctlcolor_static(wparam, lparam)
+	case win.WM_CTLCOLORBTN:
+		return ctlcolor_button(lparam)
+	case win.WM_ERASEBKGND:
+		return erase_background(hwnd, win.HDC(wparam))
 	case WM_NV_FETCHED: // posted by a download's worker thread (image_windows.odin)
 		f := (^Fetch)(uintptr(lparam))
 		context = f.ctx
 		fetch_notify(f)
+		return 0
+	case win.WM_SETTINGCHANGE: // the OS light / dark setting, among others
+		if lparam == 0 do return 0
+		callback_enter()
+		defer callback_exit()
+		area, _ := win.utf16_to_utf8(string16_of(win.wstring(rawptr(uintptr(lparam)))), context.temp_allocator)
+		if area == "ImmersiveColorSet" do theme_notify()
 		return 0
 	case win.WM_DPICHANGED:
 		// Fonts and row heights keep the DPI they were created with; only the window follows.

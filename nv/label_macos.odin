@@ -1,16 +1,18 @@
 #+build darwin
 package nv
 
-// macOS label backend: an NSTextField label in the system font (15pt, or bold 17pt as a
-// heading) or the given one.
+// macOS label backend: an NSTextField label in the system font (bold 17pt for a heading, 15pt
+// otherwise) changed by the style.
+
+import NS "core:sys/darwin/Foundation"
 
 when !IS_IOS {
 
 @(private)
 _label_init :: proc(h: ^Label_Handle) {
 	label := text_field_label(ns_string(h.label.text)) // autoreleased; *_create returns owned views
-	size := h.label.size != 0 ? h.label.size : (h.label.bold ? 17 : 15)
-	text_field_set_font(label, (^NS_Font)(text_font(h.label.font, size, h.label.bold)))
+	text_field_set_font(label, (^NS_Font)(apple_font(h.label.style, h.label.heading ? 17 : 15, h.label.heading)))
+	if h.label.style.color.a > 0 do text_field_set_text_color(label, (^NS.Color)(canvas_color(h.label.style.color)))
 	objc_own(label)->retain()
 
 	h.root = View(label)

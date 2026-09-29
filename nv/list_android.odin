@@ -63,12 +63,21 @@ jni_list_get_view :: proc "c" (env: JNI_Env, _: jclass, handle: jlong, position:
 		cell = layout_inflater_inflate(env, inflater, ANDROID_LAYOUT_SIMPLE_LIST_ITEM_2, parent, false)
 		jni_delete_local_ref(env, inflater)
 		jni_delete_local_ref(env, ctx)
+		style_row_text(env, cell, ANDROID_ID_TEXT1, h.list.title_style) // recycled cells keep it
+		style_row_text(env, cell, ANDROID_ID_TEXT2, h.list.subtitle_style)
 	}
 
 	r := h.list.item(h.list.user, int(position))
 	set_row_text(env, cell, ANDROID_ID_TEXT1, r.title)
 	set_row_text(env, cell, ANDROID_ID_TEXT2, r.subtitle)
 	return cell
+}
+
+@(private)
+style_row_text :: proc(env: JNI_Env, cell: jobject, id: int, s: Text_Style) {
+	tv := view_find_view_by_id(env, cell, id)
+	android_style_text(env, tv, s)
+	jni_delete_local_ref(env, tv)
 }
 
 @(private)

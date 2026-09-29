@@ -4,7 +4,8 @@ package nv
 // Android font backend. Typeface has no constructor from bytes below API 29's font builders, so
 // the bytes go to a file in the app's cache directory that Typeface.createFromFile maps; the file
 // is removed right after, since the mapping keeps it. The Typeface is a global ref in Font.native;
-// TextView (labels, buttons, inputs) and Paint (the canvas) take it as is.
+// TextView (labels, buttons, inputs) and Paint (the canvas) take it through android_style_typeface
+// (theme_android.odin).
 
 import "core:fmt"
 import "core:os"
@@ -36,11 +37,4 @@ _font_load :: proc(f: ^Font, data: []u8) -> bool {
 @(private)
 _font_free :: proc(f: ^Font) {
 	jni_delete_global_ref(g_android.env, jobject(f.native))
-}
-
-// Sets a TextView's typeface and text size (sp); either is left alone when not given.
-@(private)
-android_apply_font :: proc "contextless" (env: JNI_Env, view: jobject, font: ^Font, size: f64) {
-	if font != nil do text_view_set_typeface(env, view, jobject(font.native))
-	if size != 0 do text_view_set_text_size(env, view, f32(size))
 }

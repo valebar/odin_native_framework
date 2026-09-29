@@ -13,7 +13,9 @@ package main
 // Done action and marks the title. The header label follows the filter. The canvas draws an image
 // embedded in the binary; a detail page shows the same image as an asset file and a photo
 // downloaded from the network. The header, the Tip button, the Ask dialog's input and the canvas
-// text use a font loaded from an asset file (Tuffy Bold, public domain).
+// text use a font loaded from an asset file (Tuffy Bold, public domain). The theme sets an accent
+// and follows the OS light / dark; the Theme action cycles System → Light → Dark, and the canvas
+// redraws with the palette on a flip.
 
 import "core:fmt"
 import "core:strconv"
@@ -42,6 +44,16 @@ main :: proc() {
 	state := new(State)
 	defer free(state)
 	state.items = 10_000
+	nv.theme_set({
+		accent  = {0, 0.55, 0.5, 1},
+		heading = {weight = .Semibold},
+		on_change = proc(user: rawptr) {
+			s := (^State)(user)
+			fmt.println("dark:", nv.theme_dark())
+			if s.canvas != nil do nv.canvas_redraw(s.canvas)
+		},
+		user = state,
+	})
 	nv.run({
 		title = "Native List",
 		build = build,
@@ -55,6 +67,11 @@ main :: proc() {
 				s := (^State)(user)
 				fmt.printfln("%d of %d items visible, %d strokes", len(s.visible), s.items, len(s.strokes))
 			}},
+			{title = "Theme", icon = .Settings, on_click = proc(_: rawptr) {
+				next := nv.Mode((int(nv.theme_mode()) + 1) % len(nv.Mode))
+				fmt.println("theme mode:", next)
+				nv.theme_set_mode(next)
+			}},
 		},
 	})
 }
@@ -63,7 +80,7 @@ main :: proc() {
 // close through the handle their callback gets; on_close runs after either.
 ask_filter :: proc(user: rawptr) {
 	s := (^State)(user)
-	s.ask = nv.input_create({placeholder = "Digits", text = nv.input_text(s.filter, context.temp_allocator), font = s.font, size = 18})
+	s.ask = nv.input_create({placeholder = "Digits", text = nv.input_text(s.filter, context.temp_allocator), style = {font = s.font, size = 18}})
 	nv.dialog_show({
 		title   = "Filter items",
 		content = nv.input_view(s.ask),
@@ -140,6 +157,7 @@ build :: proc(page: ^nv.Page_Handle, user: rawptr) -> nv.View {
 
 	s.clear = nv.button_create({
 		title = "Clear",
+		style = {weight = .Semibold},
 		on_click = proc(user: rawptr) {
 			s := (^State)(user)
 			nv.input_set_text(s.filter, "")
@@ -167,16 +185,17 @@ build :: proc(page: ^nv.Page_Handle, user: rawptr) -> nv.View {
 		s.font = nv.font_from_file("tuffy_bold.ttf")
 		if s.font == nil do fmt.println("tuffy_bold.ttf not found; using the system font")
 	}
-	s.tip = nv.button_create({title = "Tip", on_click = show_tip, user = s, font = s.font})
+	s.tip = nv.button_create({title = "Tip", on_click = show_tip, user = s, style = {font = s.font}})
 
-	s.header = nv.label_create({text = header_text(s), bold = true, font = s.font, size = 22})
+	s.header = nv.label_create({text = header_text(s), heading = true, style = {font = s.font, size = 22}})
+	hint := nv.label_create({text = "Select a row for details", style = {size = 13, italic = true, color = {0, 0.55, 0.5, 1}}})
 	lists := nv.row_create({{nv.list_view(s.list), 1}, {nv.list_view(s.list2), 2}}, spacing = 8)
 	search := nv.row_create({{nv.input_view(s.filter), 1}, {nv.button_view(s.clear), 0}, {nv.button_view(s.tip), 0}}, spacing = 8)
 	search_box := nv.container_create({
 		child = search, padding = nv.insets_all(8), radius = 10,
 		color = {0.93, 0.95, 1, 1}, border_color = {0.7, 0.75, 0.85, 1}, border_width = 1,
 	})
-	return nv.column_create({{nv.label_view(s.header), 0}, {nv.container_view(search_box), 0}, {lists, 2}, {nv.canvas_view(s.canvas), 1}}, spacing = 8)
+	return nv.column_create({{nv.label_view(s.header), 0}, {nv.label_view(hint), 0}, {nv.container_view(search_box), 0}, {lists, 2}, {nv.canvas_view(s.canvas), 1}}, spacing = 8)
 }
 
 header_text :: proc(s: ^State) -> string {
@@ -230,7 +249,7 @@ detail_done :: proc(user: rawptr) {
 detail_build :: proc(page: ^nv.Page_Handle, user: rawptr) -> nv.View {
 	d := (^Detail)(user)
 	d.page = page
-	label := nv.label_create({text = fmt.tprintf("%s, level %d", d.title, d.level), bold = true})
+	label := nv.label_create({text = fmt.tprintf("%s, level %d", d.title, d.level), heading = true})
 	d.more = nv.button_create({
 		title = "Push another",
 		on_click = proc(user: rawptr) {
@@ -278,14 +297,15 @@ detail_free :: proc(user: rawptr) {
 
 draw_canvas :: proc(user: rawptr, p: ^nv.Painter, w, h: f64) {
 	s := (^State)(user)
-	nv.fill_rect(p, 0, 0, w, h, {0.96, 0.96, 0.98, 1})
-	nv.stroke_rect(p, 0.5, 0.5, w - 1, h - 1, {0.7, 0.7, 0.75, 1})
+	pal := nv.theme_palette()
+	nv.fill_rect(p, 0, 0, w, h, pal.surface)
+	nv.stroke_rect(p, 0.5, 0.5, w - 1, h - 1, pal.separator)
 	nv.fill_ellipse(p, w - 60, 12, 44, 44, {1, 0.6, 0.2, 1})
 	nv.stroke_ellipse(p, w - 60, 12, 44, 44, {0.6, 0.3, 0, 1}, 2)
 	nv.draw_image(p, s.logo, w - 76, h - 57, 64, 48)
-	nv.draw_text(p, fmt.tprintf("Draw here (%d strokes)", len(s.strokes)), 12, 12, 15, {0.3, 0.3, 0.35, 1}, s.font)
+	nv.draw_text(p, fmt.tprintf("Draw here (%d strokes)", len(s.strokes)), 12, 12, {color = pal.secondary_text, font = s.font})
 	for st in s.strokes {
-		for i in 1..<len(st) do nv.draw_line(p, st[i-1].x, st[i-1].y, st[i].x, st[i].y, {0.1, 0.3, 0.9, 1}, 3)
+		for i in 1..<len(st) do nv.draw_line(p, st[i-1].x, st[i-1].y, st[i].x, st[i].y, pal.accent, 3)
 	}
 }
 

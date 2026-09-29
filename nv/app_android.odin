@@ -48,6 +48,7 @@ jni_on_create :: proc "c" (env: JNI_Env, _: jclass, activity: jobject) {
 		scope_retire(g_nav[0].scope) // the old root's widgets, once this callback returns
 		g_nav[0].scope = scope_new()
 		g_nav[0].root = nil // rebuilt by set_content; nil means "building" to page_set_*
+		theme_notify() // a night mode change recreates the Activity
 		set_content()
 		return
 	}
@@ -70,6 +71,7 @@ _run :: proc() {
 	g_android.ctx = context
 	stdout_to_logcat()
 	callback_enter()
+	theme_start()
 	set_content()
 	callback_exit()
 }

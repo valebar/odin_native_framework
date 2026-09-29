@@ -282,6 +282,12 @@ Button_View :: struct { using _: NS.View }
 @(objc_class="NSFont")
 NS_Font :: struct { using _: NS.Object } // `Font` is the public loaded-font type
 
+@(objc_class="NSColorSpace")
+Color_Space :: struct { using _: NS.Object }
+
+@(objc_class="NSAppearance")
+Appearance :: struct { using _: NS.Object }
+
 @(objc_class="NSGraphicsContext")
 Graphics_Context :: struct { using _: NS.Object }
 

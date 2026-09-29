@@ -66,8 +66,17 @@ cell_for_row :: proc "c" (self: NS.id, _: NS.SEL, tv: ^UI_Table_View, ip: ^Index
 	cfg := ui_list_content_subtitle()
 	ui_list_content_set_text(cfg, ns_string(r.title))
 	ui_list_content_set_secondary_text(cfg, ns_string(r.subtitle))
+	list_ios_style(send(^NS.Object, cfg, "textProperties"), h.list.title_style)
+	list_ios_style(send(^NS.Object, cfg, "secondaryTextProperties"), h.list.subtitle_style)
 	ui_table_view_cell_set_content_configuration(cell, cfg)
 	return cell
+}
+
+// Styles a UIListContentTextProperties (the configuration's own, mutable in place).
+@(private)
+list_ios_style :: proc "contextless" (props: ^NS.Object, s: Text_Style) {
+	if style_sets_font(s) do send(nil, props, "setFont:", apple_font(s, font_point_size(send(^NS.Object, props, "font")), false))
+	if s.color.a > 0 do send(nil, props, "setColor:", canvas_color(s.color))
 }
 
 @(private)

@@ -63,6 +63,7 @@ scene_will_connect :: proc "c" (self: NS.id, _: NS.SEL, scene: NS.id, _: NS.id, 
 	context = g_app.ctx
 	callback_enter()
 	defer callback_exit()
+	theme_start()
 
 	// The navigation controller wants its root view controller up front, so the root page
 	// doesn't go through _nav_push.
@@ -74,6 +75,7 @@ scene_will_connect :: proc "c" (self: NS.id, _: NS.SEL, scene: NS.id, _: NS.id, 
 	g_app.nav = nav
 
 	g_app.window = ui_window_new(scene)
+	theme_install(g_app.window)
 	ui_window_set_root_view_controller(g_app.window, nav)
 	nav->release()
 	ui_window_make_key_and_visible(g_app.window)

@@ -17,10 +17,12 @@ _button_init :: proc(h: ^Button_Handle) {
 	button := ui_button_system() // autoreleased
 	objc_own(button)->retain()
 	ui_button_set_title(button, ns_string(h.button.title))
-	if h.button.font != nil || h.button.size != 0 { // else the button's own 15pt system font
+	s := h.button.style
+	if style_sets_font(s) {
 		title_label := send(^NS.Object, button, "titleLabel")
-		send(nil, title_label, "setFont:", text_font(h.button.font, h.button.size != 0 ? h.button.size : 15, false))
+		send(nil, title_label, "setFont:", apple_font(s, font_point_size(send(^NS.Object, title_label, "font")), false))
 	}
+	if s.color.a > 0 do send(nil, button, "setTitleColor:forState:", canvas_color(s.color), UI_CONTROL_STATE_NORMAL)
 
 	t := objc_own(button_target_alloc(h)) // not retained by the button; lives as long as the handle's scope
 	ui_control_add_target(button, t, intrinsics.objc_find_selector("nvClick:"), UI_CONTROL_EVENT_TOUCH_UP_INSIDE)

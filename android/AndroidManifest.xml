@@ -13,8 +13,9 @@
         android:label="Native List"
         android:hasCode="true"
         android:extractNativeLibs="true"
-        android:theme="@android:style/Theme.Material.Light.DarkActionBar">
-        <!-- configChanges: rotation and resizing re-layout the existing views instead of recreating the Activity -->
+        android:theme="@android:style/Theme.DeviceDefault.DayNight">
+        <!-- configChanges: rotation and resizing re-layout the existing views instead of recreating the Activity.
+             uiMode is left out on purpose: a light / dark switch recreates it with the new theme colors (theme_android.odin) -->
         <activity android:name="nv.NvActivity" android:exported="true"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation">
             <intent-filter>

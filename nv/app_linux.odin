@@ -67,9 +67,11 @@ on_activate :: proc "c" (app: ^GtkApplication, _: gpointer) {
 	g_linux.overlay = overlay
 	g_linux.stack = stack
 
-	css := gtk_css_provider_new()
-	gtk_css_provider_load_from_data(css, NV_CSS, -1)
+	css := gtk_css_provider_new() // NV_CSS, the accent and the text styles (theme_linux.odin)
+	g_theme_linux.css = css
+	theme_css_reload()
 	gtk_style_context_add_provider_for_display(gdk_display_get_default(), css, GTK_STYLE_PROVIDER_PRIORITY_APPLICATION)
+	theme_start()
 
 	nav_show_root()
 	gtk_window_present(wnd)

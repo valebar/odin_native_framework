@@ -84,15 +84,16 @@ _stroke_ellipse :: proc(p: ^Painter, x, y, w, h: f64, color: Color, width: f64) 
 }
 
 // drawText takes the baseline; ascent() is negative, so baseline = top - ascent. The typeface is
-// set on every call (null for the system font), since the Paint is shared; setTypeface returns
-// the previous Typeface, a local ref to drop.
+// set on every call (the style's, from android_style_typeface), since the Paint is shared;
+// setTypeface returns the previous Typeface, a local ref to drop.
 @(private)
-_draw_text :: proc(p: ^Painter, text: string, x, y: f64, size: f64, color: Color, font: ^Font) {
+_draw_text :: proc(p: ^Painter, text: string, x, y: f64, style: Text_Style) {
 	env := g_android.env
-	pt := paint(p, color)
-	paint_set_text_size(env, pt, f32(size))
-	tf := paint_set_typeface(env, pt, font != nil ? jobject(font.native) : nil)
-	if tf != nil do jni_delete_local_ref(env, tf)
+	pt := paint(p, style.color)
+	paint_set_text_size(env, pt, f32(style.size))
+	tf := android_style_typeface(env, style, false)
+	defer if tf.owned do jni_delete_local_ref(env, tf.ref)
+	if old := paint_set_typeface(env, pt, tf.ref); old != nil do jni_delete_local_ref(env, old)
 	ascent := paint_ascent(env, pt)
 	canvas_draw_text(env, jobject(p.native), text, f32(x), f32(y) - ascent, pt)
 }

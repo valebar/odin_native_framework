@@ -53,9 +53,10 @@ flex_proc :: proc "system" (hwnd: win.HWND, msg: win.UINT, wparam: win.WPARAM, l
 		return 0
 	case win.WM_CTLCOLORSTATIC:
 		return ctlcolor_static(wparam, lparam)
-	case win.WM_ERASEBKGND: // the class brush would paint the window color over a container's fill
-		erase_background(hwnd, win.HDC(wparam))
-		return 1
+	case win.WM_CTLCOLORBTN:
+		return ctlcolor_button(lparam)
+	case win.WM_ERASEBKGND: // no class brush: the page background, or a container's fill
+		return erase_background(hwnd, win.HDC(wparam))
 	}
 	return win.DefWindowProcW(hwnd, msg, wparam, lparam)
 }
@@ -111,15 +112,6 @@ flex_relayout_ancestors :: proc(hwnd: win.HWND) {
 	for p := win.GetParent(hwnd); p != nil; p = win.GetParent(p) {
 		if class_name(p) == CLASS_FLEX do flex_layout(p)
 	}
-}
-
-// Fills a window's client area with its background brush (WM_ERASEBKGND; children are clipped out
-// by WS_CLIPCHILDREN).
-@(private)
-erase_background :: proc "contextless" (hwnd: win.HWND, dc: win.HDC) {
-	rc: win.RECT
-	win.GetClientRect(hwnd, &rc)
-	win.FillRect(dc, &rc, background_brush_of(hwnd))
 }
 
 // Natural size of a view in px: text extent for labels, one line for inputs, the title for buttons,

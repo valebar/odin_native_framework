@@ -1,7 +1,7 @@
 #+build darwin
 package nv
 
-// iOS label backend: a UILabel in the system font (17pt, bold as a heading) or the given one.
+// iOS label backend: a UILabel in the system font (17pt, bold for a heading) changed by the style.
 
 when IS_IOS {
 
@@ -9,8 +9,8 @@ when IS_IOS {
 _label_init :: proc(h: ^Label_Handle) {
 	label := objc_own(ui_label_new())
 	ui_label_set_text(label, ns_string(h.label.text))
-	size := h.label.size != 0 ? h.label.size : 17
-	ui_label_set_font(label, (^UI_Font)(text_font(h.label.font, size, h.label.bold)))
+	ui_label_set_font(label, (^UI_Font)(apple_font(h.label.style, 17, h.label.heading)))
+	if h.label.style.color.a > 0 do send(nil, label, "setTextColor:", canvas_color(h.label.style.color))
 
 	h.root = View(label)
 }

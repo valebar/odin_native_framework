@@ -139,14 +139,11 @@ _stroke_ellipse :: proc(p: ^Painter, x, y, w, h: f64, color: Color, width: f64) 
 }
 
 // GDI ignores the GDI+ transform, so text is placed in px. The HDC from GdipGetDC has the
-// default TA_TOP | TA_LEFT alignment, so (x, y) is the top-left of the line. The HFONT (the
-// message font or the loaded one at `size`) is made per call: an app may draw at any number of
-// sizes, and GDI objects are limited.
+// default TA_TOP | TA_LEFT alignment, so (x, y) is the top-left of the line. The font comes from
+// the style_font cache (the message font or the loaded face, at the style's size).
 @(private)
-_draw_text :: proc(p: ^Painter, text: string, x, y: f64, size: f64, color: Color, font: ^Font) {
-	lf := windows_logfont(font, size, false)
-	hfont := win.CreateFontIndirectW(&lf)
-	defer win.DeleteObject(win.HGDIOBJ(hfont))
+_draw_text :: proc(p: ^Painter, text: string, x, y: f64, style: Text_Style) {
+	hfont := style_font(style, g_windows.font)
 
 	dc: win.HDC
 	GdipGetDC(p.native, &dc)
@@ -154,7 +151,7 @@ _draw_text :: proc(p: ^Painter, text: string, x, y: f64, size: f64, color: Color
 	old := win.SelectObject(dc, win.HGDIOBJ(hfont))
 	defer win.SelectObject(dc, old)
 	win.SetBkMode(dc, .TRANSPARENT)
-	c := color_argb(color)
+	c := color_argb(style.color)
 	win.SetTextColor(dc, win.RGB(c >> 16 & 0xff, c >> 8 & 0xff, c & 0xff)) // GDI text has no alpha
 	w := wstr(text)
 	win.TextOutW(dc, px(x), px(y), w, i32(len(string16_of(w))))

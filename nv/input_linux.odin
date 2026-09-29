@@ -13,10 +13,7 @@ _input_init :: proc(h: ^Input_Handle) {
 	if h.input.placeholder != "" {
 		gtk_entry_set_placeholder_text(entry, strings.clone_to_cstring(h.input.placeholder, context.temp_allocator))
 	}
-	if attrs := pango_font_attrs(h.input.font, h.input.size); attrs != nil {
-		gtk_entry_set_attributes(entry, attrs)
-		pango_attr_list_unref(attrs)
-	}
+	style_widget(entry, h.input.style)
 	g_signal_connect(entry, "changed", rawptr(on_input_changed), h)
 	g_signal_connect(entry, "activate", rawptr(on_input_activate), h)
 

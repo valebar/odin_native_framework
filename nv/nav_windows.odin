@@ -41,6 +41,7 @@ nav_create_host :: proc(wnd: win.HWND) {
 		win.WS_CHILD | win.WS_TABSTOP | win.WS_CLIPSIBLINGS | win.BS_PUSHBUTTON,
 		0, 0, 0, 0, host, nil, g_windows.hinstance, nil)
 	win.SendMessageW(back, win.WM_SETFONT, win.WPARAM(uintptr(g_windows.font)), 0)
+	theme_control(back)
 	g_windows.nav_back = back
 
 	g_windows.nav_title = label_new("", host, win.SS_CENTERIMAGE | win.WS_CLIPSIBLINGS, g_windows.title)
@@ -124,6 +125,7 @@ nav_rebuild_actions :: proc(e: ^Page_Handle) {
 			win.WS_CHILD | win.WS_VISIBLE | win.WS_TABSTOP | win.WS_CLIPSIBLINGS | win.BS_PUSHBUTTON,
 			0, 0, 0, 0, g_windows.root, nil, g_windows.hinstance, nil)
 		win.SendMessageW(b, win.WM_SETFONT, win.WPARAM(uintptr(font)), 0)
+		theme_control(b)
 		win.SetWindowLongPtrW(b, win.GWLP_USERDATA, win.LONG_PTR(uintptr(h)))
 		append(&g_windows.nav_actions, b)
 	}
@@ -195,6 +197,10 @@ nav_proc :: proc "system" (hwnd: win.HWND, msg: win.UINT, wparam: win.WPARAM, lp
 		}
 	case win.WM_CTLCOLORSTATIC:
 		return ctlcolor_static(wparam, lparam)
+	case win.WM_CTLCOLORBTN:
+		return ctlcolor_button(lparam)
+	case win.WM_ERASEBKGND:
+		return erase_background(hwnd, win.HDC(wparam))
 	case WM_NV_DESTROY:
 		win.DestroyWindow(win.HWND(uintptr(lparam)))
 		scope_retire((^Scope)(uintptr(wparam)))

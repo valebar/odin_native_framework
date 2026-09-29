@@ -123,9 +123,9 @@ dialog_proc :: proc "system" (hwnd: win.HWND, msg: win.UINT, wparam: win.WPARAM,
 		dc := win.BeginPaint(hwnd, &ps)
 		rc: win.RECT
 		win.GetClientRect(hwnd, &rc)
-		pen := win.CreatePen(win.PS_SOLID, 1, win.GetSysColor(win.COLOR_3DSHADOW))
+		pen := win.CreatePen(win.PS_SOLID, 1, colorref(theme_palette().separator))
 		old_pen := win.SelectObject(dc, win.HGDIOBJ(pen))
-		old_brush := win.SelectObject(dc, win.HGDIOBJ(win.GetSysColorBrush(win.COLOR_WINDOW)))
+		old_brush := win.SelectObject(dc, win.HGDIOBJ(g_theme_windows.bg))
 		r := px(DIALOG_RADIUS) * 2
 		win.RoundRect(dc, 0, 0, rc.right, rc.bottom, r, r)
 		win.SelectObject(dc, old_brush)
@@ -135,6 +135,8 @@ dialog_proc :: proc "system" (hwnd: win.HWND, msg: win.UINT, wparam: win.WPARAM,
 		return 0
 	case win.WM_CTLCOLORSTATIC:
 		return ctlcolor_static(wparam, lparam)
+	case win.WM_CTLCOLORBTN:
+		return ctlcolor_button(lparam)
 	}
 	return win.DefWindowProcW(hwnd, msg, wparam, lparam)
 }

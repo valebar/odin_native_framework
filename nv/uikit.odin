@@ -20,6 +20,9 @@ UI_View :: struct { using _: NS.Object }
 @(objc_class="UIWindow")
 UI_Window :: struct { using _: UI_View }
 
+@(objc_class="UIScreen")
+UI_Screen :: struct { using _: NS.Object }
+
 @(objc_class="UIViewController")
 UI_View_Controller :: struct { using _: NS.Object }
 

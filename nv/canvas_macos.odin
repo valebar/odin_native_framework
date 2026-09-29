@@ -33,11 +33,6 @@ _canvas_redraw :: proc(h: ^Canvas_Handle) {
 }
 
 @(private)
-system_font :: proc "c" (size: f64, bold: bool) -> ^NS.Object {
-	return bold ? font_bold_system(NS.Float(size)) : font_system(NS.Float(size))
-}
-
-@(private)
 canvas_color :: proc "c" (c: Color) -> ^NS.Object {
 	return send(^NS.Color, NS.Color, "colorWithSRGBRed:green:blue:alpha:", NS.Float(c.r), NS.Float(c.g), NS.Float(c.b), NS.Float(c.a))
 }

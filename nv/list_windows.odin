@@ -23,7 +23,7 @@ _list_init :: proc(h: ^List_Handle) {
 		win.LVS_SINGLESEL | win.LVS_NOCOLUMNHEADER | win.LVS_SHOWSELALWAYS
 	lv := win.CreateWindowExW(0, wstr(win.WC_LISTVIEW), nil, style,
 		0, 0, 0, 0, container, nil, g_windows.hinstance, nil)
-	win.SetWindowTheme(lv, wstr("Explorer"), nil)
+	theme_control(lv)
 	win.ListView_SetExtendedListViewStyle(lv, win.LVS_EX_FULLROWSELECT | win.LVS_EX_DOUBLEBUFFER)
 	win.SendMessageW(lv, win.WM_SETFONT, win.WPARAM(uintptr(g_windows.font)), 0)
 
@@ -104,18 +104,22 @@ list_custom_draw :: proc(h: ^List_Handle, cd: ^win.NMLVCUSTOMDRAW) -> win.LRESUL
 
 		// Title above subtitle, the pair vertically centred, like the Linux cell.
 		dc := cd.nmcd.hdc
+		p := theme_palette()
+		title_font := style_font(h.list.title_style, g_windows.bold)
+		subtitle_font := style_font(h.list.subtitle_style, g_windows.font)
+		title_h, subtitle_h := font_height(title_font), font_height(subtitle_font)
 		gap := px(2)
-		top := rc.top + (rc.bottom - rc.top - g_windows.bold_h - gap - g_windows.font_h) / 2
-		line := win.RECT{rc.left + px(12), top, rc.right - px(12), top + g_windows.bold_h}
+		top := rc.top + (rc.bottom - rc.top - title_h - gap - subtitle_h) / 2
+		line := win.RECT{rc.left + px(12), top, rc.right - px(12), top + title_h}
 		win.SetBkMode(dc, .TRANSPARENT)
-		old := win.SelectObject(dc, win.HGDIOBJ(g_windows.bold))
-		win.SetTextColor(dc, win.COLORREF(win.GetSysColor(win.COLOR_WINDOWTEXT)))
+		old := win.SelectObject(dc, win.HGDIOBJ(title_font))
+		win.SetTextColor(dc, colorref(h.list.title_style.color.a > 0 ? h.list.title_style.color : p.text))
 		win.DrawTextW(dc, wstr(r.title), -1, &line, DT_ROW)
 
 		line.top = line.bottom + gap
-		line.bottom = line.top + g_windows.font_h
-		win.SelectObject(dc, win.HGDIOBJ(g_windows.font))
-		win.SetTextColor(dc, win.COLORREF(win.GetSysColor(win.COLOR_GRAYTEXT)))
+		line.bottom = line.top + subtitle_h
+		win.SelectObject(dc, win.HGDIOBJ(subtitle_font))
+		win.SetTextColor(dc, colorref(h.list.subtitle_style.color.a > 0 ? h.list.subtitle_style.color : p.secondary_text))
 		win.DrawTextW(dc, wstr(r.subtitle), -1, &line, DT_ROW)
 		win.SelectObject(dc, old)
 	}

@@ -1,8 +1,8 @@
 #+build linux:default
 package nv
 
-// Linux label backend: a left-aligned GtkLabel, with the "title-4" style class when bold. A
-// custom font or size is a Pango attribute list (font_linux.odin).
+// Linux label backend: a left-aligned GtkLabel, with the "title-4" style class for a heading and
+// the style's class (theme_linux.odin) over it.
 
 import "core:strings"
 
@@ -10,11 +10,8 @@ import "core:strings"
 _label_init :: proc(h: ^Label_Handle) {
 	label := gtk_label_new(strings.clone_to_cstring(h.label.text, context.temp_allocator))
 	gtk_label_set_xalign(label, 0)
-	if h.label.bold do gtk_widget_add_css_class(label, "title-4")
-	if attrs := pango_font_attrs(h.label.font, h.label.size); attrs != nil {
-		gtk_label_set_attributes(label, attrs)
-		pango_attr_list_unref(attrs)
-	}
+	if h.label.heading do gtk_widget_add_css_class(label, "title-4")
+	style_widget(label, h.label.style)
 
 	h.root = View(label)
 }
