@@ -9,6 +9,8 @@ import "core:strings"
 @(private) jc_activity := Jni_Class{name = "android/app/Activity"}
 @(private) jc_context := Jni_Class{name = "android/content/Context"}
 @(private) jc_resources := Jni_Class{name = "android/content/res/Resources"}
+@(private) jc_configuration := Jni_Class{name = "android/content/res/Configuration"}
+@(private) jc_ui_mode_manager := Jni_Class{name = "android/app/UiModeManager"}
 @(private) jc_resources_theme := Jni_Class{name = "android/content/res/Resources$Theme"}
 @(private) jc_display_metrics := Jni_Class{name = "android/util/DisplayMetrics"}
 @(private) jc_typed_value := Jni_Class{name = "android/util/TypedValue"}
@@ -19,6 +21,7 @@ import "core:strings"
 @(private) jc_menu := Jni_Class{name = "android/view/Menu"}
 @(private) jc_menu_item := Jni_Class{name = "android/view/MenuItem"}
 @(private) jc_view := Jni_Class{name = "android/view/View"}
+@(private) jc_color_state_list := Jni_Class{name = "android/content/res/ColorStateList"}
 @(private) jc_view_group := Jni_Class{name = "android/view/ViewGroup"}
 @(private) jc_view_group_margin_layout_params := Jni_Class{name = "android/view/ViewGroup$MarginLayoutParams"}
 @(private) jc_frame_layout := Jni_Class{name = "android/widget/FrameLayout"}
@@ -34,20 +37,16 @@ import "core:strings"
 @(private) jc_base_adapter := Jni_Class{name = "android/widget/BaseAdapter"}
 @(private) jc_paint := Jni_Class{name = "android/graphics/Paint"}
 @(private) jc_paint_style := Jni_Class{name = "android/graphics/Paint$Style"}
-@(private) jc_paint_cap := Jni_Class{name = "android/graphics/Paint$Cap"}
 @(private) jc_canvas := Jni_Class{name = "android/graphics/Canvas"}
 @(private) jc_rect_f := Jni_Class{name = "android/graphics/RectF"}
 @(private) jc_gradient_drawable := Jni_Class{name = "android/graphics/drawable/GradientDrawable"}
 @(private) jc_inset_drawable := Jni_Class{name = "android/graphics/drawable/InsetDrawable"}
+@(private) jc_color_drawable := Jni_Class{name = "android/graphics/drawable/ColorDrawable"}
 @(private) jc_bitmap := Jni_Class{name = "android/graphics/Bitmap"}
 @(private) jc_bitmap_factory := Jni_Class{name = "android/graphics/BitmapFactory"}
 @(private) jc_image_view := Jni_Class{name = "android/widget/ImageView"}
 @(private) jc_image_view_scale_type := Jni_Class{name = "android/widget/ImageView$ScaleType"}
 @(private) jc_typeface := Jni_Class{name = "android/graphics/Typeface"}
-@(private) jc_configuration := Jni_Class{name = "android/content/res/Configuration"}
-@(private) jc_ui_mode_manager := Jni_Class{name = "android/app/UiModeManager"}
-@(private) jc_color_state_list := Jni_Class{name = "android/content/res/ColorStateList"}
-@(private) jc_color_drawable := Jni_Class{name = "android/graphics/drawable/ColorDrawable"}
 @(private) jc_nv_click_listener := Jni_Class{name = "nv/NvClickListener"}
 @(private) jc_nv_input_listener := Jni_Class{name = "nv/NvInputListener"}
 @(private) jc_nv_list_adapter := Jni_Class{name = "nv/NvListAdapter"}
@@ -106,6 +105,38 @@ context_get_cache_dir :: proc "contextless" (env: JNI_Env, self: jobject) -> job
 	return jni_call_object(env, self, &jm_context_get_cache_dir)
 }
 
+// android.content.Context.getSystemService(java.lang.String)
+@(private) jm_context_get_system_service := Jni_Method{cls = &jc_context, name = "getSystemService", sig = "(Ljava/lang/String;)Ljava/lang/Object;"}
+context_get_system_service :: proc (env: JNI_Env, self: jobject, name: string) -> jobject {
+	name_ := jni_string(env, strings.clone_to_cstring(name, context.temp_allocator))
+	defer jni_delete_local_ref(env, name_)
+	return jni_call_object(env, self, &jm_context_get_system_service, jv_obj(name_))
+}
+
+// static android.content.res.Resources.getSystem()
+@(private) jm_resources_get_system := Jni_Method{cls = &jc_resources, name = "getSystem", sig = "()Landroid/content/res/Resources;", static = true}
+resources_get_system :: proc "contextless" (env: JNI_Env) -> jobject {
+	return jni_call_object(env, nil, &jm_resources_get_system)
+}
+
+// android.content.res.Resources.getConfiguration()
+@(private) jm_resources_get_configuration := Jni_Method{cls = &jc_resources, name = "getConfiguration", sig = "()Landroid/content/res/Configuration;"}
+resources_get_configuration :: proc "contextless" (env: JNI_Env, self: jobject) -> jobject {
+	return jni_call_object(env, self, &jm_resources_get_configuration)
+}
+
+// android.content.res.Configuration.uiMode
+@(private) jf_configuration_ui_mode := Jni_Field{cls = &jc_configuration, name = "uiMode", sig = "I"}
+configuration_ui_mode :: proc "contextless" (env: JNI_Env, self: jobject) -> jint {
+	return jni_get_int_field(env, self, &jf_configuration_ui_mode)
+}
+
+// android.app.UiModeManager.setApplicationNightMode(int)
+@(private) jm_ui_mode_manager_set_application_night_mode := Jni_Method{cls = &jc_ui_mode_manager, name = "setApplicationNightMode", sig = "(I)V"}
+ui_mode_manager_set_application_night_mode :: proc "contextless" (env: JNI_Env, self: jobject, mode: int) {
+	jni_call_void(env, self, &jm_ui_mode_manager_set_application_night_mode, jv_int(mode))
+}
+
 // android.content.res.Resources.getDisplayMetrics()
 @(private) jm_resources_get_display_metrics := Jni_Method{cls = &jc_resources, name = "getDisplayMetrics", sig = "()Landroid/util/DisplayMetrics;"}
 resources_get_display_metrics :: proc "contextless" (env: JNI_Env, self: jobject) -> jobject {
@@ -152,6 +183,12 @@ window_get_decor_view :: proc "contextless" (env: JNI_Env, self: jobject) -> job
 @(private) jm_action_bar_set_display_home_as_up_enabled := Jni_Method{cls = &jc_action_bar, name = "setDisplayHomeAsUpEnabled", sig = "(Z)V"}
 action_bar_set_display_home_as_up_enabled :: proc "contextless" (env: JNI_Env, self: jobject, enabled: bool) {
 	jni_call_void(env, self, &jm_action_bar_set_display_home_as_up_enabled, jv_bool(enabled))
+}
+
+// android.app.ActionBar.setBackgroundDrawable(android.graphics.drawable.Drawable)
+@(private) jm_action_bar_set_background_drawable := Jni_Method{cls = &jc_action_bar, name = "setBackgroundDrawable", sig = "(Landroid/graphics/drawable/Drawable;)V"}
+action_bar_set_background_drawable :: proc "contextless" (env: JNI_Env, self: jobject, d: jobject) {
+	jni_call_void(env, self, &jm_action_bar_set_background_drawable, jv_obj(d))
 }
 
 // java.io.File.getAbsolutePath()
@@ -202,6 +239,18 @@ view_set_background :: proc "contextless" (env: JNI_Env, self: jobject, drawable
 @(private) jm_view_set_background_color := Jni_Method{cls = &jc_view, name = "setBackgroundColor", sig = "(I)V"}
 view_set_background_color :: proc "contextless" (env: JNI_Env, self: jobject, argb: int) {
 	jni_call_void(env, self, &jm_view_set_background_color, jv_int(argb))
+}
+
+// android.view.View.setBackgroundTintList(android.content.res.ColorStateList)
+@(private) jm_view_set_background_tint_list := Jni_Method{cls = &jc_view, name = "setBackgroundTintList", sig = "(Landroid/content/res/ColorStateList;)V"}
+view_set_background_tint_list :: proc "contextless" (env: JNI_Env, self: jobject, tint: jobject) {
+	jni_call_void(env, self, &jm_view_set_background_tint_list, jv_obj(tint))
+}
+
+// static android.content.res.ColorStateList.valueOf(int)
+@(private) jm_color_state_list_value_of := Jni_Method{cls = &jc_color_state_list, name = "valueOf", sig = "(I)Landroid/content/res/ColorStateList;", static = true}
+color_state_list_value_of :: proc "contextless" (env: JNI_Env, argb: int) -> jobject {
+	return jni_call_object(env, nil, &jm_color_state_list_value_of, jv_int(argb))
 }
 
 // android.view.View.setPadding(int, int, int, int)
@@ -364,6 +413,12 @@ text_view_set_text_size :: proc "contextless" (env: JNI_Env, self: jobject, sp: 
 	jni_call_void(env, self, &jm_text_view_set_text_size, jv_float(sp))
 }
 
+// android.widget.TextView.setTextColor(int)
+@(private) jm_text_view_set_text_color := Jni_Method{cls = &jc_text_view, name = "setTextColor", sig = "(I)V"}
+text_view_set_text_color :: proc "contextless" (env: JNI_Env, self: jobject, argb: int) {
+	jni_call_void(env, self, &jm_text_view_set_text_color, jv_int(argb))
+}
+
 // android.widget.TextView.setSingleLine()
 @(private) jm_text_view_set_single_line := Jni_Method{cls = &jc_text_view, name = "setSingleLine", sig = "()V"}
 text_view_set_single_line :: proc "contextless" (env: JNI_Env, self: jobject) {
@@ -442,12 +497,6 @@ paint_set_style :: proc "contextless" (env: JNI_Env, self: jobject, style: jobje
 	jni_call_void(env, self, &jm_paint_set_style, jv_obj(style))
 }
 
-// android.graphics.Paint.setStrokeCap(android.graphics.Paint$Cap)
-@(private) jm_paint_set_stroke_cap := Jni_Method{cls = &jc_paint, name = "setStrokeCap", sig = "(Landroid/graphics/Paint$Cap;)V"}
-paint_set_stroke_cap :: proc "contextless" (env: JNI_Env, self: jobject, cap: jobject) {
-	jni_call_void(env, self, &jm_paint_set_stroke_cap, jv_obj(cap))
-}
-
 // android.graphics.Paint.setColor(int)
 @(private) jm_paint_set_color := Jni_Method{cls = &jc_paint, name = "setColor", sig = "(I)V"}
 paint_set_color :: proc "contextless" (env: JNI_Env, self: jobject, argb: int) {
@@ -484,14 +533,6 @@ paint_style_value_of :: proc (env: JNI_Env, name: string) -> jobject {
 	name_ := jni_string(env, strings.clone_to_cstring(name, context.temp_allocator))
 	defer jni_delete_local_ref(env, name_)
 	return jni_call_object(env, nil, &jm_paint_style_value_of, jv_obj(name_))
-}
-
-// static android.graphics.Paint$Cap.valueOf(java.lang.String)
-@(private) jm_paint_cap_value_of := Jni_Method{cls = &jc_paint_cap, name = "valueOf", sig = "(Ljava/lang/String;)Landroid/graphics/Paint$Cap;", static = true}
-paint_cap_value_of :: proc (env: JNI_Env, name: string) -> jobject {
-	name_ := jni_string(env, strings.clone_to_cstring(name, context.temp_allocator))
-	defer jni_delete_local_ref(env, name_)
-	return jni_call_object(env, nil, &jm_paint_cap_value_of, jv_obj(name_))
 }
 
 // android.graphics.Canvas.drawRect(float, float, float, float, android.graphics.Paint)
@@ -574,6 +615,12 @@ inset_drawable_new :: proc "contextless" (env: JNI_Env, drawable: jobject, left:
 	return jni_new_object(env, &jm_inset_drawable_new, jv_obj(drawable), jv_int(left), jv_int(top), jv_int(right), jv_int(bottom))
 }
 
+// android.graphics.drawable.ColorDrawable.<init>(int)
+@(private) jm_color_drawable_new := Jni_Method{cls = &jc_color_drawable, name = "<init>", sig = "(I)V"}
+color_drawable_new :: proc "contextless" (env: JNI_Env, argb: int) -> jobject {
+	return jni_new_object(env, &jm_color_drawable_new, jv_int(argb))
+}
+
 // android.graphics.Bitmap.getWidth()
 @(private) jm_bitmap_get_width := Jni_Method{cls = &jc_bitmap, name = "getWidth", sig = "()I"}
 bitmap_get_width :: proc "contextless" (env: JNI_Env, self: jobject) -> jint {
@@ -620,6 +667,12 @@ typeface_create_from_file :: proc (env: JNI_Env, path: string) -> jobject {
 	path_ := jni_string(env, strings.clone_to_cstring(path, context.temp_allocator))
 	defer jni_delete_local_ref(env, path_)
 	return jni_call_object(env, nil, &jm_typeface_create_from_file, jv_obj(path_))
+}
+
+// static android.graphics.Typeface.create(android.graphics.Typeface, int, boolean)
+@(private) jm_typeface_create := Jni_Method{cls = &jc_typeface, name = "create", sig = "(Landroid/graphics/Typeface;IZ)Landroid/graphics/Typeface;", static = true}
+typeface_create :: proc "contextless" (env: JNI_Env, family: jobject, weight: int, italic: bool) -> jobject {
+	return jni_call_object(env, nil, &jm_typeface_create, jv_obj(family), jv_int(weight), jv_bool(italic))
 }
 
 // nv.NvClickListener.<init>(long)
@@ -686,71 +739,3 @@ nv_fetch_start :: proc (env: JNI_Env, req: i64, url: string) {
 	jni_call_void(env, nil, &jm_nv_fetch_start, jv_long(req), jv_obj(url_))
 }
 
-
-// android.content.Context.getSystemService(java.lang.String)
-@(private) jm_context_get_system_service := Jni_Method{cls = &jc_context, name = "getSystemService", sig = "(Ljava/lang/String;)Ljava/lang/Object;"}
-context_get_system_service :: proc (env: JNI_Env, self: jobject, name: string) -> jobject {
-	name_ := jni_string(env, strings.clone_to_cstring(name, context.temp_allocator))
-	defer jni_delete_local_ref(env, name_)
-	return jni_call_object(env, self, &jm_context_get_system_service, jv_obj(name_))
-}
-
-// static android.content.res.Resources.getSystem()
-@(private) jm_resources_get_system := Jni_Method{cls = &jc_resources, name = "getSystem", sig = "()Landroid/content/res/Resources;", static = true}
-resources_get_system :: proc "contextless" (env: JNI_Env) -> jobject {
-	return jni_call_object(env, nil, &jm_resources_get_system)
-}
-
-// android.content.res.Resources.getConfiguration()
-@(private) jm_resources_get_configuration := Jni_Method{cls = &jc_resources, name = "getConfiguration", sig = "()Landroid/content/res/Configuration;"}
-resources_get_configuration :: proc "contextless" (env: JNI_Env, self: jobject) -> jobject {
-	return jni_call_object(env, self, &jm_resources_get_configuration)
-}
-
-// android.content.res.Configuration.uiMode
-@(private) jf_configuration_ui_mode := Jni_Field{cls = &jc_configuration, name = "uiMode", sig = "I"}
-configuration_ui_mode :: proc "contextless" (env: JNI_Env, self: jobject) -> jint {
-	return jni_get_int_field(env, self, &jf_configuration_ui_mode)
-}
-
-// android.app.UiModeManager.setApplicationNightMode(int)
-@(private) jm_ui_mode_manager_set_application_night_mode := Jni_Method{cls = &jc_ui_mode_manager, name = "setApplicationNightMode", sig = "(I)V"}
-ui_mode_manager_set_application_night_mode :: proc "contextless" (env: JNI_Env, self: jobject, mode: int) {
-	jni_call_void(env, self, &jm_ui_mode_manager_set_application_night_mode, jv_int(mode))
-}
-
-// android.app.ActionBar.setBackgroundDrawable(android.graphics.drawable.Drawable)
-@(private) jm_action_bar_set_background_drawable := Jni_Method{cls = &jc_action_bar, name = "setBackgroundDrawable", sig = "(Landroid/graphics/drawable/Drawable;)V"}
-action_bar_set_background_drawable :: proc "contextless" (env: JNI_Env, self: jobject, d: jobject) {
-	jni_call_void(env, self, &jm_action_bar_set_background_drawable, jv_obj(d))
-}
-
-// android.view.View.setBackgroundTintList(android.content.res.ColorStateList)
-@(private) jm_view_set_background_tint_list := Jni_Method{cls = &jc_view, name = "setBackgroundTintList", sig = "(Landroid/content/res/ColorStateList;)V"}
-view_set_background_tint_list :: proc "contextless" (env: JNI_Env, self: jobject, tint: jobject) {
-	jni_call_void(env, self, &jm_view_set_background_tint_list, jv_obj(tint))
-}
-
-// static android.content.res.ColorStateList.valueOf(int)
-@(private) jm_color_state_list_value_of := Jni_Method{cls = &jc_color_state_list, name = "valueOf", sig = "(I)Landroid/content/res/ColorStateList;", static = true}
-color_state_list_value_of :: proc "contextless" (env: JNI_Env, argb: int) -> jobject {
-	return jni_call_object(env, nil, &jm_color_state_list_value_of, jv_int(argb))
-}
-
-// android.widget.TextView.setTextColor(int)
-@(private) jm_text_view_set_text_color := Jni_Method{cls = &jc_text_view, name = "setTextColor", sig = "(I)V"}
-text_view_set_text_color :: proc "contextless" (env: JNI_Env, self: jobject, argb: int) {
-	jni_call_void(env, self, &jm_text_view_set_text_color, jv_int(argb))
-}
-
-// android.graphics.drawable.ColorDrawable.<init>(int)
-@(private) jm_color_drawable_new := Jni_Method{cls = &jc_color_drawable, name = "<init>", sig = "(I)V"}
-color_drawable_new :: proc "contextless" (env: JNI_Env, argb: int) -> jobject {
-	return jni_new_object(env, &jm_color_drawable_new, jv_int(argb))
-}
-
-// static android.graphics.Typeface.create(android.graphics.Typeface, int, boolean)
-@(private) jm_typeface_create := Jni_Method{cls = &jc_typeface, name = "create", sig = "(Landroid/graphics/Typeface;IZ)Landroid/graphics/Typeface;", static = true}
-typeface_create :: proc "contextless" (env: JNI_Env, family: jobject, weight: int, italic: bool) -> jobject {
-	return jni_call_object(env, nil, &jm_typeface_create, jv_obj(family), jv_int(weight), jv_bool(italic))
-}

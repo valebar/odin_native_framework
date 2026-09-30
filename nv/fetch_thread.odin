@@ -1,10 +1,10 @@
-#+build darwin, windows, linux:default
+#+build windows, linux:default
 package nv
 
-// Image downloads on every backend but Android (whose libc can't host core:thread; NvFetch.java
-// runs its downloads): a worker thread per download runs the blocking `_http_get` and hands the
-// result to the UI thread with `_post_main`, which calls fetch_notify from the event loop.
-// Assets are files next to the executable.
+// Image downloads on Windows and Linux (Android's libc can't host core:thread, so NvFetch.java
+// runs its downloads; Apple uses a raw pthread, fetch_darwin.odin): a worker thread per download
+// runs the blocking `_http_get` and hands the result to the UI thread with `_post_main`, which
+// calls fetch_notify from the event loop. Assets are files next to the executable.
 
 import "base:runtime"
 import "core:thread"

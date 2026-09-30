@@ -30,6 +30,7 @@ _canvas_init :: proc(h: ^Canvas_Handle) {
 
 @(private)
 _canvas_redraw :: proc(h: ^Canvas_Handle) {
+	if apple_canvas_park_redraw(h) do return
 	send(nil, (^NS.View)(h.view), "setNeedsDisplay:", NS.BOOL(true))
 }
 
@@ -50,7 +51,7 @@ canvas_draw_rect :: proc "c" (self: NS.id, _: NS.SEL, _: NS.Rect) {
 	NS.scoped_autoreleasepool() // the frame's strings, colors and fonts go with the frame
 	gc := send(^Graphics_Context, Graphics_Context, "currentContext")
 	bounds := send(NS.Rect, (^NS.Object)(self), "bounds")
-	canvas_draw_notify(h, send(rawptr, gc, "CGContext"), f64(bounds.size.width), f64(bounds.size.height))
+	apple_canvas_draw(h, send(rawptr, gc, "CGContext"), f64(bounds.size.width), f64(bounds.size.height))
 }
 
 @(private)

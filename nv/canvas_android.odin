@@ -39,8 +39,6 @@ _canvas_init :: proc(h: ^Canvas_Handle) {
 	stroke := paint_new(env, ANDROID_ANTI_ALIAS_FLAG)
 	style := paint_style_value_of(env, "STROKE")
 	paint_set_style(env, stroke, style)
-	cap := paint_cap_value_of(env, "ROUND")
-	paint_set_stroke_cap(env, stroke, cap)
 
 	h.root = View(android_own_ref(env, v))
 	h.view = rawptr(h.root)
@@ -51,7 +49,6 @@ _canvas_init :: proc(h: ^Canvas_Handle) {
 	rect := rect_f_new(env, 0, 0, 0, 0)
 	c.rect = android_own_ref(env, rect)
 	jni_delete_local_ref(env, rect)
-	jni_delete_local_ref(env, cap)
 	jni_delete_local_ref(env, style)
 	jni_delete_local_ref(env, stroke)
 	jni_delete_local_ref(env, fill)

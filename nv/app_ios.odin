@@ -10,16 +10,15 @@ import NS "core:sys/darwin/Foundation"
 
 when IS_IOS {
 
-@(private) app_delegate_class, scene_delegate_class, nav_delegate_class, nav_target_class: NS.Class
+@(private) app_delegate_class, scene_delegate_class, nav_target_class: NS.Class
 
 @(private) g_app: struct {
 	ctx:          runtime.Context,
 	window:       ^UI_Window,
 	nav:          ^UI_Navigation_Controller, // owned by the window
-	nav_delegate: NS.id,                     // NVNavDelegate; the controller's delegate is weak
 	nav_target:   NS.id,                     // NVNavTarget: receives the bar button items' actions
-	popping:      ^Page_Handle,              // set by _nav_pop for the _nav_release that follows
-	retiring:     [dynamic]^Scope,           // scopes of pages pop() removed, until nav_did_show
+	removing:     ^Page_Handle,              // the page whose controller is inside didMoveToParentViewController:nil
+	retiring:     [dynamic]Retiring,         // pages pop() removed, until their controllers leave (nav_ios.odin)
 }
 
 @(private)
@@ -27,7 +26,7 @@ _run :: proc() {
 	g_app.ctx = context
 
 	// UIKit instantiates the app and scene delegates itself (the scene delegate by the name in
-	// ios/Info.plist); the nav delegate and target are singletons with no ivars.
+	// ios/Info.plist); the nav target is a singleton with no ivars.
 	objc_class(&app_delegate_class, "NVAppDelegate", "UIResponder", {
 		{"application:didFinishLaunchingWithOptions:", auto_cast did_finish_launching, "B@:@@"},
 	}, {"UIApplicationDelegate"})
@@ -35,10 +34,6 @@ _run :: proc() {
 		{"scene:willConnectToSession:options:", auto_cast scene_will_connect, "v@:@@@"},
 		{"window", auto_cast scene_window, "@@:"},
 	}, {"UIWindowSceneDelegate"})
-	nav_delegate := objc_class(&nav_delegate_class, "NVNavDelegate", "NSObject", {
-		{"navigationController:didShowViewController:animated:", auto_cast nav_did_show, "v@:@@B"},
-	}, {"UINavigationControllerDelegate"})
-	g_app.nav_delegate = NS.class_createInstance(nav_delegate, 0)
 	nav_target := objc_class(&nav_target_class, "NVNavTarget", "NSObject", {
 		{"nvAction:", auto_cast nav_action_clicked, "v@:@"},
 	})
@@ -71,7 +66,6 @@ scene_will_connect :: proc "c" (self: NS.id, _: NS.SEL, scene: NS.id, _: NS.id, 
 	root := page_controller_new(g_nav[0])
 	nav := ui_navigation_controller_new(root)
 	root->release()
-	ui_navigation_controller_set_delegate(nav, g_app.nav_delegate)
 	g_app.nav = nav
 
 	g_app.window = ui_window_new(scene)

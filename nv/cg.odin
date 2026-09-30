@@ -164,7 +164,7 @@ _draw_image :: proc(p: ^Painter, b: ^Bitmap, x, y, w, h: f64) {
 	CGContextRestoreGState(ctx)
 }
 
-// Downloads: runs on the worker thread (fetch_thread.odin), which has no autorelease pool of its
+// Downloads: runs on the worker thread (fetch_darwin.odin), which has no autorelease pool of its
 // own; allocates on the heap only.
 @(private)
 _http_get :: proc(url: string) -> []u8 {
@@ -243,10 +243,23 @@ _stroke_ellipse :: proc(p: ^Painter, x, y, w, h: f64, color: Color, width: f64) 
 
 // Per-canvas draw state (Canvas_Handle.extra, in the page's arena): the attribute dictionary of
 // the last text style drawn, retained and reused while the style repeats (the font, the color
-// and the dictionary itself are all objects a text draw would otherwise make).
+// and the dictionary itself are all objects a text draw would otherwise make), and a redraw asked
+// for from inside on_draw (apple_canvas_flush_redraw).
 @(private) Apple_Canvas :: struct {
-	style: Text_Style,
-	attrs: ^NS.Object, // nil until the first text draw
+	style:         Text_Style,
+	attrs:         ^NS.Object, // nil until the first text draw
+	drawing:       bool,       // inside drawRect:
+	redraw_queued: bool,       // canvas_redraw was called while drawing
+	pending:       ^Apple_Canvas_Redraw, // macOS: the main-queue hop in flight, nil when none
+	link:          ^NS.Object,           // iOS: the CADisplayLink (canvas_link_resume), nil until needed
+}
+
+// A redraw asked for during drawRect:. CoreAnimation drops a setNeedsDisplay issued while the
+// layer displays (the flag is cleared when the draw returns), so it is re-issued later: on iOS
+// from the canvas's display link, on macOS from the next turn of the main queue. On the heap like
+// Image_Fetch: the page can die before the hop lands, and apple_canvas_dispose detaches it.
+@(private) Apple_Canvas_Redraw :: struct {
+	h: ^Canvas_Handle, // nil once the canvas's scope died
 }
 
 @(private)
@@ -258,7 +271,61 @@ apple_canvas_init :: proc(h: ^Canvas_Handle) {
 
 @(private)
 apple_canvas_dispose :: proc(data: rawptr) {
-	if c := (^Apple_Canvas)(data); c.attrs != nil do send(nil, c.attrs, "autorelease")
+	c := (^Apple_Canvas)(data)
+	if c.attrs != nil do send(nil, c.attrs, "autorelease")
+	if c.pending != nil do c.pending.h = nil // the hop lands on nothing
+	if c.link != nil do send(nil, c.link, "invalidate") // leaves the run loop and lets go of the view
+}
+
+// drawRect: on both OSes. Its own callback bracket keeps `h` alive through the flush when on_draw
+// popped the page (the outermost callback_exit destroys the retired scope).
+@(private)
+apple_canvas_draw :: proc(h: ^Canvas_Handle, ctx: rawptr, width, height: f64) {
+	callback_enter()
+	defer callback_exit()
+	c := (^Apple_Canvas)(h.extra)
+	c.drawing = true
+	canvas_draw_notify(h, ctx, width, height)
+	c.drawing = false
+	apple_canvas_flush_redraw(h)
+}
+
+// True inside drawRect:, where CoreAnimation would drop the setNeedsDisplay; the request is
+// parked for apple_canvas_flush_redraw instead.
+@(private)
+apple_canvas_park_redraw :: proc(h: ^Canvas_Handle) -> bool {
+	c := (^Apple_Canvas)(h.extra)
+	if c.drawing do c.redraw_queued = true
+	return c.drawing
+}
+
+// Re-issues a parked redraw: on iOS the display link's next frame takes it, on macOS the next
+// turn of the main queue; one hop in flight is enough, since it invalidates the whole view.
+@(private)
+apple_canvas_flush_redraw :: proc(h: ^Canvas_Handle) {
+	c := (^Apple_Canvas)(h.extra)
+	if !c.redraw_queued do return
+	when IS_IOS {
+		canvas_link_resume(h)
+	} else {
+		c.redraw_queued = false
+		if c.pending != nil do return
+		t := new(Apple_Canvas_Redraw, runtime.heap_allocator())
+		t.h = h
+		c.pending = t
+		dispatch_async_f(&_dispatch_main_q, t, apple_canvas_redraw_main)
+	}
+}
+
+@(private)
+apple_canvas_redraw_main :: proc "c" (data: rawptr) {
+	t := (^Apple_Canvas_Redraw)(data)
+	h := t.h
+	context = h != nil ? h.ctx : runtime.default_context()
+	free(t, runtime.heap_allocator())
+	if h == nil do return // the page was popped meanwhile
+	(^Apple_Canvas)(h.extra).pending = nil
+	_canvas_redraw(h) // not drawing now, so setNeedsDisplay sticks
 }
 
 // NSString drawAtPoint:withAttributes: draws into the current context, which is the canvas's

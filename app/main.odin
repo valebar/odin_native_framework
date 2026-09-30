@@ -44,7 +44,6 @@ main :: proc() {
 	// On the heap, not main's stack: on Android `run` returns while the app keeps running. It lives
 	// as long as the process, so it is never freed.
 	state := new(State)
-	defer free(state)
 	state.items = 10_000
 	nv.theme_set({
 		accent  = {0, 0.55, 0.5, 1},

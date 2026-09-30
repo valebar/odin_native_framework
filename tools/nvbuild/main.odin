@@ -3,7 +3,8 @@ package nvbuild
 // The build tool: one program for every platform, replacing per-OS shell scripts.
 //
 //   odin run tools/nvbuild -- [build|check|clean] [--platform=windows|macos|ios|android|linux|all]
-//                              [--release|--debug] [--no-run] [--sim="iPhone 17"] [--avd=Pixel_10]
+//                              [--release|--debug] [--no-run] [--sim="iPhone 17"] [--avd=Pixel_10] [--device=<serial>]
+//                              [--team=<id>]
 //
 // `build` (the default) compiles app/ for the platform (this host when none is given), packages
 // it (assets next to the executable, the iOS bundle, the APK) and runs it with the console
@@ -29,8 +30,10 @@ Options :: struct {
 	release:  bool     `usage:"optimized build (-o:speed)"`,
 	debug:    bool     `usage:"debug build (-debug), the default"`,
 	no_run:   bool     `usage:"build and package only, do not launch the app"`,
-	sim:      string   `usage:"iOS simulator to install on (default: iPhone 17)"`,
+	sim:      string   `usage:"iOS simulator, by name or UDID, to boot, install on and launch (default: iPhone 17)"`,
 	avd:      string   `usage:"Android AVD to start when no device is attached (default: Pixel_10)"`,
+	device:   string   `usage:"Android: device serial from adb devices (default: the only attached device, else the emulator started from --avd). iOS: a physical device, by name or UDID from xcrun devicectl list devices (default: the simulator)"`,
+	team:     string   `usage:"Apple team id whose provisioning profile signs an iOS device build (default: the first profile that fits)"`,
 }
 
 SIM_DEFAULT :: "iPhone 17"
@@ -127,6 +130,11 @@ run_wait :: proc(cmd: []string) -> (code: int, ok: bool) {
 // the normal answer for the probes (pkg-config --exists, adb get-state, ..).
 capture :: proc(cmd: ..string) -> (stdout: string, ok: bool) {
 	echo(cmd)
+	return capture_quiet(..cmd)
+}
+
+// `capture` without the echo, for a probe that runs once per file.
+capture_quiet :: proc(cmd: ..string) -> (stdout: string, ok: bool) {
 	state, out, _, err := os.process_exec({command = cmd}, context.allocator)
 	if err != nil do return "", false
 	return strings.trim_space(string(out)), state.exit_code == 0
@@ -165,6 +173,7 @@ copy_assets :: proc(dir: string) {
 }
 
 mkdir :: proc(dir: string) {
+	if os.is_directory(dir) do return // make_directory_all reports an existing path as .Exist
 	if err := os.make_directory_all(dir); err != nil do fail("cannot create %s: %v", dir, err)
 }
 

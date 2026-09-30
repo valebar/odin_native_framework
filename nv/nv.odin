@@ -259,6 +259,17 @@ nav_system_pop :: proc() {
 	nav_finish_pop(top)
 }
 
+// The same for a page the platform names: iOS pops by controller, and a push queued behind the
+// pop may already sit above it in g_nav.
+@(private)
+nav_system_pop_page :: proc(e: ^Page_Handle) {
+	for p, i in g_nav[1:] do if p == e {
+		ordered_remove(&g_nav, i + 1)
+		nav_finish_pop(e)
+		return
+	}
+}
+
 // The page's dialogs close first (their on_close still sees a live page), and the dialogs of the
 // page below come back.
 @(private)

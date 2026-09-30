@@ -74,6 +74,11 @@ UI_Layout_Guide :: struct { using _: NS.Object }
 @(objc_class="UIGestureRecognizer")
 UI_Gesture_Recognizer :: struct { using _: NS.Object }
 
+@(objc_class="CADisplayLink")
+CA_Display_Link :: struct { using _: NS.Object }
+
+CA_Frame_Rate_Range :: struct { minimum, maximum, preferred: f32 }
+
 // Layout_Anchor and the anchor helpers live in appkit.odin, shared with macOS.
 
 UI_VIEW_CONTENT_MODE_REDRAW :: NS.Integer(3)
@@ -215,15 +220,6 @@ ui_navigation_controller_push :: proc "c" (nc: ^UI_Navigation_Controller, vc: ^U
 // Returns the popped controller (autoreleased), or nil on the root.
 ui_navigation_controller_pop :: proc "c" (nc: ^UI_Navigation_Controller, animated: NS.BOOL) -> ^UI_View_Controller {
 	return send(^UI_View_Controller, nc, "popViewControllerAnimated:", animated)
-}
-
-ui_navigation_controller_view_controllers :: proc "c" (nc: ^UI_Navigation_Controller) -> ^NS.Array {
-	return send(^NS.Array, nc, "viewControllers")
-}
-
-// UINavigationControllerDelegate; not retained.
-ui_navigation_controller_set_delegate :: proc "c" (nc: ^UI_Navigation_Controller, d: NS.id) {
-	send(nil, nc, "setDelegate:", d)
 }
 
 // The controller's item in the navigation bar; owned by the controller.

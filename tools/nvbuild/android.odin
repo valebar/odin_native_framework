@@ -2,8 +2,9 @@ package nvbuild
 
 // Android: app/ becomes libapp.so, packaged with the nv Java embedder into an APK without
 // Gradle (javac → jnigen → odin build → d8 → aapt2 → jar → zipalign → apksigner), installed and
-// launched over adb; the AVD is started when no device is attached. The SDK, NDK and JDK are
-// found from the environment or the per-host default locations. d8 and apksigner are batch
+// launched over adb on `--device`, else the only attached device, else the AVD started here
+// (every adb call passes -s). The SDK, NDK and JDK are found from the environment or the
+// per-host default locations. d8 and apksigner are batch
 // files on Windows, so they are run the way their wrappers do it, through java, on every host;
 // the JDK's jar tool adds the dex and the library to the APK, since `zip` is not everywhere.
 
@@ -135,14 +136,53 @@ ensure_debug_keystore :: proc(a: Android) -> string {
 	return ks
 }
 
-// Starts the AVD when no device is attached and waits until it has booted.
-wait_for_device :: proc(a: Android, avd: string) {
-	if _, ok := capture(a.adb, "get-state"); ok do return
-	spawn(a.emulator, "-avd", avd)
-	run(a.adb, "wait-for-device")
+// `adb -s <serial> args..` for run / capture: with two devices attached adb refuses a command
+// without -s ("more than one device/emulator").
+adb_cmd :: proc(a: Android, serial: string, args: ..string) -> []string {
+	cmd := make([dynamic]string)
+	append(&cmd, a.adb, "-s", serial)
+	append(&cmd, ..args)
+	return cmd[:]
+}
+
+// `adb devices`: the serials in state "device" (usable) and the rest as "serial (state)"
+// ("offline" is still booting, "unauthorized" waits for the USB debugging prompt).
+adb_devices :: proc(a: Android) -> (ready, other: []string) {
+	out, _ := capture(a.adb, "devices")
+	r, o := make([dynamic]string), make([dynamic]string)
+	for line in strings.split_lines_iterator(&out) {
+		f := strings.fields(line)
+		if len(f) < 2 || f[0] == "List" || f[0] == "*" do continue // the header, daemon notices
+		if f[1] == "device" do append(&r, f[0])
+		else do append(&o, fmt.tprintf("%s (%s)", f[0], f[1]))
+	}
+	return r[:], o[:]
+}
+
+// The device to install on: --device, else the only attached one, else an emulator already
+// booting or the AVD started here, polled until sys.boot_completed.
+android_device :: proc(a: Android, opt: Options) -> string {
+	ready, other := adb_devices(a)
+	all := strings.join(slice.concatenate([][]string{ready, other}), ", ")
+	if all == "" do all = "none"
+	if opt.device != "" {
+		if slice.contains(ready, opt.device) do return opt.device
+		fail("device %s is not attached; adb devices: %s", opt.device, all)
+	}
+	switch len(ready) {
+	case 1: return ready[0]
+	case 0:
+	case:   fail("%d devices attached (%s): pick one with --device=<serial>", len(ready), all)
+	}
+	booting := false
+	for d in other do if strings.has_prefix(d, "emulator-") do booting = true
+	if !booting do spawn(a.emulator, "-avd", opt.avd)
 	for {
-		if out, _ := capture(a.adb, "shell", "getprop", "sys.boot_completed"); out == "1" do break
 		time.sleep(time.Second)
+		ready, _ = adb_devices(a)
+		for d in ready do if strings.has_prefix(d, "emulator-") {
+			if out, _ := capture(..adb_cmd(a, d, "shell", "getprop", "sys.boot_completed")); out == "1" do return d
+		}
 	}
 }
 
@@ -193,9 +233,9 @@ build_android :: proc(opt: Options) {
 		"--ks-pass", "pass:android", "--key-pass", "pass:android", "--out", apk, aligned)
 	if opt.no_run do return
 
-	wait_for_device(a, opt.avd)
-	run(a.adb, "install", "-r", apk)
-	run(a.adb, "logcat", "-c")
-	run(a.adb, "shell", "am", "start", "-n", PKG + "/nv.NvActivity")
-	fmt.printfln("logs: %s logcat -s nv AndroidRuntime", a.adb)
+	serial := android_device(a, opt)
+	run(..adb_cmd(a, serial, "install", "-r", apk))
+	run(..adb_cmd(a, serial, "logcat", "-c"))
+	run(..adb_cmd(a, serial, "shell", "am", "start", "-n", PKG + "/nv.NvActivity"))
+	fmt.printfln("logs: %s -s %s logcat -s nv AndroidRuntime", a.adb, serial)
 }
