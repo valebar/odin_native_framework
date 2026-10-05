@@ -3,7 +3,8 @@ package nv
 // Shared public API. Platform backends: *_macos.odin (`#+build darwin:default`) / *_ios.odin
 // (`#+build darwin:ios`: the device and the simulator), with what they share in appkit.odin and
 // cg.odin (`#+build darwin`), *_android.odin (`#+build linux:android`), *_linux.odin
-// (`#+build linux:default`, GTK4) and *_windows.odin (`#+build windows`, Win32).
+// (`#+build linux:default`, GTK4) and *_windows.odin (`#+build windows`, Win32). The core reaches
+// them through g_backend (backend.odin), except the draw procs, which it calls directly.
 //
 // Widgets: a scrolling list (`list_create`), a text label (`label_create`), a text input
 // (`input_create`), a push button (`button_create`), a custom-drawn canvas (`canvas_create`), an
@@ -155,7 +156,7 @@ Page_Handle :: struct {
 run :: proc(p: Page) {
 	assert(len(g_nav) == 0, "nv.run twice")
 	append(&g_nav, nav_page_new(p))
-	_run()
+	g_backend.run()
 }
 
 // Builds and shows a page on top of the stack; the title is shown in the navigation bar / window
@@ -182,7 +183,7 @@ push :: proc(p: Page) -> ^Page_Handle {
 pop :: proc() {
 	if len(g_nav) <= 1 || g_nav_building > 0 do return
 	top := builtin.pop(&g_nav)
-	if !_nav_pop(top, g_nav[len(g_nav) - 1]) {
+	if !g_backend.nav_pop(top, g_nav[len(g_nav) - 1]) {
 		append(&g_nav, top) // the platform is mid-transition; the page stays
 		return
 	}
@@ -194,14 +195,14 @@ page_set_title :: proc(h: ^Page_Handle, title: string) {
 	old := h.page.title
 	h.page.title = strings.clone(title)
 	delete(old)
-	if h.root != nil do _nav_title_changed(h) // nil while `build` runs: the _nav_push that follows shows it
+	if h.root != nil do g_backend.nav_title_changed(h) // nil while `build` runs: the _nav_push that follows shows it
 }
 
 // Replaces the page's actions. Frees the old ones, including the one whose `on_click` may be
 // making this call.
 page_set_actions :: proc(h: ^Page_Handle, actions: []Action) {
 	nav_actions_assign(h, actions)
-	if h.root != nil do _nav_actions_changed(h)
+	if h.root != nil do g_backend.nav_actions_changed(h)
 }
 
 @(private)
@@ -237,7 +238,7 @@ nav_show_root :: proc() {
 @(private)
 nav_present :: proc(h: ^Page_Handle) {
 	if len(g_nav) > 1 do dialog_set_page_hidden(g_nav[len(g_nav) - 2], true)
-	_nav_push(h)
+	g_backend.nav_push(h)
 	dialog_flush_pending()
 }
 
@@ -279,7 +280,7 @@ nav_system_pop_page :: proc(e: ^Page_Handle) {
 @(private)
 nav_finish_pop :: proc(top: ^Page_Handle) {
 	dialog_close_page(top)
-	_nav_release(top) // retires top.scope now or later: the widget handles stay valid through on_pop
+	g_backend.nav_release(top) // retires top.scope now or later: the widget handles stay valid through on_pop
 	top.root, top.native, top.scope = nil, nil, nil // a page_set_* from on_pop has nothing to show
 	if top.page.on_pop != nil {
 		callback_enter()
@@ -342,7 +343,7 @@ list_create :: proc(l: List) -> ^List_Handle {
 	h.list = l
 	if h.list.item_height <= 0 do h.list.item_height = 44
 	h.ctx = context
-	_list_init(h)
+	g_backend.list_init(h)
 	return h
 }
 
@@ -351,7 +352,7 @@ list_view :: proc(h: ^List_Handle) -> View {
 }
 
 list_reload :: proc(h: ^List_Handle) {
-	_list_reload(h)
+	g_backend.list_reload(h)
 }
 
 ROW_ID :: "nv_row"
@@ -378,15 +379,15 @@ Flex :: struct {
 // Children are fixed at creation, like Flutter. Every view lives until the page (or dialog) that
 // created it is gone.
 flex_create :: proc(f: Flex) -> View {
-	return _flex_create(f)
+	return g_backend.flex_create(f)
 }
 
 row_create :: proc(children: []Flex_Child, spacing: f64 = 0) -> View {
-	return _flex_create({axis = .Horizontal, spacing = spacing, children = children})
+	return g_backend.flex_create({axis = .Horizontal, spacing = spacing, children = children})
 }
 
 column_create :: proc(children: []Flex_Child, spacing: f64 = 0) -> View {
-	return _flex_create({axis = .Vertical, spacing = spacing, children = children})
+	return g_backend.flex_create({axis = .Vertical, spacing = spacing, children = children})
 }
 
 // Per-side distances in points / dp (Flutter's EdgeInsets).
@@ -430,7 +431,7 @@ container_create :: proc(c: Container) -> ^Container_Handle {
 	h := scope_new_in(Container_Handle)
 	h.container = c
 	h.ctx = context
-	_container_init(h)
+	g_backend.container_init(h)
 	return h
 }
 
@@ -441,7 +442,7 @@ container_view :: proc(h: ^Container_Handle) -> View {
 // Replaces the background color (alpha 0 removes it).
 container_set_color :: proc(h: ^Container_Handle, color: Color) {
 	h.container.color = color
-	_container_set_color(h)
+	g_backend.container_set_color(h)
 }
 
 // The child's distance from the container's outer edge, per side.
@@ -474,7 +475,7 @@ label_create :: proc(l: Label) -> ^Label_Handle {
 	h.label.style = text_style_merge(l.style, l.heading ? g_theme.heading : g_theme.body)
 	font_retain(h.label.style.font)
 	scope_on_dispose(label_dispose, h)
-	_label_init(h)
+	g_backend.label_init(h)
 	return h
 }
 
@@ -494,7 +495,7 @@ label_set_text :: proc(h: ^Label_Handle, text: string) {
 	old := h.label.text
 	h.label.text = strings.clone(text, runtime.heap_allocator())
 	delete(old, runtime.heap_allocator())
-	_label_set_text(h, text)
+	g_backend.label_set_text(h, text)
 }
 
 // Single-line text input. Callbacks get the current text, valid only during the call. `style` is
@@ -524,7 +525,7 @@ input_create :: proc(i: Input) -> ^Input_Handle {
 	h.ctx = context
 	font_retain(h.input.style.font)
 	scope_on_dispose(input_dispose, h)
-	_input_init(h)
+	g_backend.input_init(h)
 	return h
 }
 
@@ -539,13 +540,13 @@ input_view :: proc(h: ^Input_Handle) -> View {
 
 // Returns a copy of the current text.
 input_text :: proc(h: ^Input_Handle, allocator := context.allocator) -> string {
-	return _input_text(h, allocator)
+	return g_backend.input_text(h, allocator)
 }
 
 // Replaces the text without calling `on_change`.
 input_set_text :: proc(h: ^Input_Handle, text: string) {
 	h.silent = true
-	_input_set_text(h, text)
+	g_backend.input_set_text(h, text)
 	h.silent = false
 }
 
@@ -555,7 +556,7 @@ input_notify :: proc(h: ^Input_Handle, cb: proc(user: rawptr, text: string)) {
 	if h.silent || cb == nil do return
 	callback_enter()
 	defer callback_exit()
-	cb(h.input.user, _input_text(h, context.temp_allocator))
+	cb(h.input.user, g_backend.input_text(h, context.temp_allocator))
 }
 
 // Push button with a text title. `style` is as on Label.
@@ -582,7 +583,7 @@ button_create :: proc(b: Button) -> ^Button_Handle {
 	h.ctx = context
 	font_retain(h.button.style.font)
 	scope_on_dispose(button_dispose, h)
-	_button_init(h)
+	g_backend.button_init(h)
 	return h
 }
 
@@ -602,7 +603,7 @@ button_set_title :: proc(h: ^Button_Handle, title: string) {
 	old := h.button.title
 	h.button.title = strings.clone(title, runtime.heap_allocator())
 	delete(old, runtime.heap_allocator())
-	_button_set_title(h, title)
+	g_backend.button_set_title(h, title)
 }
 
 // Called by the backends when the button was clicked.
@@ -656,7 +657,7 @@ canvas_create :: proc(c: Canvas) -> ^Canvas_Handle {
 	h := scope_new_in(Canvas_Handle)
 	h.canvas = c
 	h.ctx = context
-	_canvas_init(h)
+	g_backend.canvas_init(h)
 	return h
 }
 
@@ -666,7 +667,7 @@ canvas_view :: proc(h: ^Canvas_Handle) -> View {
 
 // Schedules a repaint; `on_draw` runs later from the event loop.
 canvas_redraw :: proc(h: ^Canvas_Handle) {
-	_canvas_redraw(h)
+	g_backend.canvas_redraw(h)
 }
 
 fill_rect :: proc(p: ^Painter, x, y, w, h: f64, color: Color) {
@@ -741,7 +742,7 @@ bitmap_from_bytes :: proc(data: []u8) -> ^Bitmap {
 	if len(data) == 0 do return nil
 	b := new(Bitmap)
 	b.refs = 1
-	if !_bitmap_decode(b, data) {
+	if !g_backend.bitmap_decode(b, data) {
 		free(b)
 		return nil
 	}
@@ -751,7 +752,7 @@ bitmap_from_bytes :: proc(data: []u8) -> ^Bitmap {
 // Loads an image file. A relative path names one of the app's assets: `app/assets/`, which the
 // build scripts copy next to the executable (desktop), into the app bundle (iOS) or into the APK.
 bitmap_from_file :: proc(path: string) -> ^Bitmap {
-	return bitmap_from_bytes(_asset_read(path, context.temp_allocator))
+	return bitmap_from_bytes(g_backend.asset_read(path, context.temp_allocator))
 }
 
 // Downloads and decodes an image in the background. `on_load` runs later on the UI thread with
@@ -759,14 +760,14 @@ bitmap_from_file :: proc(path: string) -> ^Bitmap {
 bitmap_fetch :: proc(url: string, on_load: proc(user: rawptr, b: ^Bitmap), user: rawptr) {
 	f := new(Fetch, runtime.heap_allocator())
 	f^ = {url = strings.clone(url, runtime.heap_allocator()), on_load = on_load, user = user, ctx = context}
-	_fetch_start(f)
+	g_backend.fetch_start(f)
 }
 
 bitmap_free :: proc(b: ^Bitmap) {
 	if b == nil do return
 	b.refs -= 1
 	if b.refs > 0 do return
-	_bitmap_free(b)
+	g_backend.bitmap_free(b)
 	free(b)
 }
 
@@ -798,7 +799,7 @@ font_from_bytes :: proc(data: []u8) -> ^Font {
 	f.weight = weight
 	f.italic = italic
 	f.refs = 1
-	if !_font_load(f, data) {
+	if !g_backend.font_load(f, data) {
 		delete(f.family)
 		free(f)
 		return nil
@@ -808,14 +809,14 @@ font_from_bytes :: proc(data: []u8) -> ^Font {
 
 // Loads a font file; a relative path names an asset, as for bitmap_from_file.
 font_from_file :: proc(path: string) -> ^Font {
-	return font_from_bytes(_asset_read(path, context.temp_allocator))
+	return font_from_bytes(g_backend.asset_read(path, context.temp_allocator))
 }
 
 font_free :: proc(f: ^Font) {
 	if f == nil do return
 	f.refs -= 1
 	if f.refs > 0 do return
-	_font_free(f)
+	g_backend.font_free(f)
 	delete(f.family)
 	free(f)
 }
@@ -904,7 +905,7 @@ image_create :: proc(i: Image) -> ^Image_Handle {
 	h.ctx = context
 	h.bitmap = bitmap_retain(i.bitmap)
 	scope_on_dispose(image_dispose, h)
-	_image_init(h)
+	g_backend.image_init(h)
 	if i.bitmap == nil && i.url != "" {
 		// On the heap: the download can land after the page and its scope are gone.
 		t := new(Image_Fetch, runtime.heap_allocator())
@@ -931,7 +932,7 @@ image_set_bitmap :: proc(h: ^Image_Handle, b: ^Bitmap) {
 	h.seq += 1
 	old := h.bitmap
 	h.bitmap = bitmap_retain(b)
-	_image_set_bitmap(h)
+	g_backend.image_set_bitmap(h)
 	bitmap_free(old)
 }
 
@@ -1053,7 +1054,7 @@ dialog_close :: proc(h: ^Dialog_Handle) {
 		j, shown := slice.linear_search(g_dialogs[:], h)
 		if !shown do return
 		ordered_remove(&g_dialogs, j) // before _dialog_close: the backend reads dialog_top_modal for the state after
-		_dialog_close(h) // retires h.scope now or later
+		g_backend.dialog_close(h) // retires h.scope now or later
 		h.card, h.scrim, h.body, h.scope = nil, nil, nil, nil
 	}
 	if h.dialog.on_close != nil {
@@ -1089,7 +1090,7 @@ dialog_present :: proc(h: ^Dialog_Handle) {
 	}
 	h.body = column_create(children[:], spacing = 12)
 	append(&g_dialogs, h)
-	_dialog_show(h)
+	g_backend.dialog_show(h)
 }
 
 // The body buttons' on_click. The app's callback may close the dialog, which frees `bh`.
@@ -1140,7 +1141,7 @@ dialog_set_page_hidden :: proc(page: ^Page_Handle, hidden: bool) {
 	for d in g_dialogs {
 		if d.page != page || d.hidden == hidden do continue
 		d.hidden = hidden
-		_dialog_set_hidden(d, hidden)
+		g_backend.dialog_set_hidden(d, hidden)
 	}
 }
 
@@ -1230,7 +1231,7 @@ theme_set :: proc(t: Theme) {
 theme_set_mode :: proc(m: Mode) {
 	g_theme.mode = m
 	if !g_theme_live do return
-	_theme_apply_mode()
+	g_backend.theme_apply_mode()
 	theme_notify()
 }
 
@@ -1247,7 +1248,7 @@ theme_palette :: proc() -> Palette {
 	p := theme_dark() ? PALETTE_DARK : PALETTE_LIGHT
 	if g_theme.accent.a > 0 {
 		p.accent = g_theme.accent
-	} else if a := _theme_system_accent(); a.a > 0 {
+	} else if a := g_backend.theme_system_accent(); a.a > 0 {
 		p.accent = a
 	}
 	return p
@@ -1258,14 +1259,14 @@ theme_resolve_dark :: proc() -> bool {
 	switch g_theme.mode {
 	case .Light: return false
 	case .Dark:  return true
-	case .System: return _theme_system_dark()
+	case .System: return g_backend.theme_system_dark()
 	}
 	return false
 }
 
 @(private)
 theme_start :: proc() {
-	_theme_apply_mode()
+	g_backend.theme_apply_mode()
 	g_dark = theme_resolve_dark()
 	g_theme_live = true
 }
@@ -1277,7 +1278,7 @@ theme_notify :: proc() {
 	dark := theme_resolve_dark()
 	if dark == g_dark do return
 	g_dark = dark
-	_theme_recolor()
+	g_backend.theme_recolor()
 	if g_theme.on_change != nil {
 		callback_enter()
 		defer callback_exit()
