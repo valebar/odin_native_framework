@@ -14,7 +14,7 @@ package nvbuild
 // host. `ci` is `check --platform=all`, then `test`: what has to pass before a push (there is no
 // hosted CI). `clean` removes build/<platform>, or all of build/.
 // Every command but `clean` first makes sure that odin is the pinned compiler (ODIN_PIN);
-// --any-odin skips that, to try another one.
+// --any-odin skips only the comparison with the pin, to try another compiler.
 // Every command it spawns is echoed with a leading `+`, and the first failing one ends the build
 // with its exit code. The output lives under build/<platform>/; the tool's own binary is left in
 // the cwd by `odin run` (nvbuild, gitignored), which is why the package is not called `build`.
@@ -62,10 +62,7 @@ main :: proc() {
 	if opt.sim == "" do opt.sim = SIM_DEFAULT
 	if opt.avd == "" do opt.avd = AVD_DEFAULT
 	if opt.platform == .host do opt.platform = host_platform()
-	if opt.command != .clean { // clean compiles nothing
-		if opt.any_odin do fmt.printfln("nvbuild: --any-odin: Odin %s:%s, the pin is %s", ODIN_VERSION, ODIN_VERSION_HASH, ODIN_PIN)
-		else do odin_pin_check()
-	}
+	if opt.command != .clean do odin_pin_check(opt.any_odin) // clean compiles nothing
 
 	start := time.tick_now()
 	switch opt.command {
@@ -105,26 +102,38 @@ fail :: proc(format: string, args: ..any) -> ! {
 
 // Stops unless the compiler is the pinned one: the one that built this tool (`odin run` rebuilds
 // it every time) and the `odin` on PATH that the tool spawns. They are normally the same binary;
-// a stale ./nvbuild or an odin run by its full path makes them differ.
-odin_pin_check :: proc() {
-	if !odin_pinned(ODIN_VERSION_HASH) {
+// a stale ./nvbuild or an odin run by its full path makes them differ. `any_odin` skips only the
+// comparison with the pin: the two must still be one compiler, when both carry a hash.
+odin_pin_check :: proc(any_odin: bool) {
+	version, ok := capture_quiet("odin", "version") // "odin version dev-2026-09-nightly:a2fb372"
+	if !ok do fail("cannot run `odin version`: the Odin that builds this repo must be on PATH (pinned: %s)", ODIN_PIN)
+	path_hash := odin_hash(version)
+	if any_odin {
+		fmt.printfln("nvbuild: --any-odin: %s on PATH (this tool: Odin %s:%s), the pin is %s", version, ODIN_VERSION, ODIN_VERSION_HASH, ODIN_PIN)
+		if path_hash != "" && ODIN_VERSION_HASH != "" && !odin_hash_match(path_hash, ODIN_VERSION_HASH) {
+			fail("the odin on PATH is %q, but this tool was built by Odin %s:%s: run it with the odin on PATH", version, ODIN_VERSION, ODIN_VERSION_HASH)
+		}
+		return
+	}
+	pin := odin_hash(ODIN_PIN)
+	if !odin_hash_match(ODIN_VERSION_HASH, pin) {
 		fail("this tool was built by Odin %s:%s, but the repo is pinned to %s: install that one, or pass --any-odin", ODIN_VERSION, ODIN_VERSION_HASH, ODIN_PIN)
 	}
-	version, ok := capture_quiet("odin", "version") // "odin version dev-2026-09-nightly:a2fb372"
-	if !ok do fail("cannot run `odin version`: the pinned Odin %s must be on PATH", ODIN_PIN)
-	if !odin_pinned(odin_hash(version)) do fail("the odin on PATH is %q, not the pinned %s: fix PATH, or pass --any-odin", version, ODIN_PIN)
+	if !odin_hash_match(path_hash, pin) do fail("the odin on PATH is %q, not the pinned %s: fix PATH, or pass --any-odin", version, ODIN_PIN)
 }
 
-// The git hash after the last colon: "dev-2026-09-nightly:a2fb372" -> "a2fb372".
+// The git hash in a version's last word: "odin version dev-2026-09-nightly:a2fb372" -> "a2fb372";
+// "" for a compiler built without one (the path printed before it may hold a drive's colon).
 odin_hash :: proc(version: string) -> string {
-	return version[strings.last_index_byte(version, ':') + 1:]
+	word := version[strings.last_index_any(version, " \t") + 1:]
+	colon := strings.last_index_byte(word, ':')
+	return colon < 0 ? "" : word[colon + 1:]
 }
 
 // Compared as prefixes, since the hash's length depends on the clone the compiler was built from
-// (an Odin built from source at the pinned commit matches too). Empty (no .git at build) never does.
-odin_pinned :: proc(hash: string) -> bool {
-	pin := odin_hash(ODIN_PIN)
-	return len(hash) >= 7 && (strings.has_prefix(hash, pin) || strings.has_prefix(pin, hash))
+// (an Odin built from source at the pinned commit matches too). An empty or short hash never does.
+odin_hash_match :: proc(a, b: string) -> bool {
+	return len(a) >= 7 && len(b) >= 7 && (strings.has_prefix(a, b) || strings.has_prefix(b, a))
 }
 
 // ---- processes ----

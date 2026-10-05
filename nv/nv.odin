@@ -152,8 +152,9 @@ Page_Handle :: struct {
 
 // Opens a window showing the root page and blocks in the platform event loop; on Android it
 // returns at once and the app keeps running (the first Activity builds the page). `build` runs
-// once the platform is ready to create views: before `run` the app only calls `theme_set` /
-// `theme_set_mode` (Android has no JNIEnv yet, Windows no GDI+).
+// once the platform is ready to create views: before `run` the app calls only `theme_set` /
+// `theme_set_mode` and, except on Android, the font loaders for the theme's fonts (Android has no
+// JNIEnv until the first onCreate; Windows starts GDI+, which decodes bitmaps, in `_run`).
 run :: proc(p: Page) {
 	assert(len(g_nav) == 0, "nv.run twice")
 	append(&g_nav, nav_page_new(p))

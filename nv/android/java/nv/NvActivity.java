@@ -4,9 +4,9 @@ package nv;
 // and the app's main when libapp.so has a DT_INIT, else nativeOnCreate does; either way
 // nativeOnCreate builds the root page (nv/app_android.odin). The Back key and the ActionBar's up
 // arrow go to nativeOnBack, which pops a pushed page; on the root page it returns false and the
-// default handling runs (on API 31+ it moves the task to the back rather than finishing). The
-// options menu holds the page's actions: nativeOnCreateMenu fills it and nativeOnAction gets the
-// selected item's id.
+// default handling runs: it finishes the Activity, or moves the task to the back when the launcher
+// started it. The options menu holds the page's actions: nativeOnCreateMenu fills it and
+// nativeOnAction gets the selected item's id.
 public final class NvActivity extends android.app.Activity {
     static { System.loadLibrary("app"); }
 

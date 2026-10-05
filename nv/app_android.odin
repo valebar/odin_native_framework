@@ -14,10 +14,9 @@ package nv
 // starts the theme and builds the root page.
 //
 // The entry point runs once per process. A later Activity in the same process (a night-mode
-// recreation, or the Activity destroyed while the process lived, as with "Don't keep activities";
-// on API 31+ Back on the root only moves the task to the back) gets a fresh view tree from the
-// same `build`, since views belong to the Activity that created them: the page stack is reset to
-// the root first. Configuration changes such as rotation don't recreate the Activity
+// recreation, or a launch after Back on the root finished the Activity, which it does unless the
+// launcher started the task) gets a fresh view tree from the same `build`, since views belong to
+// the Activity that created them: the page stack is reset to the root first. Configuration changes such as rotation don't recreate the Activity
 // (android:configChanges in the manifest).
 
 import "base:runtime"

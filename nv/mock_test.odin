@@ -115,10 +115,10 @@ mock_begin :: proc(t: ^testing.T) {
 	mock.fetches = make([dynamic]^Fetch, mock_allocator())
 }
 
-// Ends a test the way the app's exit would, then fails on what it left. The pages and dialogs still
-// up close (on_pop / on_close run; the reset Android's relaunch does in jni_on_create, plus the
-// root), every scope dies and downloads in flight fail; then no view and no open callback bracket
-// may be left. Nothing may still be pending: every outermost build is followed by a flush, so a
+// Ends a test, then fails on what it left. What is still up is torn down the way Android's relaunch
+// reset does in jni_on_create (on_pop for every pushed page, on_close for every dialog), then the
+// root is freed without its on_pop, so every scope dies; downloads in flight fail. A real app exit
+// runs none of this. Then no view and no open callback bracket may be left. Nothing may still be pending: every outermost build is followed by a flush, so a
 // page or dialog left queued is a core bug (it is still torn down, so the report stays short).
 // The stacks' backing arrays are freed, since they hold this test's allocator.
 mock_end :: proc(t: ^testing.T, loc := #caller_location) {
