@@ -103,8 +103,10 @@ fail :: proc(format: string, args: ..any) -> ! {
 // Stops unless the compiler is the pinned one: the one that built this tool (`odin run` rebuilds
 // it every time) and the `odin` on PATH that the tool spawns. They are normally the same binary;
 // a stale ./nvbuild or an odin run by its full path makes them differ. `any_odin` skips only the
-// comparison with the pin: the two must still be one compiler (the same hash, or one hash a prefix
-// of the other; two compilers built without a hash cannot be told apart).
+// comparison with the pin: the two must still be one compiler (the same hash, or, when both have
+// at least 7 characters, one a prefix of the other; two compilers built without a hash cannot be
+// told apart). So --any-odin tries another compiler only through `odin run tools/nvbuild` with
+// that compiler first on PATH.
 odin_pin_check :: proc(any_odin: bool) {
 	version, ok := capture_quiet("odin", "version") // "odin version dev-2026-09-nightly:a2fb372"
 	if !ok do fail("cannot run `odin version`: the Odin that builds this repo must be on PATH (pinned: %s)", ODIN_PIN)
@@ -118,9 +120,9 @@ odin_pin_check :: proc(any_odin: bool) {
 	}
 	pin := odin_hash(ODIN_PIN)
 	if !odin_hash_match(ODIN_VERSION_HASH, pin) {
-		fail("this tool was built by Odin %s:%s, but the repo is pinned to %s: install that one, or pass --any-odin", ODIN_VERSION, ODIN_VERSION_HASH, ODIN_PIN)
+		fail("this tool was built by Odin %s:%s, but the repo is pinned to %s: install that one, or pass --any-odin to use this one (it must also be the odin on PATH)", ODIN_VERSION, ODIN_VERSION_HASH, ODIN_PIN)
 	}
-	if !odin_hash_match(path_hash, pin) do fail("the odin on PATH is %q, not the pinned %s: fix PATH, or pass --any-odin", version, ODIN_PIN)
+	if !odin_hash_match(path_hash, pin) do fail("the odin on PATH is %q, not the pinned %s that built this tool: put the pinned odin first on PATH (to try the other one, run `odin run tools/nvbuild` with it first on PATH and pass --any-odin)", version, ODIN_PIN)
 }
 
 // The git hash in a version's last word: "odin version dev-2026-09-nightly:a2fb372" -> "a2fb372";
