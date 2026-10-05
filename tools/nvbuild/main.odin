@@ -2,7 +2,7 @@ package nvbuild
 
 // The build tool: one program for every platform, replacing per-OS shell scripts.
 //
-//   odin run tools/nvbuild -- [build|check|clean] [--platform=windows|macos|ios|android|linux|all]
+//   odin run tools/nvbuild -- [build|check|clean|test] [--platform=windows|macos|ios|android|linux|all]
 //                              [--release|--debug] [--no-run] [--sim="iPhone 17"] [--avd=Pixel_10] [--device=<serial>]
 //                              [--team=<id>] [--any-odin]
 //
@@ -10,6 +10,7 @@ package nvbuild
 // it (assets next to the executable, the iOS bundle, the APK) and runs it with the console
 // attached. `check` type-checks nv and app with -vet and -strict-style for one target, or every
 // target with `all` (plus this tool and android/jnigen): the cross-target checks work from any
+// host. `test` builds and runs the core's tests (nv/*_test.odin, against a mock backend) on this
 // host. `clean` removes build/<platform>, or all of build/.
 // Every command but `clean` first makes sure that odin is the pinned compiler (ODIN_PIN);
 // --any-odin skips that, to try another one.
@@ -24,11 +25,11 @@ import "core:os"
 import "core:strings"
 import "core:time"
 
-Command  :: enum { build, check, clean }
+Command  :: enum { build, check, clean, test }
 Platform :: enum { host, windows, macos, ios, android, linux, all } // lowercase: flags matches the names
 
 Options :: struct {
-	command:  Command  `args:"pos=0" usage:"build (the default: build, package and run) | check | clean"`,
+	command:  Command  `args:"pos=0" usage:"build (the default: build, package and run) | check | clean | test (the core's tests, on this host)"`,
 	platform: Platform `usage:"windows | macos | ios | android | linux (default: this host); all for check and clean"`,
 	release:  bool     `usage:"optimized build (-o:speed)"`,
 	debug:    bool     `usage:"debug build (-debug), the default"`,
@@ -78,6 +79,7 @@ main :: proc() {
 		}
 	case .check: check(opt)
 	case .clean: clean(opt)
+	case .test:  test(opt)
 	}
 	fmt.printfln("nvbuild: %v done in %.1fs", opt.command, time.duration_seconds(time.tick_since(start)))
 }
@@ -272,6 +274,25 @@ check :: proc(opt: Options) {
 		}
 	}
 	if len(failed) > 0 do fail("check failed: %s", strings.join(failed[:], ", "))
+}
+
+// ---- test ----
+
+// Builds and runs the core's tests (nv/*_test.odin, against the mock backend in mock_test.odin) on
+// this host, on one thread since the core is package globals; a leak fails its test. The binary
+// goes under build/<host>/ (odin deletes it after the run), not into the cwd as `nv`. g_backend
+// still binds this host's backend, so Linux links it the way `build` does.
+test :: proc(opt: Options) {
+	host := host_platform()
+	if opt.platform != host do fail("test runs on this host only, not for %v", opt.platform)
+	out := path("build", fmt.tprint(host))
+	mkdir(out)
+	cmd := make([dynamic]string)
+	append(&cmd, "odin", "test", "nv", opt_flag(opt), "-vet", "-strict-style",
+		"-define:ODIN_TEST_THREADS=1", "-define:ODIN_TEST_FAIL_ON_BAD_MEMORY=true",
+		strings.concatenate({"-out:", exe(path(out, "nv_test"))}))
+	if host == .linux do append(&cmd, linux_link_flag())
+	run(..cmd[:])
 }
 
 // ---- clean ----

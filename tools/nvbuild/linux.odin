@@ -34,12 +34,18 @@ link_runtime :: proc(libs_dir: string, r: Runtime_Lib) {
 	fail("%s not found: install %s", r.soname, r.pkg)
 }
 
-build_linux :: proc(opt: Options) {
-	OUT  :: "build/linux"
-	LIBS :: OUT + "/libs"
+// The linker flag for build/linux/libs, after linking into it every runtime library whose -dev
+// package is missing; the app and the test binary both link the GTK backend.
+linux_link_flag :: proc() -> string {
+	LIBS :: "build/linux/libs"
 	mkdir(LIBS)
 	for r in RUNTIME_LIBS do link_runtime(LIBS, r)
-	odin_build(opt, OUT + "/example", strings.concatenate({"-extra-linker-flags:-L", abs(LIBS)}))
+	return strings.concatenate({"-extra-linker-flags:-L", abs(LIBS)})
+}
+
+build_linux :: proc(opt: Options) {
+	OUT :: "build/linux"
+	odin_build(opt, OUT + "/example", linux_link_flag())
 	copy_assets(OUT)
 	if !opt.no_run do run(abs(OUT + "/example"))
 }
