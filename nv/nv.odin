@@ -132,7 +132,8 @@ Page_Handle :: struct {
 // The page stack: g_nav[0] is the root page from `run`, the depth is len(g_nav) - 1. Backends
 // implement _run (start the platform; once views can exist, inside _run or from a later platform
 // callback such as Android's first onCreate, call theme_start and then nav_show_root, bracketed;
-// _run may return before that), _nav_push
+// _run may return before that; iOS builds the root itself with nav_build and nav_flush_pending,
+// since its navigation controller takes the root controller up front), _nav_push
 // (show the new top page, already in g_nav, with its title and chrome), _nav_pop (the native
 // transition back to `below`, already the top of g_nav; false if the platform refused),
 // _nav_release (the page left for good: retire `h.scope` once its views are gone; the scope's
@@ -777,7 +778,8 @@ bitmap_retain :: proc(b: ^Bitmap) -> ^Bitmap {
 	return b
 }
 
-// A loaded font face, for `Text_Style.font` (widgets, the theme and `draw_text`). Reference counted like
+// A loaded font face, for `Text_Style.font` (widgets, the theme and `draw_text`; not the theme on
+// Android, where nothing can be loaded before `run`, see run). Reference counted like
 // Bitmap: `font_free` drops the caller's reference and every widget using the font holds its own,
 // so the app can free a font right after handing it over. Each Font is one face: load a bold file
 // for bold text.

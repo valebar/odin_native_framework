@@ -97,7 +97,7 @@ jni_fn :: #force_inline proc "contextless" (env: JNI_Env, $T: typeid, index: int
 // crashing at address 0.
 @(private, cold)
 jni_no_env :: proc "contextless" () -> ! {
-	__android_log_write(ANDROID_LOG_ERROR, "nv", "JNI call before an onCreate stored an env (from the app's main?)")
+	__android_log_write(ANDROID_LOG_ERROR, "nv", "JNI call before the first onCreate: on Android the app's main runs before any Activity, so load assets, bitmaps and fonts in build")
 	intrinsics.trap()
 }
 
