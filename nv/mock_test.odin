@@ -5,21 +5,25 @@ package nv
 // `#+build-project-name nv` tag keeps the *_test.odin files in `odin check nv` and `odin test nv`
 // and out of every app build (whose project is `app`), so no app links core:testing.
 //
-// The mock logs every backend call ("nav_push Home", "label_set_text hi", ..; expect_log compares)
-// and makes fake views: a Mock_View in the current scope that a disposer releases, the way a
-// backend's own reference is (objc_own, android_own_ref), so mock.views counts the views whose
-// scope is still alive. It checks the state each call expects from the core and answers from
-// settable fields. `retire` picks when a popped page's or a closed dialog's scope is retired:
-// inside _nav_release / _dialog_close (.Now: macOS, Android) or at mock_retire_parked (.Later: GTK
-// after the slide, Windows after DestroyWindow, iOS).
+// The mock logs every backend call that does something ("nav_push Home", "label_set_text hi",
+// "bitmap_decode refused", ..; expect_log compares); the pure queries (input_text and the theme's
+// system dark / accent) only answer. It makes fake views: a Mock_View in the current scope that a
+// disposer releases, the way a backend's own reference is (objc_own, android_own_ref), so
+// mock.views counts the views whose scope is still alive. It checks the state each call expects
+// from the core and answers from settable fields. `retire` picks when a popped page's or a closed
+// dialog's scope is retired: inside _nav_release / _dialog_close (.Now: macOS, Android, iOS
+// dialogs and back / swipe pops, GTK pages with no slide running) or at mock_retire_parked (.Later:
+// GTK pages after a slide and GTK dialogs from an idle, Windows after DestroyWindow, iOS pages
+// popped by pop()).
 //
 // A test plays the platform: what a native callback runs sits between callback_enter and
 // callback_exit (or goes through button_notify, action_notify, nav_back_notify), and its temp
 // memory dies at the outermost callback_exit, as the app's does. The core is package globals, so
 // the tests run on one thread. What the core allocates with context.allocator (page, action and
 // dialog handles, titles, bitmaps, fonts, the stacks' backing arrays) goes through the runner's
-// per-test tracking allocator, which fails a test that leaks; mock.views catches a scope that
-// never died.
+// per-test tracking allocator, which fails a test that leaks it (ODIN_TEST_FAIL_ON_BAD_MEMORY).
+// The heap (label texts, button titles, Scope, Fetch) and the scopes' arenas are not tracked:
+// mock.views catches a scope that never died.
 
 import "base:runtime"
 import "core:fmt"
@@ -29,7 +33,8 @@ import "core:strings"
 import "core:testing"
 
 when ODIN_TEST {
-	#assert(#config(ODIN_TEST_THREADS, 0) == 1, "nv's tests share the core's globals: run them with -define:ODIN_TEST_THREADS=1 (nvbuild test does)")
+	#assert(#config(ODIN_TEST_THREADS, 0) == 1, "nv's tests share the core's globals: run them with -define:ODIN_TEST_THREADS=1 -define:ODIN_TEST_FAIL_ON_BAD_MEMORY=true (nvbuild test does)")
+	#assert(#config(ODIN_TEST_FAIL_ON_BAD_MEMORY, false), "nv's tests check for leaks: run them with -define:ODIN_TEST_THREADS=1 -define:ODIN_TEST_FAIL_ON_BAD_MEMORY=true (nvbuild test does)")
 }
 
 Mock_Retire :: enum { Now, Later }
@@ -113,9 +118,13 @@ mock_begin :: proc(t: ^testing.T) {
 // Ends a test the way the app's exit would, then fails on what it left. The pages and dialogs still
 // up close (on_pop / on_close run; the reset Android's relaunch does in jni_on_create, plus the
 // root), every scope dies and downloads in flight fail; then no view and no open callback bracket
-// may be left. The stacks' backing arrays are freed, since they hold this test's allocator.
+// may be left. Nothing may still be pending: every outermost build is followed by a flush, so a
+// page or dialog left queued is a core bug (it is still torn down, so the report stays short).
+// The stacks' backing arrays are freed, since they hold this test's allocator.
 mock_end :: proc(t: ^testing.T, loc := #caller_location) {
 	testing.expect(t, g_callback_depth == 0 && g_nav_building == 0 && g_scope_override == nil, "a callback bracket was left open", loc = loc)
+	testing.expectf(t, len(g_nav_pending) == 0 && len(g_dialogs_pending) == 0, "%d pages and %d dialogs were left pending",
+		len(g_nav_pending), len(g_dialogs_pending), loc = loc)
 	callback_enter()
 	for len(g_nav) > 1 do nav_system_pop()
 	if len(g_nav) == 1 {
@@ -126,7 +135,7 @@ mock_end :: proc(t: ^testing.T, loc := #caller_location) {
 		delete(root.page.title)
 		free(root)
 	}
-	for h in g_nav_pending { // pushed by a build that never finished
+	for h in g_nav_pending {
 		scope_retire(h.scope)
 		nav_actions_free(h)
 		delete(h.page.title)
@@ -345,7 +354,10 @@ mock_image_set_bitmap :: proc(h: ^Image_Handle) {
 
 // The "image" is its size: two bytes, width and height.
 mock_bitmap_decode :: proc(b: ^Bitmap, data: []u8) -> bool {
-	if !mock.decode_ok || len(data) < 2 do return false
+	if !mock.decode_ok || len(data) < 2 {
+		mock_log("bitmap_decode refused")
+		return false
+	}
 	b.width, b.height = int(data[0]), int(data[1])
 	mock_log("bitmap_decode %dx%d", b.width, b.height)
 	return true
@@ -415,11 +427,13 @@ Mock_Page :: struct {
 	name:         string,
 	actions:      []Action,
 	title:        string,       // build: page_set_title (the bar must not hear of it yet)
+	build_actions: []Action,    // build: page_set_actions (neither)
 	push:         ^Page,        // build: push (queued until this page is shown)
 	dialog:       ^Mock_Dialog, // build: dialog_show (pending until this page is shown)
 	close_dialog: bool,         // build: and dialog_close at once
 	pop:          bool,         // build: pop (ignored)
 	pop_title:    string,       // on_pop: page_set_title (the page is gone: nothing to show)
+	pop_actions:  []Action,     // on_pop: page_set_actions (nor this)
 	handle:       ^Page_Handle, // set by build
 	label:        ^Label_Handle,
 	pushed:       ^Page_Handle, // what the push returned
@@ -434,6 +448,7 @@ mock_build :: proc(page: ^Page_Handle, user: rawptr) -> View {
 	mock_log("build %s", mp.name)
 	mp.handle = page
 	if mp.title != "" do page_set_title(page, mp.title)
+	if mp.build_actions != nil do page_set_actions(page, mp.build_actions)
 	if mp.push != nil do mp.pushed = push(mp.push^)
 	if mp.dialog != nil {
 		mock_show(mp.dialog)
@@ -449,6 +464,7 @@ mock_on_pop :: proc(user: rawptr) {
 	mock_log("on_pop %s", mp.name)
 	mock_require(mp.label.label.text == mp.name, "on_pop still sees its page's widgets")
 	if mp.pop_title != "" do page_set_title(mp.handle, mp.pop_title)
+	if mp.pop_actions != nil do page_set_actions(mp.handle, mp.pop_actions)
 }
 
 Mock_Dialog :: struct {

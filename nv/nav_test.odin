@@ -52,6 +52,25 @@ test_pop_from_dialog_button :: proc(t: ^testing.T) {
 	testing.expect(t, mock.modal_after_close == nil && mock.views == 1)
 }
 
+// A push from a click whose page pushes another in its build: push's own flush shows it, after the
+// first page and its dialog.
+@(test)
+test_push_from_click_flushes :: proc(t: ^testing.T) {
+	mock_begin(t)
+	defer mock_end(t)
+	root, c := Mock_Page{name = "Root"}, Mock_Page{name = "C"}
+	d := Mock_Dialog{name = "D"}
+	c_page := mock_page(&c)
+	b := Mock_Page{name = "B", push = &c_page, dialog = &d}
+	mock_launch(&root)
+	callback_enter()
+	push(mock_page(&b))
+	expect_log(t, "build B", "label_init B", "nav_push B", "label_init D", "flex_create Vertical 1", "dialog_show D",
+		"build C", "label_init C", "dialog_set_hidden D true", "nav_push C")
+	callback_exit()
+	testing.expect(t, len(g_nav) == 3 && g_nav[2] == b.pushed && d.handle.page == b.handle)
+}
+
 // A push from a build (a deep link) waits until that page is shown, so pages stack in call order.
 @(test)
 test_push_from_build_waits :: proc(t: ^testing.T) {
@@ -143,9 +162,10 @@ test_pop_closes_dialogs_first :: proc(t: ^testing.T) {
 test_page_setters_wait_for_root :: proc(t: ^testing.T) {
 	mock_begin(t)
 	defer mock_end(t)
-	root := Mock_Page{name = "Root", title = "Home"}
+	root := Mock_Page{name = "Root", title = "Home", build_actions = {{title = "Add"}}}
 	run(mock_page(&root))
 	expect_log(t, "theme_apply_mode System", "build Root", "label_init Root", "nav_push Home")
+	testing.expect(t, len(root.handle.actions) == 1 && root.handle.actions[0].action.title == "Add")
 
 	replace :: proc(user: rawptr) {
 		page_set_actions((^Page_Handle)(user), {{title = "Done"}})
@@ -157,7 +177,7 @@ test_page_setters_wait_for_root :: proc(t: ^testing.T) {
 	expect_log(t, "nav_actions_changed 1")
 	testing.expect_value(t, root.handle.actions[0].action.title, "Done")
 
-	b := Mock_Page{name = "B", pop_title = "Gone"}
+	b := Mock_Page{name = "B", pop_title = "Gone", pop_actions = {{title = "Gone"}}}
 	callback_enter()
 	push(mock_page(&b))
 	pop()

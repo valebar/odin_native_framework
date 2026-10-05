@@ -63,9 +63,11 @@ test_bitmap_reference_counts :: proc(t: ^testing.T) {
 	defer mock_end(t)
 	root := Mock_Page{name = "Root"}
 	mock_launch(&root)
-	testing.expect(t, bitmap_from_bytes(nil) == nil) // nothing to decode: the backend is never asked
+	testing.expect(t, bitmap_from_bytes(nil) == nil)
+	expect_log(t) // nothing to decode: the backend is never asked
 	mock.decode_ok = false
 	testing.expect(t, bitmap_from_bytes({40, 20}) == nil) // refused: the Bitmap must not leak
+	expect_log(t, "bitmap_decode refused")
 	mock.decode_ok = true
 
 	callback_enter()
@@ -86,11 +88,12 @@ test_font_reference_counts :: proc(t: ^testing.T) {
 	defer mock_end(t)
 	root, b := Mock_Page{name = "Root"}, Mock_Page{name = "B"}
 	mock_launch(&root)
-	testing.expect(t, font_from_bytes({1, 2, 3}) == nil) // not a font: the backend is never asked
+	testing.expect(t, font_from_bytes({1, 2, 3}) == nil)
+	expect_log(t) // not a font: the backend is never asked
 	mock.font_ok = false
 	testing.expect(t, font_from_bytes(TUFFY_BOLD) == nil) // refused: the family string must not leak
+	expect_log(t, "font_load Tuffy")
 	mock.font_ok = true
-	mock_log_clear()
 
 	callback_enter()
 	f := font_from_bytes(TUFFY_BOLD)
