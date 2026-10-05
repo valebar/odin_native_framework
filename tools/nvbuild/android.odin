@@ -27,7 +27,8 @@ PLATFORM    :: "android-36"
 
 // The SDK from ANDROID_HOME / ANDROID_SDK_ROOT, else the host's default install location; the
 // NDK and build-tools are the highest versions installed. `required` false (a check) returns ok
-// = false instead of failing when there is no SDK.
+// = false instead of failing when the SDK, or a part of it a build needs, is missing: the check
+// then runs with placeholders.
 android_env :: proc(required: bool) -> (a: Android, ok: bool) {
 	home, _ := os.user_home_dir(context.allocator)
 	a.sdk = env("ANDROID_HOME")
@@ -45,7 +46,10 @@ android_env :: proc(required: bool) -> (a: Android, ok: bool) {
 	}
 	a.ndk = env("ODIN_ANDROID_NDK")
 	if a.ndk == "" do a.ndk = highest_version_dir(path(a.sdk, "ndk"))
-	if a.ndk == "" do fail("no NDK under %s/ndk: install one, or set ODIN_ANDROID_NDK", a.sdk)
+	if a.ndk == "" {
+		if required do fail("no NDK under %s/ndk: install one, or set ODIN_ANDROID_NDK", a.sdk)
+		return a, false
+	}
 	a.toolchain = env("ODIN_ANDROID_NDK_TOOLCHAIN")
 	if a.toolchain == "" {
 		// Odin looks for darwin-aarch64; NDKs ship a universal darwin-x86_64 toolchain.
@@ -53,9 +57,15 @@ android_env :: proc(required: bool) -> (a: Android, ok: bool) {
 		a.toolchain = path(a.ndk, "toolchains/llvm/prebuilt", strings.concatenate({host, "-x86_64"}))
 	}
 	a.build_tools = highest_version_dir(path(a.sdk, "build-tools"))
-	if a.build_tools == "" do fail("no build-tools under %s", a.sdk)
+	if a.build_tools == "" {
+		if required do fail("no build-tools under %s", a.sdk)
+		return a, false
+	}
 	a.jar = path(a.sdk, "platforms", PLATFORM, "android.jar")
-	if !os.exists(a.jar) do fail("%s not found: install the %s platform", a.jar, PLATFORM)
+	if !os.exists(a.jar) {
+		if required do fail("%s not found: install the %s platform", a.jar, PLATFORM)
+		return a, false
+	}
 	a.adb = path(a.sdk, "platform-tools", exe("adb"))
 	a.emulator = path(a.sdk, "emulator", exe("emulator"))
 	a.java_home = env("JAVA_HOME")

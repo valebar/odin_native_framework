@@ -1,0 +1,2 @@
+# Shell scripts run by sh / bash everywhere: a CRLF checkout (Git for Windows) would break them.
+tools/hooks/* text eol=lf

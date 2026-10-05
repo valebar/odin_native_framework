@@ -1,5 +1,11 @@
 #!/bin/sh
 # The safety net before every push (there is no hosted CI): nvbuild ci. Enable once per clone with
 #   git config core.hooksPath tools/hooks
-# and skip it for one push with git push --no-verify.
-exec odin run tools/nvbuild -- ci
+# and skip it for one push with git push --no-verify. It checks the working tree as it is
+# (uncommitted changes included), not exactly the commits being pushed. The tool is built under
+# build/ under its own name, so it never collides with an nvbuild that is still running (Windows
+# cannot overwrite a running executable).
+mkdir -p build
+exe=build/nvbuild_ci
+case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) exe=$exe.exe ;; esac
+exec odin run tools/nvbuild "-out:$exe" -- ci
