@@ -1,0 +1,5 @@
+#!/bin/sh
+# The safety net before every push (there is no hosted CI): nvbuild ci. Enable once per clone with
+#   git config core.hooksPath tools/hooks
+# and skip it for one push with git push --no-verify.
+exec odin run tools/nvbuild -- ci

@@ -2,7 +2,7 @@ package nvbuild
 
 // The build tool: one program for every platform, replacing per-OS shell scripts.
 //
-//   odin run tools/nvbuild -- [build|check|clean|test] [--platform=windows|macos|ios|android|linux|all]
+//   odin run tools/nvbuild -- [build|check|clean|test|ci] [--platform=windows|macos|ios|android|linux|all]
 //                              [--release|--debug] [--no-run] [--sim="iPhone 17"] [--avd=Pixel_10] [--device=<serial>]
 //                              [--team=<id>] [--any-odin]
 //
@@ -11,7 +11,8 @@ package nvbuild
 // attached. `check` type-checks nv and app with -vet and -strict-style for one target, or every
 // target with `all` (plus this tool and android/jnigen): the cross-target checks work from any
 // host. `test` builds and runs the core's tests (nv/*_test.odin, against a mock backend) on this
-// host. `clean` removes build/<platform>, or all of build/.
+// host. `ci` is `check --platform=all`, then `test`: what has to pass before a push (there is no
+// hosted CI). `clean` removes build/<platform>, or all of build/.
 // Every command but `clean` first makes sure that odin is the pinned compiler (ODIN_PIN);
 // --any-odin skips that, to try another one.
 // Every command it spawns is echoed with a leading `+`, and the first failing one ends the build
@@ -25,11 +26,11 @@ import "core:os"
 import "core:strings"
 import "core:time"
 
-Command  :: enum { build, check, clean, test }
+Command  :: enum { build, check, clean, test, ci }
 Platform :: enum { host, windows, macos, ios, android, linux, all } // lowercase: flags matches the names
 
 Options :: struct {
-	command:  Command  `args:"pos=0" usage:"build (the default: build, package and run) | check | clean | test (the core's tests, on this host)"`,
+	command:  Command  `args:"pos=0" usage:"build (the default: build, package and run) | check | clean | test (the core's tests, on this host) | ci (check all, then test)"`,
 	platform: Platform `usage:"windows | macos | ios | android | linux (default: this host); all for check and clean"`,
 	release:  bool     `usage:"optimized build (-o:speed)"`,
 	debug:    bool     `usage:"debug build (-debug), the default"`,
@@ -80,6 +81,7 @@ main :: proc() {
 	case .check: check(opt)
 	case .clean: clean(opt)
 	case .test:  test(opt)
+	case .ci:    ci(opt)
 	}
 	fmt.printfln("nvbuild: %v done in %.1fs", opt.command, time.duration_seconds(time.tick_since(start)))
 }
@@ -293,6 +295,18 @@ test :: proc(opt: Options) {
 		strings.concatenate({"-out:", exe(path(out, "nv_test"))}))
 	if host == .linux do append(&cmd, linux_link_flag())
 	run(..cmd[:])
+}
+
+// ---- ci ----
+
+// What has to pass before a push (there is no hosted CI): the check of every platform, then the
+// core's tests on this host.
+ci :: proc(opt: Options) {
+	opt := opt
+	opt.platform = .all
+	check(opt)
+	opt.platform = host_platform()
+	test(opt)
 }
 
 // ---- clean ----
