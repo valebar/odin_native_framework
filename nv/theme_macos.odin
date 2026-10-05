@@ -1,4 +1,4 @@
-#+build darwin
+#+build darwin:default
 package nv
 
 // macOS theme backend. The mode is NSApp.appearance (Aqua, DarkAqua, or nil to follow the
@@ -8,8 +8,6 @@ package nv
 
 import "base:intrinsics"
 import NS "core:sys/darwin/Foundation"
-
-when !IS_IOS {
 
 @(private) APPEARANCE_AQUA      :: "NSAppearanceNameAqua"
 @(private) APPEARANCE_DARK_AQUA :: "NSAppearanceNameDarkAqua"
@@ -58,6 +56,4 @@ content_view_new :: proc(frame: NS.Rect) -> ^NS.View {
 content_appearance_changed :: proc "c" (self: NS.id, _: NS.SEL) {
 	context = g_macos.ctx
 	theme_notify()
-}
-
 }

@@ -1,4 +1,4 @@
-#+build darwin
+#+build darwin:default
 package nv
 
 // macOS image backend: an NSView subclass, NVImageView, registered at runtime. NSImageView has no
@@ -6,8 +6,6 @@ package nv
 // flipped like the canvas, and its intrinsicContentSize is the natural size.
 
 import NS "core:sys/darwin/Foundation"
-
-when !IS_IOS {
 
 @(private) image_class: NS.Class
 
@@ -48,6 +46,4 @@ image_draw_rect :: proc "c" (self: NS.id, _: NS.SEL, _: NS.Rect) {
 image_intrinsic_size :: proc "c" (self: NS.id, _: NS.SEL) -> NS.Size {
 	s := image_natural_size(objc_handle(self, Image_Handle))
 	return {NS.Float(s.x), NS.Float(s.y)}
-}
-
 }

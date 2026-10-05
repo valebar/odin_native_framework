@@ -1,4 +1,4 @@
-#+build darwin
+#+build darwin:default
 package nv
 
 // macOS navigation backend: the pages are full-size subviews of the window's content view
@@ -9,8 +9,6 @@ package nv
 
 import "base:intrinsics"
 import NS "core:sys/darwin/Foundation"
-
-when !IS_IOS {
 
 @(private)
 _nav_push :: proc(e: ^Page_Handle) {
@@ -138,6 +136,4 @@ nav_install_back_button :: proc(wnd: ^NS.Window) {
 nav_back_clicked :: proc "c" (self: NS.id, _: NS.SEL, _: NS.id) {
 	context = g_macos.ctx
 	nav_back_notify()
-}
-
 }

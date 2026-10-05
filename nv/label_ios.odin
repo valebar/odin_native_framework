@@ -1,9 +1,7 @@
-#+build darwin
+#+build darwin:ios
 package nv
 
 // iOS label backend: a UILabel in the system font (17pt, bold for a heading) changed by the style.
-
-when IS_IOS {
 
 @(private)
 _label_init :: proc(h: ^Label_Handle) {
@@ -18,6 +16,4 @@ _label_init :: proc(h: ^Label_Handle) {
 @(private)
 _label_set_text :: proc(h: ^Label_Handle, text: string) {
 	ui_label_set_text((^UI_Label)(h.root), ns_string(text))
-}
-
 }

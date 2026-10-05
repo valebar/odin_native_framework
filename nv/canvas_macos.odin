@@ -1,12 +1,10 @@
-#+build darwin
+#+build darwin:default
 package nv
 
 // macOS canvas backend: an NSView subclass, NVCanvasView, registered at runtime. It is flipped
 // (origin top-left), draws in drawRect: through cg.odin, and reports the left mouse button.
 
 import NS "core:sys/darwin/Foundation"
-
-when !IS_IOS {
 
 @(private) canvas_class: NS.Class
 
@@ -65,5 +63,3 @@ canvas_mouse :: proc "c" (self: NS.id, event: NS.id, kind: Pointer) {
 @(private) canvas_mouse_down    :: proc "c" (self: NS.id, _: NS.SEL, e: NS.id) { canvas_mouse(self, e, .Down) }
 @(private) canvas_mouse_dragged :: proc "c" (self: NS.id, _: NS.SEL, e: NS.id) { canvas_mouse(self, e, .Move) }
 @(private) canvas_mouse_up      :: proc "c" (self: NS.id, _: NS.SEL, e: NS.id) { canvas_mouse(self, e, .Up) }
-
-}

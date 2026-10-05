@@ -1,11 +1,9 @@
-#+build darwin
+#+build darwin:ios
 package nv
 
 // iOS list backend: UITableView with cell reuse.
 
 import NS "core:sys/darwin/Foundation"
-
-when IS_IOS {
 
 @(private) list_class: NS.Class
 
@@ -89,6 +87,4 @@ did_select_row :: proc "c" (self: NS.id, _: NS.SEL, tv: ^UI_Table_View, ip: ^Ind
 	if h.list.on_select != nil {
 		h.list.on_select(h.list.user, int(index_path_row(ip)))
 	}
-}
-
 }

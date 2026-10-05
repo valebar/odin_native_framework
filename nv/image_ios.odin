@@ -1,12 +1,10 @@
-#+build darwin
+#+build darwin:ios
 package nv
 
 // iOS image backend: a UIImageView subclass, NVImageView, registered at runtime only to report the
 // natural size as its intrinsicContentSize. UIKit scales the image by contentMode and clips.
 
 import NS "core:sys/darwin/Foundation"
-
-when IS_IOS {
 
 @(private) image_class: NS.Class
 
@@ -45,6 +43,4 @@ _image_set_bitmap :: proc(h: ^Image_Handle) {
 image_intrinsic_size :: proc "c" (self: NS.id, _: NS.SEL) -> NS.Size {
 	s := image_natural_size(objc_handle(self, Image_Handle))
 	return {NS.Float(s.x), NS.Float(s.y)}
-}
-
 }

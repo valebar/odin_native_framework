@@ -1,4 +1,4 @@
-#+build darwin
+#+build darwin:default
 package nv
 
 // macOS input backend: an editable NSTextField. Its delegate (NVInputDelegate) gets
@@ -8,8 +8,6 @@ package nv
 import "base:intrinsics"
 import "core:strings"
 import NS "core:sys/darwin/Foundation"
-
-when !IS_IOS {
 
 @(private) input_class: NS.Class
 
@@ -64,6 +62,4 @@ input_do_command :: proc "c" (self: NS.id, _: NS.SEL, _: NS.id, _: NS.id, comman
 	context = h.ctx
 	if command == intrinsics.objc_find_selector("insertNewline:") do input_notify(h, h.input.on_submit)
 	return false
-}
-
 }

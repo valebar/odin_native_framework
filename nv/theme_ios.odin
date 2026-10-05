@@ -1,4 +1,4 @@
-#+build darwin
+#+build darwin:ios
 package nv
 
 // iOS theme backend. The mode is the window's overrideUserInterfaceStyle (0 follows the system,
@@ -8,8 +8,6 @@ package nv
 
 import "base:intrinsics"
 import NS "core:sys/darwin/Foundation"
-
-when IS_IOS {
 
 @(private)
 _theme_system_dark :: proc() -> bool {
@@ -58,6 +56,4 @@ theme_install :: proc(w: ^UI_Window) {
 trait_view_changed :: proc "c" (self: NS.id, _: NS.SEL, _: NS.id) {
 	context = g_app.ctx
 	theme_notify()
-}
-
 }

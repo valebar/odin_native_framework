@@ -1,4 +1,4 @@
-#+build darwin
+#+build darwin:ios
 package nv
 
 // iOS navigation backend: every page is an NVPageController (a UIViewController) pushed on the
@@ -9,8 +9,6 @@ package nv
 
 import "base:intrinsics"
 import NS "core:sys/darwin/Foundation"
-
-when IS_IOS {
 
 @(private) page_controller_class: NS.Class
 
@@ -131,6 +129,4 @@ page_did_move :: proc "c" (self: NS.id, _: NS.SEL, parent: NS.id) {
 		g_app.removing = nil
 		return
 	}
-}
-
 }

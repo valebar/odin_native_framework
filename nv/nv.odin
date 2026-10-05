@@ -1,9 +1,9 @@
 package nv
 
-// Shared public API. Platform backends: *_macos.odin / *_ios.odin (`#+build darwin`,
-// split by `when IS_IOS` since build tags can't select the iOS subtarget),
-// *_android.odin (`#+build linux:android`), *_linux.odin (`#+build linux:default`, GTK4) and
-// *_windows.odin (`#+build windows`, Win32).
+// Shared public API. Platform backends: *_macos.odin (`#+build darwin:default`) / *_ios.odin
+// (`#+build darwin:ios`: the device and the simulator), with what they share in appkit.odin and
+// cg.odin (`#+build darwin`), *_android.odin (`#+build linux:android`), *_linux.odin
+// (`#+build linux:default`, GTK4) and *_windows.odin (`#+build windows`, Win32).
 //
 // Widgets: a scrolling list (`list_create`), a text label (`label_create`), a text input
 // (`input_create`), a push button (`button_create`), a custom-drawn canvas (`canvas_create`), an

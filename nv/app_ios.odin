@@ -1,4 +1,4 @@
-#+build darwin
+#+build darwin:ios
 package nv
 
 // iOS app backend: UIApplicationMain + scene lifecycle (NVSceneDelegate is named in ios/Info.plist).
@@ -7,8 +7,6 @@ package nv
 
 import "base:runtime"
 import NS "core:sys/darwin/Foundation"
-
-when IS_IOS {
 
 @(private) app_delegate_class, scene_delegate_class, nav_target_class: NS.Class
 
@@ -74,6 +72,4 @@ scene_will_connect :: proc "c" (self: NS.id, _: NS.SEL, scene: NS.id, _: NS.id, 
 	nav->release()
 	ui_window_make_key_and_visible(g_app.window)
 	nav_flush_pending() // pages the root build pushed
-}
-
 }

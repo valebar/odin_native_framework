@@ -1,4 +1,4 @@
-#+build darwin
+#+build darwin:ios
 package nv
 
 // iOS canvas backend: a UIView subclass, NVCanvasView, registered at runtime. It draws in
@@ -6,8 +6,6 @@ package nv
 
 import "base:intrinsics"
 import NS "core:sys/darwin/Foundation"
-
-when IS_IOS {
 
 @(private) canvas_class: NS.Class
 
@@ -91,5 +89,3 @@ canvas_touch :: proc "c" (self: NS.id, touches: NS.id, kind: Pointer) {
 @(private) canvas_touches_began :: proc "c" (self: NS.id, _: NS.SEL, t: NS.id, _: NS.id) { canvas_touch(self, t, .Down) }
 @(private) canvas_touches_moved :: proc "c" (self: NS.id, _: NS.SEL, t: NS.id, _: NS.id) { canvas_touch(self, t, .Move) }
 @(private) canvas_touches_ended :: proc "c" (self: NS.id, _: NS.SEL, t: NS.id, _: NS.id) { canvas_touch(self, t, .Up) }
-
-}

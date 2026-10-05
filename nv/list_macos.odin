@@ -1,11 +1,9 @@
-#+build darwin
+#+build darwin:default
 package nv
 
 // macOS list backend: NSTableView inside NSScrollView, with cell reuse.
 
 import NS "core:sys/darwin/Foundation"
-
-when !IS_IOS {
 
 @(private) TAG_TITLE    :: 1
 @(private) TAG_SUBTITLE :: 2
@@ -135,6 +133,4 @@ make_row_cell :: proc(h: ^List_Handle) -> ^NS.View {
 
 	cell->autorelease()
 	return cell
-}
-
 }

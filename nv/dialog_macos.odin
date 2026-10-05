@@ -1,4 +1,4 @@
-#+build darwin
+#+build darwin:default
 package nv
 
 // macOS dialog backend: the card is a custom NSBox (window background fill, rounded corners)
@@ -11,8 +11,6 @@ package nv
 // runs from one of the card's own buttons' actions.
 
 import NS "core:sys/darwin/Foundation"
-
-when !IS_IOS {
 
 @(private)
 _dialog_show :: proc(h: ^Dialog_Handle) {
@@ -63,6 +61,4 @@ _dialog_close :: proc(h: ^Dialog_Handle) {
 _dialog_set_hidden :: proc(h: ^Dialog_Handle, hidden: bool) {
 	view_set_hidden((^NS.View)(h.card), NS.BOOL(hidden))
 	if h.scrim != nil do view_set_hidden((^NS.View)(h.scrim), NS.BOOL(hidden))
-}
-
 }

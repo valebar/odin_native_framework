@@ -1,4 +1,4 @@
-#+build darwin
+#+build darwin:ios
 package nv
 
 // iOS dialog backend: the card is a UIView (system background, rounded layer) added to the
@@ -10,8 +10,6 @@ package nv
 // often runs from one of the card's own buttons' actions.
 
 import NS "core:sys/darwin/Foundation"
-
-when IS_IOS {
 
 @(private)
 _dialog_show :: proc(h: ^Dialog_Handle) {
@@ -73,6 +71,4 @@ _dialog_set_hidden :: proc(h: ^Dialog_Handle, hidden: bool) {
 @(private)
 ios_dialog_apply_modal :: proc() {
 	ui_gesture_recognizer_set_enabled(ui_navigation_controller_pop_gesture(g_app.nav), NS.BOOL(dialog_top_modal() == nil))
-}
-
 }

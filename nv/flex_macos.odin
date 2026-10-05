@@ -1,4 +1,4 @@
-#+build darwin
+#+build darwin:default
 package nv
 
 // macOS Row / Column backend: NSStackView with Fill distribution. A flex child gets a low
@@ -7,8 +7,6 @@ package nv
 // across the cross axis.
 
 import NS "core:sys/darwin/Foundation"
-
-when !IS_IOS {
 
 @(private)
 _flex_create :: proc(f: Flex) -> View {
@@ -28,6 +26,4 @@ _flex_create :: proc(f: Flex) -> View {
 	}
 	flex_link_sizes(f.children, f.axis)
 	return View(stack)
-}
-
 }

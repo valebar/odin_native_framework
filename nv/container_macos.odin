@@ -1,4 +1,4 @@
-#+build darwin
+#+build darwin:default
 package nv
 
 // macOS container backend: the root is an NSView subclass, NVContainerView, registered at runtime
@@ -8,8 +8,6 @@ package nv
 // padding plus the border width. NSBox does not clip its subviews to the corners.
 
 import NS "core:sys/darwin/Foundation"
-
-when !IS_IOS {
 
 @(private) container_class: NS.Class
 
@@ -73,17 +71,4 @@ container_forward_hugging :: proc "c" (v: ^NS.View, priority: f32, axis: Axis) {
 container_intrinsic_size :: proc "c" (self: NS.id, _: NS.SEL) -> NS.Size {
 	h := objc_handle(self, Container_Handle)
 	return container_intrinsic(h)
-}
-
-}
-
-// The root's intrinsic size: a fixed width / height plus the margin, or -1 (NSViewNoIntrinsicMetric,
-// UIViewNoIntrinsicMetric) for an axis that follows the child.
-@(private)
-container_intrinsic :: proc "c" (h: ^Container_Handle) -> NS.Size {
-	c := &h.container
-	return {
-		c.width > 0 ? NS.Float(c.width + c.margin.left + c.margin.right) : -1,
-		c.height > 0 ? NS.Float(c.height + c.margin.top + c.margin.bottom) : -1,
-	}
 }

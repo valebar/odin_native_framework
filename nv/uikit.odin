@@ -1,11 +1,9 @@
-#+build darwin
+#+build darwin:ios
 package nv
 
 // Minimal hand-written UIKit bindings (iOS only).
 
 import NS "core:sys/darwin/Foundation"
-
-when IS_IOS {
 
 @(require) foreign import uikit "system:UIKit.framework"
 
@@ -407,6 +405,4 @@ ui_button_set_title :: proc "c" (b: ^UI_Button, title: ^NS.String) {
 // UIControl target-action; the control does not retain `target`.
 ui_control_add_target :: proc "c" (c: ^UI_View, target: NS.id, action: NS.SEL, events: NS.UInteger) {
 	send(nil, c, "addTarget:action:forControlEvents:", target, action, events)
-}
-
 }

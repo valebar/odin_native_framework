@@ -1,4 +1,4 @@
-#+build darwin
+#+build darwin:ios
 package nv
 
 // iOS container backend: like macOS, a UIView subclass (NVContainerView) for the intrinsic size
@@ -6,8 +6,6 @@ package nv
 // the child to the corners (masksToBounds).
 
 import NS "core:sys/darwin/Foundation"
-
-when IS_IOS {
 
 @(private) container_class: NS.Class
 
@@ -65,6 +63,4 @@ container_forward_hugging :: proc "c" (v: ^UI_View, priority: f32, axis: Axis) {
 container_intrinsic_size :: proc "c" (self: NS.id, _: NS.SEL) -> NS.Size {
 	h := objc_handle(self, Container_Handle)
 	return container_intrinsic(h)
-}
-
 }

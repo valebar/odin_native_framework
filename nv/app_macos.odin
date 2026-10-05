@@ -1,4 +1,4 @@
-#+build darwin
+#+build darwin:default
 package nv
 
 // macOS app backend: one NSWindow whose content view is a container holding the pages
@@ -7,8 +7,6 @@ package nv
 
 import "base:runtime"
 import NS "core:sys/darwin/Foundation"
-
-when !IS_IOS {
 
 @(private) nav_target_class: NS.Class // NVNavTarget, the back button's and the actions' target
 
@@ -52,6 +50,4 @@ _run :: proc() {
 
 	app->activateIgnoringOtherApps(true)
 	app->run()
-}
-
 }

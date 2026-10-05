@@ -1,4 +1,4 @@
-#+build darwin
+#+build darwin:ios
 package nv
 
 // iOS input backend: a rounded UITextField. UIControl target-action delivers the edits
@@ -8,8 +8,6 @@ package nv
 import "base:intrinsics"
 import "core:strings"
 import NS "core:sys/darwin/Foundation"
-
-when IS_IOS {
 
 @(private) input_class: NS.Class
 
@@ -65,6 +63,4 @@ input_submit :: proc "c" (self: NS.id, _: NS.SEL, _: NS.id) {
 	h := objc_handle(self, Input_Handle)
 	context = h.ctx
 	input_notify(h, h.input.on_submit)
-}
-
 }

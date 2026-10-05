@@ -1,4 +1,4 @@
-#+build darwin
+#+build darwin:ios
 package nv
 
 // iOS button backend: a system UIButton; target-action delivers TouchUpInside to an
@@ -7,8 +7,6 @@ package nv
 
 import "base:intrinsics"
 import NS "core:sys/darwin/Foundation"
-
-when IS_IOS {
 
 @(private) button_class: NS.Class
 
@@ -50,6 +48,4 @@ button_clicked :: proc "c" (self: NS.id, _: NS.SEL, _: NS.id) {
 	h := objc_handle(self, Button_Handle)
 	context = h.ctx
 	button_notify(h)
-}
-
 }

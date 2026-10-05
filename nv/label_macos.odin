@@ -1,12 +1,10 @@
-#+build darwin
+#+build darwin:default
 package nv
 
 // macOS label backend: an NSTextField label in the system font (bold 17pt for a heading, 15pt
 // otherwise) changed by the style.
 
 import NS "core:sys/darwin/Foundation"
-
-when !IS_IOS {
 
 @(private)
 _label_init :: proc(h: ^Label_Handle) {
@@ -21,6 +19,4 @@ _label_init :: proc(h: ^Label_Handle) {
 @(private)
 _label_set_text :: proc(h: ^Label_Handle, text: string) {
 	text_field_set_string((^Text_Field)(h.root), ns_string(text))
-}
-
 }
