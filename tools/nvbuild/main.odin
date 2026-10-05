@@ -103,14 +103,15 @@ fail :: proc(format: string, args: ..any) -> ! {
 // Stops unless the compiler is the pinned one: the one that built this tool (`odin run` rebuilds
 // it every time) and the `odin` on PATH that the tool spawns. They are normally the same binary;
 // a stale ./nvbuild or an odin run by its full path makes them differ. `any_odin` skips only the
-// comparison with the pin: the two must still be one compiler, when both carry a hash.
+// comparison with the pin: the two must still be one compiler (the same hash, or one hash a prefix
+// of the other; two compilers built without a hash cannot be told apart).
 odin_pin_check :: proc(any_odin: bool) {
 	version, ok := capture_quiet("odin", "version") // "odin version dev-2026-09-nightly:a2fb372"
 	if !ok do fail("cannot run `odin version`: the Odin that builds this repo must be on PATH (pinned: %s)", ODIN_PIN)
 	path_hash := odin_hash(version)
 	if any_odin {
 		fmt.printfln("nvbuild: --any-odin: %s on PATH (this tool: Odin %s:%s), the pin is %s", version, ODIN_VERSION, ODIN_VERSION_HASH, ODIN_PIN)
-		if path_hash != "" && ODIN_VERSION_HASH != "" && !odin_hash_match(path_hash, ODIN_VERSION_HASH) {
+		if path_hash != ODIN_VERSION_HASH && !odin_hash_match(path_hash, ODIN_VERSION_HASH) {
 			fail("the odin on PATH is %q, but this tool was built by Odin %s:%s: run it with the odin on PATH", version, ODIN_VERSION, ODIN_VERSION_HASH)
 		}
 		return
@@ -131,7 +132,8 @@ odin_hash :: proc(version: string) -> string {
 }
 
 // Compared as prefixes, since the hash's length depends on the clone the compiler was built from
-// (an Odin built from source at the pinned commit matches too). An empty or short hash never does.
+// (an Odin built from source at the pinned commit matches too). An empty or short hash never
+// matches: against the pin it could be any commit.
 odin_hash_match :: proc(a, b: string) -> bool {
 	return len(a) >= 7 && len(b) >= 7 && (strings.has_prefix(a, b) || strings.has_prefix(b, a))
 }
