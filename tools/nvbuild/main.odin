@@ -4,12 +4,14 @@ package nvbuild
 //
 //   odin run tools/nvbuild -- [build|check|clean] [--platform=windows|macos|ios|android|linux|all]
 //                              [--release|--debug] [--no-run] [--sim="iPhone 17"] [--avd=Pixel_10] [--device=<serial>]
-//                              [--team=<id>]
+//                              [--team=<id>] [--any-odin]
 //
 // `build` (the default) compiles app/ for the platform (this host when none is given), packages
 // it (assets next to the executable, the iOS bundle, the APK) and runs it with the console
 // attached. `check` type-checks nv and app for one target, or every target with `all`: the
 // cross-target checks work from any host. `clean` removes build/<platform>, or all of build/.
+// Every command but `clean` first makes sure that odin is the pinned compiler (ODIN_PIN);
+// --any-odin skips that, to try another one.
 // Every command it spawns is echoed with a leading `+`, and the first failing one ends the build
 // with its exit code. The output lives under build/<platform>/; the tool's own binary is left in
 // the cwd by `odin run` (nvbuild, gitignored), which is why the package is not called `build`.
@@ -34,10 +36,16 @@ Options :: struct {
 	avd:      string   `usage:"Android AVD to start when no device is attached (default: Pixel_10)"`,
 	device:   string   `usage:"Android: device serial from adb devices (default: the only attached device, else the emulator started from --avd). iOS: a physical device, by name or UDID from xcrun devicectl list devices (default: the simulator)"`,
 	team:     string   `usage:"Apple team id whose provisioning profile signs an iOS device build (default: the first profile that fits)"`,
+	any_odin: bool     `usage:"do not require the pinned Odin (ODIN_PIN): try another compiler before moving the pin"`,
 }
 
 SIM_DEFAULT :: "iPhone 17"
 AVD_DEFAULT :: "Pixel_10"
+
+// The Odin this repo is built with, as `odin version` prints it; only the hash is compared. How the
+// compiler links a shared library decides how libapp.so starts (nv/app_android.odin), so the pin
+// moves only through the upgrade steps in CLAUDE.md (Commands, compiler pin).
+ODIN_PIN :: "dev-2026-09-nightly:a2fb372"
 
 ROOT :: #directory + "/../.." // the repo, whatever the cwd `odin run` was given
 
@@ -51,6 +59,10 @@ main :: proc() {
 	if opt.sim == "" do opt.sim = SIM_DEFAULT
 	if opt.avd == "" do opt.avd = AVD_DEFAULT
 	if opt.platform == .host do opt.platform = host_platform()
+	if opt.command != .clean { // clean compiles nothing
+		if opt.any_odin do fmt.printfln("nvbuild: --any-odin: Odin %s:%s, the pin is %s", ODIN_VERSION, ODIN_VERSION_HASH, ODIN_PIN)
+		else do odin_pin_check()
+	}
 
 	start := time.tick_now()
 	switch opt.command {
@@ -82,6 +94,32 @@ fail :: proc(format: string, args: ..any) -> ! {
 	fmt.eprint("nvbuild: ")
 	fmt.eprintfln(format, ..args)
 	os.exit(1)
+}
+
+// ---- compiler pin ----
+
+// Stops unless the compiler is the pinned one: the one that built this tool (`odin run` rebuilds
+// it every time) and the `odin` on PATH that the tool spawns. They are normally the same binary;
+// a stale ./nvbuild or an odin run by its full path makes them differ.
+odin_pin_check :: proc() {
+	if !odin_pinned(ODIN_VERSION_HASH) {
+		fail("this tool was built by Odin %s:%s, but the repo is pinned to %s: install that one, or pass --any-odin", ODIN_VERSION, ODIN_VERSION_HASH, ODIN_PIN)
+	}
+	version, ok := capture_quiet("odin", "version") // "odin version dev-2026-09-nightly:a2fb372"
+	if !ok do fail("cannot run `odin version`: the pinned Odin %s must be on PATH", ODIN_PIN)
+	if !odin_pinned(odin_hash(version)) do fail("the odin on PATH is %q, not the pinned %s: fix PATH, or pass --any-odin", version, ODIN_PIN)
+}
+
+// The git hash after the last colon: "dev-2026-09-nightly:a2fb372" -> "a2fb372".
+odin_hash :: proc(version: string) -> string {
+	return version[strings.last_index_byte(version, ':') + 1:]
+}
+
+// Compared as prefixes, since the hash's length depends on the clone the compiler was built from
+// (an Odin built from source at the pinned commit matches too). Empty (no .git at build) never does.
+odin_pinned :: proc(hash: string) -> bool {
+	pin := odin_hash(ODIN_PIN)
+	return len(hash) >= 7 && (strings.has_prefix(hash, pin) || strings.has_prefix(pin, hash))
 }
 
 // ---- processes ----
