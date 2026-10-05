@@ -61,8 +61,8 @@ build_ios_device :: proc(opt: Options) {
 		if err := os.rename(APP + "/NativeList.dSYM", OUT + "/NativeList.dSYM"); err != nil do fail("cannot move the dSYM: %v", err)
 	}
 	// ios/Info.plist is the simulator's; only the platform name differs.
-	plist, err := os.read_entire_file("ios/Info.plist", context.allocator)
-	if err != nil do fail("cannot read ios/Info.plist: %v", err)
+	plist, rerr := os.read_entire_file("ios/Info.plist", context.allocator)
+	if rerr != nil do fail("cannot read ios/Info.plist: %v", rerr)
 	device_plist, _ := strings.replace_all(string(plist), "iPhoneSimulator", "iPhoneOS")
 	if err := os.write_entire_file(APP + "/Info.plist", device_plist); err != nil do fail("cannot write %s/Info.plist: %v", APP, err)
 	copy_assets(APP)
@@ -197,7 +197,7 @@ ios_profile_identity :: proc(xml: string, identities: map[string]string) -> (sha
 		der, err := base64.decode(b64)
 		if err != nil do continue
 		sha = strings.to_upper(string(hex.encode(hash.hash_bytes(.Insecure_SHA1, der))))
-		if name, ok := identities[sha]; ok do return sha, name
+		if n, ok := identities[sha]; ok do return sha, n
 	}
 	return "", ""
 }

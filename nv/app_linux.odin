@@ -8,7 +8,6 @@ package nv
 // overlay children (dialog_linux.odin), styled by the CSS below.
 
 import "base:runtime"
-import "core:strings"
 
 @(private) g_linux: struct {
 	ctx:    runtime.Context,

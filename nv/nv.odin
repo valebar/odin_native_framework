@@ -1046,9 +1046,9 @@ dialog_close :: proc(h: ^Dialog_Handle) {
 	if i, found := slice.linear_search(g_dialogs_pending[:], h); found {
 		ordered_remove(&g_dialogs_pending, i) // never shown: nothing to take down
 	} else {
-		i, found := slice.linear_search(g_dialogs[:], h)
-		if !found do return
-		ordered_remove(&g_dialogs, i) // before _dialog_close: the backend reads dialog_top_modal for the state after
+		j, shown := slice.linear_search(g_dialogs[:], h)
+		if !shown do return
+		ordered_remove(&g_dialogs, j) // before _dialog_close: the backend reads dialog_top_modal for the state after
 		_dialog_close(h) // retires h.scope now or later
 		h.card, h.scrim, h.body, h.scope = nil, nil, nil, nil
 	}
