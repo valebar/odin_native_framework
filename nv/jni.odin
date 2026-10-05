@@ -9,6 +9,8 @@ package nv
 // `Jni_Method` / `Jni_Field`, which resolves its class (a global ref) and ID once on first use; a
 // method ID from the declaring class is valid for instances of its subclasses.
 
+import "base:intrinsics"
+
 jobject   :: distinct rawptr
 jclass    :: jobject
 jstring   :: jobject
@@ -86,7 +88,17 @@ Jni_Field :: struct {
 
 @(private)
 jni_fn :: #force_inline proc "contextless" (env: JNI_Env, $T: typeid, index: int) -> T {
+	if env == nil do jni_no_env()
 	return cast(T)env^[index]
+}
+
+// g_android.env is nil until an onCreate stored it. A JNI call before that (from the app's main,
+// say: a bitmap, a font or an asset read before nv.run) stops here with a log line instead of
+// crashing at address 0.
+@(private, cold)
+jni_no_env :: proc "contextless" () -> ! {
+	__android_log_write(ANDROID_LOG_ERROR, "nv", "JNI call before an onCreate stored an env (from the app's main?)")
+	intrinsics.trap()
 }
 
 jni_find_class :: proc "contextless" (env: JNI_Env, name: cstring) -> jclass {

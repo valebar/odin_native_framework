@@ -15,10 +15,12 @@ package nv
 @(private) ANDROID_UI_MODE_NIGHT_MASK :: 0x30
 @(private) ANDROID_UI_MODE_NIGHT_YES  :: 0x20
 
-// The system's night mode: Resources.getSystem() carries no per-app override.
+// The system's night mode: Resources.getSystem() carries no per-app override. Light while no
+// onCreate brought an env yet (theme_dark from the app's main).
 @(private)
 _theme_system_dark :: proc() -> bool {
 	env := g_android.env
+	if env == nil do return false
 	res := resources_get_system(env)
 	cfg := resources_get_configuration(env, res)
 	mode := configuration_ui_mode(env, cfg)
@@ -27,8 +29,10 @@ _theme_system_dark :: proc() -> bool {
 	return mode & ANDROID_UI_MODE_NIGHT_MASK == ANDROID_UI_MODE_NIGHT_YES
 }
 
+// None (alpha 0) while there is no env yet.
 @(private)
 _theme_system_accent :: proc() -> Color {
+	if g_android.env == nil do return {}
 	c := u32(android_theme_color("colorAccent", 0))
 	if c == 0 do return {}
 	return {f32(c >> 16 & 0xff) / 255, f32(c >> 8 & 0xff) / 255, f32(c & 0xff) / 255, f32(c >> 24) / 255}
