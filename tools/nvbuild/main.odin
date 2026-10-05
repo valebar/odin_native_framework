@@ -8,8 +8,9 @@ package nvbuild
 //
 // `build` (the default) compiles app/ for the platform (this host when none is given), packages
 // it (assets next to the executable, the iOS bundle, the APK) and runs it with the console
-// attached. `check` type-checks nv and app for one target, or every target with `all`: the
-// cross-target checks work from any host. `clean` removes build/<platform>, or all of build/.
+// attached. `check` type-checks nv and app with -vet and -strict-style for one target, or every
+// target with `all` (plus this tool and android/jnigen): the cross-target checks work from any
+// host. `clean` removes build/<platform>, or all of build/.
 // Every command but `clean` first makes sure that odin is the pinned compiler (ODIN_PIN);
 // --any-odin skips that, to try another one.
 // Every command it spawns is echoed with a leading `+`, and the first failing one ends the build
@@ -228,18 +229,22 @@ path :: proc(elems: ..string) -> string {
 
 // ---- check ----
 
-target_flags := [Platform][]string{
+// The targets `check` covers per platform. iOS is two: the simulator and the device are separate
+// subtargets, and `#+build darwin:ios` (not in Odin's docs, see CLAUDE.md) has to pick the iOS
+// backend for both.
+target_flags := [Platform][][]string{
 	.host    = {},
-	.windows = {"-target:windows_amd64"},
-	.macos   = {"-target:darwin_arm64"},
-	.ios     = {"-target:darwin_arm64", "-subtarget:iphonesimulator"},
-	.android = {"-target:linux_arm64", "-subtarget:android"},
-	.linux   = {"-target:linux_amd64"},
+	.windows = {{"-target:windows_amd64"}},
+	.macos   = {{"-target:darwin_arm64"}},
+	.ios     = {{"-target:darwin_arm64", "-subtarget:iphonesimulator"}, {"-target:darwin_arm64", "-subtarget:iphone"}},
+	.android = {{"-target:linux_arm64", "-subtarget:android"}},
+	.linux   = {{"-target:linux_amd64"}},
 	.all     = {},
 }
 
-// Type-checks nv and app for the platform, or for every one with `all`; failures are listed at
-// the end. An Android check only needs the ODIN_ANDROID_* variables to be set, not a real SDK.
+// Type-checks nv and app with -vet and -strict-style for the platform, or for every one with `all`,
+// which also checks the two host programs; failures are listed at the end. An Android check only
+// needs the ODIN_ANDROID_* variables to be set, not a real SDK.
 check :: proc(opt: Options) {
 	platforms: []Platform = {opt.platform}
 	if opt.platform == .all do platforms = {.windows, .macos, .ios, .android, .linux}
@@ -251,13 +256,19 @@ check :: proc(opt: Options) {
 				if _, set := os.lookup_env(key, context.allocator); !set do os.set_env(key, "x")
 			}
 		}
-		flags := target_flags[p]
-		for pkg in ([]string{"nv", "app"}) {
-			cmd := make([dynamic]string)
-			append(&cmd, "odin", "check", pkg)
-			if pkg == "nv" do append(&cmd, "-no-entry-point")
-			append(&cmd, ..flags)
-			if !try_run(..cmd[:]) do append(&failed, fmt.tprintf("%s for %v", pkg, p))
+		for flags in target_flags[p] {
+			for pkg in ([]string{"nv", "app"}) {
+				cmd := make([dynamic]string)
+				append(&cmd, "odin", "check", pkg, "-vet", "-strict-style")
+				if pkg == "nv" do append(&cmd, "-no-entry-point")
+				append(&cmd, ..flags)
+				if !try_run(..cmd[:]) do append(&failed, fmt.tprintf("%s for %s", pkg, strings.join(flags, " ")))
+			}
+		}
+	}
+	if opt.platform == .all {
+		for pkg in ([]string{"tools/nvbuild", "android/jnigen"}) {
+			if !try_run("odin", "check", pkg, "-vet", "-strict-style") do append(&failed, pkg)
 		}
 	}
 	if len(failed) > 0 do fail("check failed: %s", strings.join(failed[:], ", "))
