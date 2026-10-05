@@ -214,8 +214,14 @@ build_android :: proc(opt: Options) {
 		strings.concatenate({"-jar:", a.jar}), strings.concatenate({"-classes:", classes}),
 		"-spec:nv/android/jni_api.txt", "-out:nv/jni_api_android.odin", strings.concatenate({"-javap:", java_tool(a, "javap")}))
 
-	odin_build(opt, stage + "/lib/arm64-v8a/libapp.so", "-target:linux_arm64", "-subtarget:android", "-build-mode:shared",
+	lib :: stage + "/lib/arm64-v8a/libapp.so"
+	odin_build(opt, lib, "-target:linux_arm64", "-subtarget:android", "-build-mode:shared",
 		strings.concatenate({"-extra-linker-flags:-L", abs(stubs), " -Wl,-z,max-page-size=16384"}))
+	// How the library starts (nv/app_android.odin): DT_INIT runs the entry point at load; without it
+	// (Odin before 085af86da) jni_on_create runs it. The compiler pin's upgrade steps read this line.
+	if dyn, ok := capture(path(a.toolchain, "bin", exe("llvm-readelf")), "-d", lib); ok {
+		fmt.printfln("nvbuild: libapp.so %s", strings.contains(dyn, "(INIT)") ? "has DT_INIT: the runtime starts at load" : "has no DT_INIT: jni_on_create starts the runtime")
+	}
 
 	d8 := make([dynamic]string)
 	append(&d8, java_tool(a, "java"), "-cp", path(a.build_tools, "lib", "d8.jar"), "com.android.tools.r8.D8",

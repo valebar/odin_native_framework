@@ -129,7 +129,9 @@ Page_Handle :: struct {
 }
 
 // The page stack: g_nav[0] is the root page from `run`, the depth is len(g_nav) - 1. Backends
-// implement _run (the platform loop; once views can exist it calls nav_show_root), _nav_push
+// implement _run (start the platform; once views can exist, inside _run or from a later platform
+// callback such as Android's first onCreate, call theme_start and then nav_show_root, bracketed;
+// _run may return before that), _nav_push
 // (show the new top page, already in g_nav, with its title and chrome), _nav_pop (the native
 // transition back to `below`, already the top of g_nav; false if the platform refused),
 // _nav_release (the page left for good: retire `h.scope` once its views are gone; the scope's
@@ -146,8 +148,10 @@ Page_Handle :: struct {
 @(private) g_nav_building: int
 @(private) g_nav_pending:  [dynamic]^Page_Handle
 
-// Opens a window showing the root page and blocks in the platform event loop. `build` runs once
-// the platform is ready to create views.
+// Opens a window showing the root page and blocks in the platform event loop; on Android it
+// returns at once and the app keeps running (the first Activity builds the page). `build` runs
+// once the platform is ready to create views: before `run` the app only calls `theme_set` /
+// `theme_set_mode` (Android has no JNIEnv yet, Windows no GDI+).
 run :: proc(p: Page) {
 	assert(len(g_nav) == 0, "nv.run twice")
 	append(&g_nav, nav_page_new(p))

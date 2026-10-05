@@ -1,9 +1,11 @@
 package nv;
 
-// Generic embedder: loads the Odin library and hands the Activity to it. The Back key and the
-// ActionBar's up arrow go to nativeOnBack, which pops a pushed page; on the root page it returns
-// false and the Activity finishes as usual. The options menu holds the page's actions:
-// nativeOnCreateMenu fills it and nativeOnAction gets the selected item's id.
+// Generic embedder: loads the Odin library and hands the Activity to it. Loading runs the runtime
+// and the app's main when libapp.so has a DT_INIT, else nativeOnCreate does; either way
+// nativeOnCreate builds the root page (nv/app_android.odin). The Back key and the ActionBar's up
+// arrow go to nativeOnBack, which pops a pushed page; on the root page it returns false and the
+// Activity finishes as usual. The options menu holds the page's actions: nativeOnCreateMenu fills
+// it and nativeOnAction gets the selected item's id.
 public final class NvActivity extends android.app.Activity {
     static { System.loadLibrary("app"); }
 

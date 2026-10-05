@@ -1,11 +1,17 @@
 #+build linux:android
 package nv
 
-// Android app backend. The Java embedder (nv/android/java/nv/NvActivity.java) loads
-// libapp.so and calls nativeOnCreate on the UI thread. We then call the runtime's
-// `_odin_entry_point` (runs @init procs, then the app's main), whose nv.run builds the
-// root view and sets it as the Activity's content. Desktop Linux runs that entry at load
-// via the linker; the android subtarget doesn't, hence the dlsym lookup.
+// Android app backend. The Java embedder (nv/android/java/nv/NvActivity.java) loads libapp.so
+// in its static initializer and calls nativeOnCreate on the UI thread for every Activity.
+//
+// The runtime's `_odin_entry_point` (the @init procs, then the app's main) should be the
+// library's DT_INIT, run by System.loadLibrary. Odin before 085af86da (the pinned dev-2026-09
+// included) spawns the linker without a shell, so `-Wl,-init,'_odin_entry_point'` reaches LLD
+// with its quotes and DT_INIT is silently left out (desktop shared libraries lose it too). Both
+// cases work: android_runtime_started marks the start, and the first jni_on_create that finds no
+// mark runs the entry through dlsym, before it stores the env and the Activity. So the app's main
+// never has a JNIEnv or an Activity: nv.run's _run only keeps the context, and the first onCreate
+// starts the theme and builds the root page.
 //
 // The entry point runs once per process. A later Activity in the same process (the user backed
 // out and relaunched, so onCreate ran again but loadLibrary didn't) gets a fresh view tree from
@@ -26,54 +32,74 @@ foreign liblog {
 @(private) ANDROID_LOG_ERROR :: 6
 
 @(private) g_android: struct {
-	env:      JNI_Env,  // UI-thread env, refreshed on every JNI callback
+	env:      JNI_Env,  // UI-thread env, refreshed on every JNI callback; nil until the first onCreate
 	activity: jobject,  // global ref
-	ctx:      runtime.Context,
+	ctx:      runtime.Context, // the app's, kept by _run; every JNI callback restores it
 	density:  f32,      // DisplayMetrics.density, read lazily by android_dp
 	cache_dir: string,  // Context.getCacheDir(), read lazily by _font_load
+	started:  bool,     // the runtime started: android_runtime_started ran
+	shown:    bool,     // an Activity built the root page, so a later onCreate is a relaunch
 }
 
+// Runs in the runtime's startup, before the app's main: at load time when the linker set DT_INIT,
+// else from jni_on_create's own call of the entry point.
+@(init, private)
+android_runtime_started :: proc "contextless" () {
+	g_android.started = true
+}
+
+// Every Activity's onCreate. The first one starts the runtime if loading didn't, then the theme,
+// and builds the root page; a later one rebuilds the root page in the new Activity, so `build`
+// runs once per Activity.
 @(export, link_name="Java_nv_NvActivity_nativeOnCreate")
 jni_on_create :: proc "c" (env: JNI_Env, _: jclass, activity: jobject) {
+	if !g_android.started {
+		// No DT_INIT. Before the env and the Activity are stored, so main sees what it sees at load.
+		__android_log_write(ANDROID_LOG_INFO, "nv", "no DT_INIT: running _odin_entry_point from onCreate")
+		self := posix.dlopen("libapp.so", {.NOW})
+		entry := cast(proc "c" ())posix.dlsym(self, "_odin_entry_point")
+		if entry == nil {
+			__android_log_write(ANDROID_LOG_ERROR, "nv", "_odin_entry_point not found")
+			return
+		}
+		entry()
+	}
+	if len(g_nav) == 0 {
+		__android_log_write(ANDROID_LOG_ERROR, "nv", "the app's main did not call nv.run")
+		return
+	}
+	context = g_android.ctx
 	g_android.env = env
 	if g_android.activity != nil do jni_delete_global_ref(env, g_android.activity)
 	g_android.activity = jni_new_global_ref(env, activity)
 
-	if len(g_nav) > 0 {
-		context = g_android.ctx
-		callback_enter()
-		defer callback_exit()
-		for len(g_nav) > 1 do nav_system_pop() // pushed pages are gone with the old Activity
-		dialog_close_page(g_nav[0]) // and so are the root's dialogs
-		scope_retire(g_nav[0].scope) // the old root's widgets, once this callback returns
-		g_nav[0].scope = scope_new()
-		g_nav[0].root = nil // rebuilt by set_content; nil means "building" to page_set_*
-		theme_notify() // a night mode change recreates the Activity
+	callback_enter()
+	defer callback_exit()
+	if !g_android.shown {
+		g_android.shown = true
+		theme_start()
 		set_content()
 		return
 	}
-
-	self := posix.dlopen("libapp.so", {.NOW})
-	entry := cast(proc "c" ())posix.dlsym(self, "_odin_entry_point")
-	if entry == nil {
-		__android_log_write(ANDROID_LOG_ERROR, "nv", "_odin_entry_point not found")
-		return
-	}
-	entry()
+	for len(g_nav) > 1 do nav_system_pop() // pushed pages are gone with the old Activity
+	dialog_close_page(g_nav[0]) // and so are the root's dialogs
+	scope_retire(g_nav[0].scope) // the old root's widgets, once this callback returns
+	g_nav[0].scope = scope_new()
+	g_nav[0].root = nil // rebuilt by set_content; nil means "building" to page_set_*
+	theme_notify() // a night mode change recreates the Activity
+	set_content()
 }
 
 // Unused: native_app_glue is linked for the android subtarget and references it.
 @(export)
 android_main :: proc "c" (app: rawptr) {}
 
+// nv.run, from the app's main, before any env or Activity is stored (see the top of the file): no
+// JNI here. jni_on_create builds the root page; nv.run returns and the app keeps running.
 @(private)
 _run :: proc() {
 	g_android.ctx = context
-	stdout_to_logcat()
-	callback_enter()
-	theme_start()
-	set_content()
-	callback_exit()
+	stdout_to_logcat() // no JNI: a pipe and a raw pthread
 }
 
 // Builds the root page's view tree and shows it in the current Activity.
