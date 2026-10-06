@@ -14,7 +14,8 @@ import NS "core:sys/darwin/Foundation"
 	ctx:    runtime.Context,
 	window: ^NS.Window,
 	content: ^NS.View, // the window's content view: pages and dialogs are its subviews
-	back:   ^Titlebar_Accessory_View_Controller, // hidden on the root page
+	back:   ^Titlebar_Accessory_View_Controller, // owned for the run; detached on the root page
+	back_attached: bool,
 	actions: ^Titlebar_Accessory_View_Controller, // trailing; the top page's action buttons, nil when it has none
 	nav_target: NS.id, // NVNavTarget: receives the back button's and the actions' clicks
 }
@@ -41,7 +42,7 @@ _run :: proc() {
 	wnd->setContentView(content)
 	content->release() // the window owns it
 	g_macos.content = content
-	nav_install_back_button(wnd)
+	nav_install_back_button()
 	callback_enter()
 	nav_show_root()
 	callback_exit()

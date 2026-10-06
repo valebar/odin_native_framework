@@ -313,10 +313,6 @@ titlebar_accessory_set_layout_attribute :: proc "c" (vc: ^Titlebar_Accessory_Vie
 	send(nil, vc, "setLayoutAttribute:", attr)
 }
 
-titlebar_accessory_set_hidden :: proc "c" (vc: ^Titlebar_Accessory_View_Controller, hidden: NS.BOOL) {
-	send(nil, vc, "setHidden:", hidden)
-}
-
 // The window retains the controller.
 window_add_titlebar_accessory :: proc "c" (w: ^NS.Window, vc: ^Titlebar_Accessory_View_Controller) {
 	send(nil, w, "addTitlebarAccessoryViewController:", vc)

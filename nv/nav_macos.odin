@@ -50,7 +50,17 @@ _nav_actions_changed :: proc(e: ^Page_Handle) {
 @(private)
 nav_update_chrome :: proc(e: ^Page_Handle) {
 	g_macos.window->setTitle(ns_string(e.page.title))
-	titlebar_accessory_set_hidden(g_macos.back, len(g_nav) <= 1)
+	// AppKit's accessory `hidden` property only applies to Top/Bottom, not Leading.
+	// Detach on the root so both the button and its reserved titlebar space disappear.
+	show_back := len(g_nav) > 1
+	if show_back != g_macos.back_attached {
+		if show_back {
+			window_add_titlebar_accessory(g_macos.window, g_macos.back)
+		} else {
+			window_remove_titlebar_accessory(g_macos.window, g_macos.back)
+		}
+		g_macos.back_attached = show_back
+	}
 	nav_rebuild_actions(e)
 }
 
@@ -102,7 +112,7 @@ nav_rebuild_actions :: proc(e: ^Page_Handle) {
 }
 
 @(private)
-nav_install_back_button :: proc(wnd: ^NS.Window) {
+nav_install_back_button :: proc() {
 	cls := objc_class(&nav_target_class, "NVNavTarget", "NSObject", {
 		{"nvBack:", auto_cast nav_back_clicked, "v@:@"},
 		{"nvAction:", auto_cast nav_action_clicked, "v@:@"},
@@ -126,9 +136,8 @@ nav_install_back_button :: proc(wnd: ^NS.Window) {
 	titlebar_accessory_set_view(vc, container)
 	container->release()
 	titlebar_accessory_set_layout_attribute(vc, LAYOUT_ATTRIBUTE_LEADING)
-	titlebar_accessory_set_hidden(vc, true)
-	window_add_titlebar_accessory(wnd, vc)
-	vc->release()
+	// Keep our owning reference while detached, including during the button's own callback.
+	// nav_update_chrome attaches it only when a pushed page is visible.
 	g_macos.back = vc
 }
 
