@@ -150,9 +150,8 @@ measure :: proc(hwnd: win.HWND) -> [2]i32 {
 		return image_measure(hwnd)
 	case CLASS_CONTAINER:
 		return container_measure(hwnd)
-	case CLASS_OVERLAY: // the base's; the children float over it
-		h := overlay_handle_of(hwnd)
-		return h != nil ? measure(win.HWND(h.base)) : {}
+	case CLASS_OVERLAY:
+		return overlay_measure(hwnd)
 	case CLASS_FAB:
 		return fab_measure(hwnd)
 	case CLASS_TABBAR:

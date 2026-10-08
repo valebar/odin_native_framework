@@ -1,8 +1,8 @@
 package main
 
-// The Scaffold page: three bottom tabs, a FAB that counts and shows a SnackBar with Undo, and a
-// drawer whose buttons switch tabs. A pushed page has a back button instead of the bar's menu
-// button (as in Flutter), so the Home tab opens the drawer with a button.
+// The Scaffold page: three bottom tabs (the Profile tab is a Stack), a FAB that counts and shows a
+// SnackBar with Undo, and a drawer whose buttons switch tabs. A pushed page has a back button
+// instead of the bar's menu button (as in Flutter), so the Home tab opens the drawer with a button.
 
 import "core:fmt"
 import nv "../nv"
@@ -64,7 +64,7 @@ scaffold_demo_build :: proc(page: ^nv.Page_Handle, user: rawptr) -> nv.View {
 		tabs = {
 			{title = "Home", icon = .Home, body = nv.container_view(home)},
 			{title = "Favorites", icon = .Star, body = tab_page("Favorites", {1, 0.95, 0.8, 1})},
-			{title = "Profile", icon = .Person, body = tab_page("Profile", {0.85, 0.93, 1, 1})},
+			{title = "Profile", icon = .Person, body = profile_stack()},
 		},
 		on_tab = proc(_: rawptr, index: int) { fmt.println("tab:", index) },
 		fab = {icon = .Add, user = d, on_click = proc(user: rawptr) {
@@ -82,4 +82,22 @@ scaffold_demo_build :: proc(page: ^nv.Page_Handle, user: rawptr) -> nv.View {
 		user = d,
 	})
 	return nv.scaffold_view(d.scaffold)
+}
+
+// A Stack: a tinted box filling the tab, a centered heading over it, a badge in the top-right
+// corner and a caption at the bottom left.
+profile_stack :: proc() -> nv.View {
+	tint := nv.container_create({color = {0.85, 0.93, 1, 1}})
+	name := nv.label_create({text = "Profile", heading = true})
+	badge := nv.container_create({
+		child = nv.label_view(nv.label_create({text = "NEW", style = {size = 12, weight = .Bold, color = {1, 1, 1, 1}}})),
+		color = {0.85, 0.2, 0.3, 1}, radius = 10, padding = nv.insets_symmetric(8, 2),
+	})
+	caption := nv.label_create({text = "A Stack: fill, center, top-right and bottom-left children"})
+	return nv.stack_create({
+		{view = nv.container_view(tint), h = .Fill, v = .Fill},
+		{view = nv.label_view(name), h = .Center, v = .Center},
+		{view = nv.container_view(badge), h = .End, v = .Start, margin = {0, 12, 12, 0}},
+		{view = nv.label_view(caption), h = .Start, v = .End, margin = {16, 0, 0, 16}},
+	})
 }

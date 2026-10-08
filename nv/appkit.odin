@@ -133,6 +133,7 @@ LAYOUT_RELATION_EQUAL   :: NS.Integer(0)
 LAYOUT_PRIORITY_REQUIRED :: f32(1000)
 LAYOUT_PRIORITY_FLEX     :: f32(1)
 LAYOUT_PRIORITY_FIXED    :: f32(751) // a container's fixed size: above a child's default 750, below the stack's required stretch
+LAYOUT_PRIORITY_FITTING  :: f32(50)  // NSLayoutPriorityFittingSizeCompression: an overlay shrinks to its largest child
 
 // Activates `a.attr == b.attr * multiplier`.
 layout_constraint_equal :: proc "c" (a: NS.id, b: NS.id, attr: NS.Integer, multiplier: NS.Float) {
@@ -262,18 +263,18 @@ _view_set_hidden :: proc(v: View, hidden: bool) {
 	send(nil, (^NS.Object)(v), "setHidden:", NS.BOOL(hidden))
 }
 
-// The overlay's children with their constraints, so overlay_place can swap them: allocated in the
-// scope at overlay_init (a later _overlay_place may run while another page's scope is current).
-@(private) APPLE_OVERLAY_MAX :: 16 // the tab bodies, the FAB and the SnackBar
-
+// The overlay's children with their constraints, so overlay_place can swap them: the array grows in
+// the scope it was made in at overlay_init (a later _overlay_place may run while another page's
+// scope is current).
 @(private) Apple_Overlay :: struct {
-	children: [APPLE_OVERLAY_MAX]Apple_Overlay_Child,
-	count:    int,
+	children: [dynamic]Apple_Overlay_Child,
 }
 
+// Per axis: the edge (or center) equality, a fixed size, and for a `sizes` child the inequalities
+// that keep it inside the overlay on both sides.
 @(private) Apple_Overlay_Child :: struct {
 	view:        ^NS.Object,
-	constraints: [4]^Layout_Constraint, // active; held by the views, cleared by overlay_unpin
+	constraints: [8]^Layout_Constraint, // active; held by the views, deactivated on a new place
 	n:           int,
 }
 
@@ -292,19 +293,23 @@ _overlay_init :: proc(h: ^Overlay_Handle) {
 	send(nil, base, "setTranslatesAutoresizingMaskIntoConstraints:", NS.BOOL(false))
 	send(nil, root, "addSubview:", base) // retains it; the base's +1 belongs to its creator's scope
 	layout_pin_edges(base, root)
-	h.native = scope_new_in(Apple_Overlay)
+	// No intrinsic size of its own: the base and the `sizes` children's inequalities push it out,
+	// and this pulls it in to the largest of them.
+	layout_anchor_constant(anchor_width(root), 0, LAYOUT_PRIORITY_FITTING)
+	layout_anchor_constant(anchor_height(root), 0, LAYOUT_PRIORITY_FITTING)
+	o := scope_new_in(Apple_Overlay)
+	o.children = make([dynamic]Apple_Overlay_Child, scope_allocator(scope_current()))
+	h.native = o
 	h.root = View(root)
 }
 
 @(private)
 _overlay_add :: proc(h: ^Overlay_Handle, child: View, place: Overlay_Place) {
 	o := (^Apple_Overlay)(h.native)
-	assert(o.count < APPLE_OVERLAY_MAX, "nv: too many overlay children")
 	v := (^NS.Object)(child)
 	send(nil, v, "setTranslatesAutoresizingMaskIntoConstraints:", NS.BOOL(false))
 	send(nil, (^NS.Object)(h.root), "addSubview:", v) // above the earlier ones
-	o.children[o.count].view = v
-	o.count += 1
+	append(&o.children, Apple_Overlay_Child{view = v})
 	_overlay_place(h, child, place)
 }
 
@@ -312,7 +317,7 @@ _overlay_add :: proc(h: ^Overlay_Handle, child: View, place: Overlay_Place) {
 _overlay_place :: proc(h: ^Overlay_Handle, child: View, place: Overlay_Place) {
 	o := (^Apple_Overlay)(h.native)
 	c: ^Apple_Overlay_Child
-	for &e in o.children[:o.count] do if e.view == (^NS.Object)(child) do c = &e
+	for &e in o.children do if e.view == (^NS.Object)(child) do c = &e
 	if c == nil do return
 	for k in c.constraints[:c.n] do send(nil, k, "setActive:", NS.BOOL(false))
 	c.n = 0
@@ -327,8 +332,19 @@ _overlay_place :: proc(h: ^Overlay_Handle, child: View, place: Overlay_Place) {
 	sized :: proc "c" (a: ^Layout_Anchor, constant: NS.Float) -> ^Layout_Constraint {
 		return send(^Layout_Constraint, a, "constraintEqualToConstant:", constant)
 	}
+	inside :: proc "c" (a, b: ^Layout_Anchor, constant: NS.Float) -> ^Layout_Constraint { // a >= b + constant
+		return send(^Layout_Constraint, a, "constraintGreaterThanOrEqualToAnchor:constant:", b, constant)
+	}
 	v, root := c.view, (^NS.Object)(h.root)
 	m := place.margin
+	if place.sizes && place.h != .Fill {
+		add(c, inside(anchor_leading(v), anchor_leading(root), NS.Float(m.left)))
+		add(c, inside(anchor_trailing(root), anchor_trailing(v), NS.Float(m.right)))
+	}
+	if place.sizes && place.v != .Fill {
+		add(c, inside(anchor_top(v), anchor_top(root), NS.Float(m.top)))
+		add(c, inside(anchor_bottom(root), anchor_bottom(v), NS.Float(m.bottom)))
+	}
 	switch place.h {
 	case .Start:  add(c, equal(anchor_leading(v), anchor_leading(root), NS.Float(m.left)))
 	case .End:    add(c, equal(anchor_trailing(root), anchor_trailing(v), NS.Float(m.right)))

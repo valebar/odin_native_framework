@@ -121,6 +121,26 @@ overlay_layout :: proc(hwnd: win.HWND) {
 	}
 }
 
+// The base's natural size, grown to fit every shown `sizes` child with its margins (a Stack's
+// children; the Scaffold's float over the base).
+@(private)
+overlay_measure :: proc(hwnd: win.HWND) -> [2]i32 {
+	h := overlay_handle_of(hwnd)
+	if h == nil do return {}
+	out := measure(win.HWND(h.base))
+	if h.native == nil do return out
+	for c in (^Windows_Overlay)(h.native).children {
+		p := c.place
+		if !p.sizes || !window_shown(c.view) do continue
+		natural := measure(c.view)
+		w := p.h != .Fill && p.width > 0 ? px(p.width) : natural.x
+		hh := p.v != .Fill && p.height > 0 ? px(p.height) : natural.y
+		out.x = max(out.x, w + px(p.margin.left) + px(p.margin.right))
+		out.y = max(out.y, hh + px(p.margin.top) + px(p.margin.bottom))
+	}
+	return out
+}
+
 // One axis of a place between `start` and `end` (px): `size` dp, else `natural` px; Fill stretches.
 @(private)
 overlay_axis :: proc "contextless" (a: Align, start, end: i32, size: f64, natural: i32) -> (pos, length: i32) {

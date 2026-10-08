@@ -9,7 +9,7 @@ package nv
 // Widgets: a scrolling list (`list_create`), a text label (`label_create`), a text input
 // (`input_create`), a push button (`button_create`), a custom-drawn canvas (`canvas_create`), an
 // image (`image_create`), a circular progress indicator (`progress_create`), Flutter-style Row / Column stacks (`row_create`, `column_create`,
-// `flex_create`) and a Container (`container_create`): a box with margin, border, background,
+// `flex_create`), a Stack that layers its children (`stack_create`) and a Container (`container_create`): a box with margin, border, background,
 // rounded corners and padding around one child. Images are decoded into a Bitmap from bytes, a file or a URL (`bitmap_from_bytes`,
 // `bitmap_from_file`, `bitmap_fetch`), which the canvas can draw too (`draw_image`). Pages stack
 // with `push` / `pop`; `run` shows the root page. A page's bar carries its title, a back button
@@ -404,6 +404,38 @@ row_create :: proc(children: []Flex_Child, spacing: f64 = 0) -> View {
 
 column_create :: proc(children: []Flex_Child, spacing: f64 = 0) -> View {
 	return g_backend.flex_create({axis = .Vertical, spacing = spacing, children = children})
+}
+
+// Where a Stack child sits on each axis: at the start (left / top), centered, at the end, or
+// stretched between the margins.
+Align :: enum { Start, Center, End, Fill }
+
+// One child of a Stack: Flutter's Align and Positioned in one. The zero value sits top-left at its
+// natural size (Flutter's default topStart). `margin` is the distance from the stack's edges on the
+// aligned sides (Positioned's left / top / right / bottom; ignored when centered); `width` /
+// `height` fix the child's size (0 = natural; ignored on a Fill axis).
+Stack_Child :: struct {
+	view:          View,
+	h, v:          Align,
+	margin:        Insets,
+	width, height: f64,
+}
+
+// Flutter's Stack: the children are layered in order, the last on top, and the topmost child under
+// the pointer takes it (a plain label too, as in Flutter; an iOS label and a Windows Static, which
+// answers HTTRANSPARENT, let the pointer through). The
+// stack's natural size is the largest child's, margins included; a Row / Column stretches it like
+// any child. Children are fixed at creation, like Row / Column.
+stack_create :: proc(children: []Stack_Child) -> View {
+	o := overlay_new(container_view(container_create({}))) // the base sizes nothing
+	for c in children {
+		assert(c.view != nil, "nv.stack_create: a child is a view")
+		m := c.margin // a centered axis ignores its margins on every backend
+		if c.h == .Center do m.left, m.right = 0, 0
+		if c.v == .Center do m.top, m.bottom = 0, 0
+		g_backend.overlay_add(o, c.view, {h = c.h, v = c.v, margin = m, width = c.width, height = c.height, sizes = true})
+	}
+	return o.root
 }
 
 // Per-side distances in points / dp (Flutter's EdgeInsets).

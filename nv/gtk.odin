@@ -168,6 +168,7 @@ foreign gtk {
 	gtk_overlay_set_child      :: proc(overlay: ^GtkWidget, child: ^GtkWidget) ---
 	gtk_overlay_add_overlay    :: proc(overlay: ^GtkWidget, widget: ^GtkWidget) ---
 	gtk_overlay_remove_overlay :: proc(overlay: ^GtkWidget, widget: ^GtkWidget) ---
+	gtk_overlay_set_measure_overlay :: proc(overlay: ^GtkWidget, widget: ^GtkWidget, measure: gboolean) ---
 
 	gtk_css_provider_new              :: proc() -> ^GtkCssProvider ---
 	gtk_css_provider_load_from_data   :: proc(provider: ^GtkCssProvider, data: cstring, length: int) --- // every 4.x (4.12+ prefers load_from_string)

@@ -83,15 +83,17 @@ Scaffold_Handle :: struct {
 // Linked through the handles, like g_progress; scaffold_dispose unlinks.
 @(private) g_scaffolds: ^Scaffold_Handle
 
-// Where an overlay child sits: per axis at the start, the center, the end, or stretched (Fill),
-// `margin` from the overlay's edges; `width` / `height` 0 is the child's natural size (ignored on
-// a Fill axis).
-@(private) Align :: enum { Start, Center, End, Fill }
-
+// Where an overlay child sits (see Stack_Child): `sizes` children count toward the overlay's
+// natural size (the largest of them, margins included, and the base). A Stack's children all do;
+// the Scaffold's FAB, SnackBar and drawer don't, so they never set a minimum page size (Android's
+// FrameLayout counts every child, and on Apple a Fill axis is pinned by required edge equalities,
+// so a hidden tab body, the SnackBar's width and the drawer's height still count there: the
+// Scaffold is always stretched, so only the minimum shows).
 @(private) Overlay_Place :: struct {
 	h, v:          Align,
 	margin:        Insets,
 	width, height: f64,
+	sizes:         bool,
 }
 
 // A native container whose `base` fills it, with children stacked above it in add order. The
@@ -162,7 +164,7 @@ scaffold_create :: proc(s: Scaffold) -> ^Scaffold_Handle {
 		for t, i in s.tabs {
 			assert(t.body != nil, "nv.scaffold_create: every tab has a body")
 			h.bodies[i] = t.body
-			g_backend.overlay_add(h.inner, t.body, {h = .Fill, v = .Fill})
+			g_backend.overlay_add(h.inner, t.body, {h = .Fill, v = .Fill, sizes = true})
 			if i != h.tab do g_backend.view_set_hidden(t.body, true)
 		}
 	} else {

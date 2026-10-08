@@ -53,7 +53,7 @@ test_scaffold_tabs :: proc(t: ^testing.T) {
 	expect_log(t, "theme_apply_mode System",
 		"label_init A", "label_init B", "label_init C",
 		"container_init", "overlay_init container",
-		"overlay_add label A Fill Fill", "hide label A", "overlay_add label B Fill Fill", "overlay_add label C Fill Fill", "hide label C",
+		"overlay_add label A Fill Fill sizes", "hide label A", "overlay_add label B Fill Fill sizes", "overlay_add label C Fill Fill sizes", "hide label C",
 		"label_init ", "button_init ", "flex_create Horizontal 2", "container_init", "container_init",
 		"flex_create Vertical 3", "container_init", "overlay_add container Fill End", "hide container",
 		"tabbar_init 3 1", "flex_create Vertical 2",
@@ -245,4 +245,25 @@ test_fab_click :: proc(t: ^testing.T) {
 	mock_log_clear()
 	fab_notify(ms.handle.fab)
 	expect_log(t, "action")
+}
+
+// A Stack is an overlay over an empty base whose children all count toward its size, in order.
+@(test)
+test_stack_create :: proc(t: ^testing.T) {
+	mock_begin(t)
+	defer mock_end(t)
+	Stack_Page :: struct { stack: View }
+	sp: Stack_Page
+	run({title = "S", user_data = &sp, build = proc(_: ^Page_Handle, user: rawptr) -> View {
+		back := label_view(label_create({text = "back"}))
+		badge := label_view(label_create({text = "badge"}))
+		(^Stack_Page)(user).stack = stack_create({
+			{view = back, h = .Fill, v = .Fill},
+			{view = badge, h = .End, v = .Start, margin = {0, 8, 8, 0}, width = 40},
+		})
+		return (^Stack_Page)(user).stack
+	}})
+	expect_log(t, "theme_apply_mode System", "label_init back", "label_init badge", "container_init", "overlay_init container",
+		"overlay_add label back Fill Fill sizes", "overlay_add label badge End Start sizes", "nav_push S")
+	testing.expect(t, mock_view_of(sp.stack).kind == "overlay" && mock.views == 4) // two labels, the base, the overlay
 }

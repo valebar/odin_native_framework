@@ -452,7 +452,7 @@ mock_overlay_init :: proc(h: ^Overlay_Handle) {
 
 mock_overlay_add :: proc(h: ^Overlay_Handle, child: View, place: Overlay_Place) {
 	mock_require(h.root != nil && child != nil, "_overlay_add gets a made overlay and a view")
-	mock_log("overlay_add %s %v %v", mock_view_name(child), place.h, place.v)
+	mock_log("overlay_add %s %v %v%s", mock_view_name(child), place.h, place.v, place.sizes ? " sizes" : "")
 }
 
 mock_overlay_place :: proc(h: ^Overlay_Handle, child: View, place: Overlay_Place) {

@@ -32,6 +32,7 @@ _overlay_init :: proc(h: ^Overlay_Handle) {
 @(private)
 _overlay_add :: proc(h: ^Overlay_Handle, child: View, place: Overlay_Place) {
 	gtk_overlay_add_overlay((^GtkWidget)(h.root), (^GtkWidget)(child)) // above the earlier ones
+	if place.sizes do gtk_overlay_set_measure_overlay((^GtkWidget)(h.root), (^GtkWidget)(child), true) // the main child always counts
 	_overlay_place(h, child, place)
 }
 
