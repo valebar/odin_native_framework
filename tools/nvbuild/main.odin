@@ -48,7 +48,7 @@ AVD_DEFAULT :: "Pixel_10"
 // The Odin this repo is built with, as `odin version` prints it; only the hash is compared. How the
 // compiler links a shared library decides how libapp.so starts (nv/app_android.odin), so the pin
 // moves only through the upgrade steps in CLAUDE.md (Commands, compiler pin).
-ODIN_PIN :: "dev-2026-09-nightly:a2fb372"
+ODIN_PIN :: "dev-2026-10-nightly:84bc3fc"
 
 ROOT :: #directory + "/../.." // the repo, whatever the cwd `odin run` was given
 
