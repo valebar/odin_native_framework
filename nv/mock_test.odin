@@ -106,6 +106,7 @@ mock_begin :: proc(t: ^testing.T) {
 	g_nav, g_nav_pending, g_dialogs, g_dialogs_pending = {}, {}, {}, {}
 	g_nav_building, g_callback_depth = 0, 0
 	g_scope_override, g_scopes_retired = nil, {}
+	g_progress = nil
 	g_theme, g_dark, g_theme_live = {}, false, false
 	g_backend = mock_backend
 	mock = {t = t, nav_pop_ok = true, decode_ok = true, font_ok = true}
@@ -151,6 +152,7 @@ mock_end :: proc(t: ^testing.T, loc := #caller_location) {
 	delete(g_dialogs_pending)
 	delete(g_scopes_retired)
 	g_nav, g_nav_pending, g_dialogs, g_dialogs_pending, g_scopes_retired = {}, {}, {}, {}, {}
+	testing.expectf(t, g_progress == nil, "a progress outlived its scope", loc = loc)
 	testing.expectf(t, mock.views == 0, "%d views outlived their page or dialog", mock.views, loc = loc)
 	virtual.arena_destroy(&mock.arena)
 }

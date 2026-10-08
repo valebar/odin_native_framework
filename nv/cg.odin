@@ -9,12 +9,14 @@ package nv
 // are shared the same way.
 
 import "base:runtime"
+import "core:math"
 import NS "core:sys/darwin/Foundation"
 
 foreign import cg "system:CoreGraphics.framework"
 
 CGContextRef :: distinct rawptr
 
+CG_LINE_CAP_BUTT  :: i32(0)
 CG_LINE_CAP_ROUND :: i32(1)
 
 @(default_calling_convention="c")
@@ -30,6 +32,7 @@ foreign cg {
 	CGContextBeginPath         :: proc(c: CGContextRef) ---
 	CGContextMoveToPoint       :: proc(c: CGContextRef, x, y: NS.Float) ---
 	CGContextAddLineToPoint    :: proc(c: CGContextRef, x, y: NS.Float) ---
+	CGContextAddArc            :: proc(c: CGContextRef, x, y, radius, start_angle, end_angle: NS.Float, clockwise: i32) ---
 	CGContextStrokePath        :: proc(c: CGContextRef) ---
 	CGContextSaveGState        :: proc(c: CGContextRef) ---
 	CGContextRestoreGState     :: proc(c: CGContextRef) ---
@@ -239,6 +242,18 @@ _fill_ellipse :: proc(p: ^Painter, x, y, w, h: f64, color: Color) {
 @(private)
 _stroke_ellipse :: proc(p: ^Painter, x, y, w, h: f64, color: Color, width: f64) {
 	CGContextStrokeEllipseInRect(cg_stroke(p, color, width), cg_rect(x, y, w, h))
+}
+
+// Angles grow clockwise on screen: in these top-left contexts CoreGraphics' counterclockwise
+// (clockwise = 0) is clockwise. The cap is reset to butt, since _draw_line leaves it round.
+@(private)
+_stroke_arc :: proc(p: ^Painter, cx, cy, radius, start, sweep: f64, color: Color, width: f64) {
+	ctx := cg_stroke(p, color, width)
+	CGContextSetLineCap(ctx, CG_LINE_CAP_BUTT)
+	CGContextBeginPath(ctx)
+	a0 := start * math.PI / 180
+	CGContextAddArc(ctx, NS.Float(cx), NS.Float(cy), NS.Float(radius), NS.Float(a0), NS.Float(a0 + sweep * math.PI / 180), 0)
+	CGContextStrokePath(ctx)
 }
 
 // Per-canvas draw state (Canvas_Handle.extra, in the page's arena): the attribute dictionary of

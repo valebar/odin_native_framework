@@ -30,6 +30,7 @@ foreign import gdiplus "system:gdiplus.lib"
 @(private) GP_SMOOTHING_ANTIALIAS :: i32(4)
 @(private) GP_UNIT_WORLD          :: i32(0)
 @(private) GP_MATRIX_ORDER_PREPEND :: i32(0)
+@(private) GP_LINE_CAP_FLAT       :: i32(0)
 @(private) GP_LINE_CAP_ROUND      :: i32(2)
 @(private) GP_INTERPOLATION_HIGH_QUALITY_BICUBIC :: i32(7)
 @(private) GP_PIXEL_OFFSET_DEFAULT               :: i32(0)
@@ -43,6 +44,7 @@ foreign import gdiplus "system:gdiplus.lib"
 	brush_argb: u32,
 	pen_argb:   u32,
 	pen_width:  f32,
+	pen_cap:    i32, // of both ends: round for lines, flat for arcs
 	mem:        win.HDC, // back buffer of `size` px; nil until the first paint
 	bmp:        win.HBITMAP,
 	old:        win.HGDIOBJ,
@@ -72,6 +74,7 @@ foreign gdiplus {
 	GdipDrawLine            :: proc(graphics: GpGraphics, pen: GpPen, x1, y1, x2, y2: f32) -> i32 ---
 	GdipFillEllipse         :: proc(graphics: GpGraphics, brush: GpBrush, x, y, w, h: f32) -> i32 ---
 	GdipDrawEllipse         :: proc(graphics: GpGraphics, pen: GpPen, x, y, w, h: f32) -> i32 ---
+	GdipDrawArc             :: proc(graphics: GpGraphics, pen: GpPen, x, y, w, h, start_angle, sweep_angle: f32) -> i32 ---
 	GdipCreatePath          :: proc(fill_mode: i32, path: ^GpPath) -> i32 ---
 	GdipDeletePath          :: proc(path: GpPath) -> i32 ---
 	GdipAddPathArc          :: proc(path: GpPath, x, y, w, h, start, sweep: f32) -> i32 ---
@@ -106,9 +109,7 @@ _canvas_init :: proc(h: ^Canvas_Handle) {
 	GdipCreateSolidFill(0, &c.brush)
 	GdipCreatePen1(0, 1, GP_UNIT_WORLD, &c.pen)
 	c.pen_width = 1
-	// Caps only show on open figures (lines), so the rectangles and ellipses are unaffected.
-	GdipSetPenStartCap(c.pen, GP_LINE_CAP_ROUND)
-	GdipSetPenEndCap(c.pen, GP_LINE_CAP_ROUND)
+	c.pen_cap = GP_LINE_CAP_FLAT // the pen's default
 	scope_on_dispose(canvas_dispose, h)
 }
 
@@ -164,7 +165,8 @@ with_pen :: proc "contextless" (c: Color, width: f64) -> GpPen {
 	return pen
 }
 
-// The canvas's brush / pen, recolored (and the pen resized) only when the value changed.
+// The canvas's brush / pen, recolored (and the pen resized and its caps set) only when the value
+// changed. Caps only show on open figures, so the rectangles and ellipses leave them as they are.
 @(private)
 brush_for :: proc "contextless" (p: ^Painter, color: Color) -> GpBrush {
 	c := (^Windows_Canvas)(p.h.extra)
@@ -176,8 +178,13 @@ brush_for :: proc "contextless" (p: ^Painter, color: Color) -> GpBrush {
 }
 
 @(private)
-pen_for :: proc "contextless" (p: ^Painter, color: Color, width: f64) -> GpPen {
+pen_for :: proc "contextless" (p: ^Painter, color: Color, width: f64, ends: Maybe(i32) = nil) -> GpPen {
 	c := (^Windows_Canvas)(p.h.extra)
+	if want, ok := ends.?; ok && want != c.pen_cap {
+		GdipSetPenStartCap(c.pen, want)
+		GdipSetPenEndCap(c.pen, want)
+		c.pen_cap = want
+	}
 	if argb := color_argb(color); argb != c.pen_argb {
 		GdipSetPenColor(c.pen, argb)
 		c.pen_argb = argb
@@ -201,7 +208,7 @@ _stroke_rect :: proc(p: ^Painter, x, y, w, h: f64, color: Color, width: f64) {
 
 @(private)
 _draw_line :: proc(p: ^Painter, x0, y0, x1, y1: f64, color: Color, width: f64) {
-	GdipDrawLine(p.native, pen_for(p, color, width), f32(x0), f32(y0), f32(x1), f32(y1))
+	GdipDrawLine(p.native, pen_for(p, color, width, GP_LINE_CAP_ROUND), f32(x0), f32(y0), f32(x1), f32(y1))
 }
 
 @(private)
@@ -212,6 +219,12 @@ _fill_ellipse :: proc(p: ^Painter, x, y, w, h: f64, color: Color) {
 @(private)
 _stroke_ellipse :: proc(p: ^Painter, x, y, w, h: f64, color: Color, width: f64) {
 	GdipDrawEllipse(p.native, pen_for(p, color, width), f32(x), f32(y), f32(w), f32(h))
+}
+
+@(private)
+_stroke_arc :: proc(p: ^Painter, cx, cy, radius, start, sweep: f64, color: Color, width: f64) {
+	d := f32(2 * radius)
+	GdipDrawArc(p.native, pen_for(p, color, width, GP_LINE_CAP_FLAT), f32(cx - radius), f32(cy - radius), d, d, f32(start), f32(sweep))
 }
 
 // GDI ignores the GDI+ transform, so text is placed in px. The HDC from GdipGetDC has the

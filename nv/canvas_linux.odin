@@ -20,13 +20,48 @@ _canvas_init :: proc(h: ^Canvas_Handle) {
 	g_signal_connect(drag, "drag-end", rawptr(on_canvas_drag_end), h)
 	gtk_widget_add_controller(area, drag) // takes ownership
 
+	// The canvas holds its own reference, so a pending tick can still be removed when the scope dies.
+	g_object_ref_sink(area)
+	h.extra = scope_new_in(Linux_Canvas)
+	scope_on_dispose(canvas_dispose, h)
+
 	h.root = View(area)
 	h.view = area
 }
 
+// Per-canvas redraw state (Canvas_Handle.extra, in the page's arena).
+@(private) Linux_Canvas :: struct {
+	drawing: bool,  // inside the draw func
+	tick:    guint, // the pending tick callback (canvas_tick), 0 when none
+}
+
+@(private)
+canvas_dispose :: proc(data: rawptr) {
+	h := (^Canvas_Handle)(data)
+	c := (^Linux_Canvas)(h.extra)
+	if c.tick != 0 do gtk_widget_remove_tick_callback((^GtkWidget)(h.view), c.tick)
+	g_object_unref(h.view)
+}
+
+// A queue_draw issued from inside the canvas's own draw func is lost (GTK clears the flag when the
+// snapshot returns), so a redraw it asks for waits for the next frame clock tick, one at most per
+// canvas: that is how a canvas animates (the Bench, Progress).
 @(private)
 _canvas_redraw :: proc(h: ^Canvas_Handle) {
-	gtk_widget_queue_draw((^GtkWidget)(h.view))
+	c := (^Linux_Canvas)(h.extra)
+	area := (^GtkWidget)(h.view)
+	if !c.drawing {
+		gtk_widget_queue_draw(area)
+	} else if c.tick == 0 {
+		c.tick = gtk_widget_add_tick_callback(area, rawptr(canvas_tick), h, nil)
+	}
+}
+
+@(private)
+canvas_tick :: proc "c" (area: ^GtkWidget, _: rawptr, user: gpointer) -> gboolean {
+	(^Linux_Canvas)((^Canvas_Handle)(user).extra).tick = 0
+	gtk_widget_queue_draw(area)
+	return G_SOURCE_REMOVE
 }
 
 @(private)
@@ -87,6 +122,18 @@ _stroke_ellipse :: proc(p: ^Painter, x, y, w, h: f64, color: Color, width: f64) 
 	cairo_stroke(cr)
 }
 
+// cairo_arc grows clockwise in a y-down space; cairo_of cleared the path, so no line leads in.
+// The cap is butt, since _draw_line leaves it round.
+@(private)
+_stroke_arc :: proc(p: ^Painter, cx, cy, radius, start, sweep: f64, color: Color, width: f64) {
+	cr := cairo_of(p, color)
+	cairo_set_line_width(cr, width)
+	cairo_set_line_cap(cr, CAIRO_LINE_CAP_BUTT)
+	a0 := start * math.PI / 180
+	cairo_arc(cr, cx, cy, radius, a0, a0 + sweep * math.PI / 180)
+	cairo_stroke(cr)
+}
+
 // Cairo's toy text API; show_text starts at the baseline, so it moves down by the ascent. A loaded
 // font is selected by family: cairo-ft resolves it through the fontconfig config it was added to.
 // The API only knows normal and bold, so Semibold is bold too.
@@ -112,6 +159,9 @@ _draw_text :: proc(p: ^Painter, text: string, x, y: f64, style: Text_Style) {
 on_canvas_draw :: proc "c" (_: ^GtkWidget, cr: ^cairo_t, width, height: i32, user: gpointer) {
 	h := (^Canvas_Handle)(user)
 	context = h.ctx
+	c := (^Linux_Canvas)(h.extra)
+	c.drawing = true
+	defer c.drawing = false
 	canvas_draw_notify(h, cr, f64(width), f64(height))
 }
 

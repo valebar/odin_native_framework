@@ -10,7 +10,7 @@ package nv
 // backend comment above g_theme.
 //
 // The draw procs (_fill_rect, _stroke_rect, _draw_line, _fill_ellipse, _stroke_ellipse,
-// _draw_text, _draw_image) belong to the contract too, but the core calls them directly: they are
+// _stroke_arc, _draw_text, _draw_image) belong to the contract too, but the core calls them directly: they are
 // the canvas's hot path and only run inside on_draw with a Painter the backend made, so no test
 // replaces them. A missing one fails at its call in nv.odin.
 @(private) Backend :: struct {

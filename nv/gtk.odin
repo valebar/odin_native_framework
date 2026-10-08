@@ -50,6 +50,7 @@ cairo_font_extents_t :: struct {
 	ascent, descent, height, max_x_advance, max_y_advance: f64,
 }
 
+CAIRO_LINE_CAP_BUTT  :: i32(0)
 CAIRO_LINE_CAP_ROUND :: i32(1)
 CAIRO_FORMAT_ARGB32  :: i32(0)
 
@@ -218,6 +219,8 @@ foreign gtk {
 	gdk_texture_get_height     :: proc(texture: ^GdkTexture) -> i32 ---
 	gdk_texture_download       :: proc(texture: ^GdkTexture, data: [^]u8, stride: uint) ---
 	gtk_widget_queue_draw          :: proc(widget: ^GtkWidget) ---
+	gtk_widget_add_tick_callback   :: proc(widget: ^GtkWidget, callback: rawptr, user: gpointer, notify: rawptr) -> guint ---
+	gtk_widget_remove_tick_callback :: proc(widget: ^GtkWidget, id: guint) ---
 	gtk_widget_add_controller      :: proc(widget: ^GtkWidget, controller: ^GtkEventController) ---
 	gtk_gesture_drag_new           :: proc() -> ^GtkEventController ---
 	gtk_gesture_drag_get_start_point :: proc(gesture: ^GtkEventController, x, y: ^f64) -> gboolean ---

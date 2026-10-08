@@ -12,7 +12,7 @@ package main
 // an input that sets the filter) and Info actions; a detail page's Edit action swaps itself for a
 // Done action and marks the title. The header label follows the filter. The canvas draws an image
 // embedded in the binary; a detail page shows the same image as an asset file and a photo
-// downloaded from the network. The header, the Tip button, the Ask dialog's input and the canvas
+// downloaded from the network, plus a spinning progress and a determinate one stepped by a button. The header, the Tip button, the Ask dialog's input and the canvas
 // text use a font loaded from an asset file (Tuffy Bold, public domain). The theme sets an accent
 // and follows the OS light / dark; the Theme action cycles System → Light → Dark, and the canvas
 // redraws with the palette on a flip. The Bench action pushes a page that times the canvas draw
@@ -216,6 +216,8 @@ Detail :: struct {
 	more:  ^nv.Button_Handle,
 	back:  ^nv.Button_Handle,
 	card:  ^nv.Container_Handle, // the header card; tinted while editing
+	done:  ^nv.Progress_Handle,  // determinate, stepped by its button
+	steps: int, // tenths shown by done
 }
 
 CARD_COLOR    :: nv.Color{0.95, 0.93, 0.85, 1}
@@ -287,8 +289,21 @@ detail_build :: proc(page: ^nv.Page_Handle, user: rawptr) -> nv.View {
 	photo := nv.image_create({url = fmt.tprintf("https://picsum.photos/id/%d/600/400", 10 + d.level), fit = .Cover})
 	header := nv.row_create({{nv.image_view(thumb), 0}, {nv.label_view(label), 1}}, spacing = 12)
 	d.card = nv.container_create({child = header, margin = {top = 4, bottom = 4}, padding = nv.insets_all(12), radius = 12, color = CARD_COLOR})
+	// An indeterminate progress, and a determinate one with a track that its button steps by 10%.
+	spinner := nv.progress_create({})
+	d.done = nv.progress_create({value = f64(d.steps) / 10, track_color = {0.5, 0.5, 0.5, 0.25}})
+	step := nv.button_create({
+		title = "Step 10%",
+		on_click = proc(user: rawptr) {
+			d := (^Detail)(user)
+			d.steps = (d.steps + 1) % 11
+			nv.progress_set_value(d.done, f64(d.steps) / 10)
+		},
+		user = d,
+	})
+	progress := nv.row_create({{nv.progress_view(spinner), 0}, {nv.progress_view(d.done), 0}, {nv.button_view(step), 1}}, spacing = 12)
 	return nv.column_create({
-		{nv.container_view(d.card), 0}, {nv.button_view(d.more), 0}, {nv.button_view(d.back), 0}, {nv.image_view(photo), 1},
+		{nv.container_view(d.card), 0}, {nv.button_view(d.more), 0}, {nv.button_view(d.back), 0}, {progress, 0}, {nv.image_view(photo), 1},
 	}, spacing = 8)
 }
 

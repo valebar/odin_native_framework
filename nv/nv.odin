@@ -8,7 +8,7 @@ package nv
 //
 // Widgets: a scrolling list (`list_create`), a text label (`label_create`), a text input
 // (`input_create`), a push button (`button_create`), a custom-drawn canvas (`canvas_create`), an
-// image (`image_create`), Flutter-style Row / Column stacks (`row_create`, `column_create`,
+// image (`image_create`), a circular progress indicator (`progress_create`), Flutter-style Row / Column stacks (`row_create`, `column_create`,
 // `flex_create`) and a Container (`container_create`): a box with margin, border, background,
 // rounded corners and padding around one child. Images are decoded into a Bitmap from bytes, a file or a URL (`bitmap_from_bytes`,
 // `bitmap_from_file`, `bitmap_fetch`), which the canvas can draw too (`draw_image`). Pages stack
@@ -27,6 +27,7 @@ import "base:runtime"
 import "core:os"
 import "core:slice"
 import "core:strings"
+import "core:time"
 
 IS_IOS     :: ODIN_PLATFORM_SUBTARGET_IOS
 IS_ANDROID :: ODIN_PLATFORM_SUBTARGET == .Android
@@ -645,7 +646,7 @@ Canvas_Handle :: struct {
 	view:   rawptr, // NVCanvasView* / NvCanvasView / GtkDrawingArea* / NVCanvas HWND
 	fill:   rawptr, // Android: fill and stroke Paint global refs
 	stroke: rawptr,
-	extra:  rawptr, // per-backend draw state (Android_Canvas / Apple_Canvas / Windows_Canvas; nil on Linux)
+	extra:  rawptr, // per-backend draw state (Android_Canvas / Apple_Canvas / Linux_Canvas / Windows_Canvas)
 }
 
 // Drawing target, valid only during `on_draw`.
@@ -691,6 +692,12 @@ fill_ellipse :: proc(p: ^Painter, x, y, w, h: f64, color: Color) {
 
 stroke_ellipse :: proc(p: ^Painter, x, y, w, h: f64, color: Color, width: f64 = 1) {
 	_stroke_ellipse(p, x, y, w, h, color, width)
+}
+
+// An arc of the circle around (cx, cy). Angles are in degrees: 0 is 3 o'clock and they grow
+// clockwise on screen, as in Flutter's drawArc; the ends are butt.
+stroke_arc :: proc(p: ^Painter, cx, cy, radius, start, sweep: f64, color: Color, width: f64 = 1) {
+	_stroke_arc(p, cx, cy, radius, start, sweep, color, width)
 }
 
 // One line of text in the system font, or in `style.font`; (x, y) is the top-left of its line box. `style` is over
@@ -976,6 +983,120 @@ image_fit_rect :: proc "contextless" (fit: Fit, b: ^Bitmap, w, h: f64) -> [4]f64
 	if fit == .Fill || bw <= 0 || bh <= 0 do return {0, 0, w, h}
 	s := fit == .Contain ? min(w / bw, h / bh) : max(w / bw, h / bh)
 	return {(w - bw * s) / 2, (h - bh * s) / 2, bw * s, bh * s}
+}
+
+// Flutter's CircularProgressIndicator: a Material arc, drawn by the core on a canvas inside a
+// fixed-size Container rather than a platform spinner (only AppKit has a determinate one, Win32
+// none). Indeterminate, it animates by asking for the next frame from inside its own on_draw (the
+// Bench's loop), so it costs nothing while its page is hidden or popped. A Row / Column stretches
+// the cross axis; the circle stays `size` and centered. Default colors follow a light / dark flip.
+Progress :: struct {
+	value:       Maybe(f64), // nil = indeterminate; else 0..1 (clamped)
+	color:       Color,      // alpha 0 = the palette's accent
+	track_color: Color,      // the full circle under the arc; alpha 0 = none
+	stroke:      f64,        // points / dp; 4 when 0
+	size:        f64,        // the diameter including the stroke; 36 when 0
+}
+
+Progress_Handle :: struct {
+	progress:   Progress,
+	root:       View, // the container's root; embedded by the app
+	container:  ^Container_Handle,
+	canvas:     ^Canvas_Handle,
+	start:      time.Tick, // origin of the indeterminate motion
+	prev, next: ^Progress_Handle, // g_progress
+}
+
+// Every live progress, so theme_notify can repaint them (their default color is the palette's).
+// Linked through the handles, which live in their scopes' arenas; progress_dispose unlinks.
+@(private) g_progress: ^Progress_Handle
+
+progress_create :: proc(p: Progress) -> ^Progress_Handle {
+	h := scope_new_in(Progress_Handle)
+	h.progress = p
+	if h.progress.stroke <= 0 do h.progress.stroke = 4
+	if h.progress.size <= 0 do h.progress.size = 36
+	h.start = time.tick_now()
+	h.canvas = canvas_create({on_draw = progress_draw, user = h})
+	size := h.progress.size
+	h.container = container_create({child = canvas_view(h.canvas), width = size, height = size})
+	h.root = container_view(h.container)
+	h.next = g_progress
+	if g_progress != nil do g_progress.prev = h
+	g_progress = h
+	scope_on_dispose(progress_dispose, h)
+	return h
+}
+
+@(private)
+progress_dispose :: proc(data: rawptr) {
+	h := (^Progress_Handle)(data)
+	if h.prev != nil do h.prev.next = h.next
+	else do g_progress = h.next
+	if h.next != nil do h.next.prev = h.prev
+}
+
+progress_view :: proc(h: ^Progress_Handle) -> View {
+	return h.root
+}
+
+// nil switches to indeterminate (the motion continues where it was), a number to determinate.
+progress_set_value :: proc(h: ^Progress_Handle, value: Maybe(f64)) {
+	h.progress.value = value
+	canvas_redraw(h.canvas)
+}
+
+@(private)
+progress_draw :: proc(user: rawptr, p: ^Painter, w, h: f64) {
+	ph := (^Progress_Handle)(user)
+	pr := ph.progress
+	r := (min(w, h, pr.size) - pr.stroke) / 2
+	if r <= 0 do return
+	cx, cy := w / 2, h / 2
+	if pr.track_color.a > 0 do stroke_arc(p, cx, cy, r, 0, 360, pr.track_color, pr.stroke)
+	color := pr.color.a > 0 ? pr.color : theme_palette().accent
+	start, sweep: f64
+	if v, ok := pr.value.?; ok {
+		start, sweep = -90, clamp(v, 0, 1) * 360
+	} else {
+		start, sweep = progress_arc(time.duration_milliseconds(time.tick_since(ph.start)))
+		canvas_redraw(ph.canvas) // the next frame
+	}
+	if sweep > 0 do stroke_arc(p, cx, cy, r, start, sweep, color, pr.stroke)
+}
+
+// Flutter's indeterminate motion (_CircularProgressIndicatorPainter) at `ms`, in degrees: within
+// each 1333 ms cycle the head runs ahead over the first half and the tail catches up over the
+// second, both on the fast-out-slow-in curve, while the whole arc turns once per 2222 ms and
+// creeps 90° per cycle.
+@(private)
+progress_arc :: proc "contextless" (ms: f64) -> (start, sweep: f64) {
+	cycle := ms / 1333
+	cycle -= f64(i64(cycle))
+	turn := ms / 2222
+	turn -= f64(i64(turn))
+	head := fast_out_slow_in(clamp(cycle * 2, 0, 1))
+	tail := fast_out_slow_in(clamp(cycle * 2 - 1, 0, 1))
+	start = -90 + tail * 270 + turn * 360 + cycle * 90
+	sweep = max((head - tail) * 270, 0.06)
+	return
+}
+
+// Material's standard curve, cubic-bezier(0.4, 0, 0.2, 1): solve x(s) = t by bisection (x is
+// monotonic), then return y(s).
+@(private)
+fast_out_slow_in :: proc "contextless" (t: f64) -> f64 {
+	bezier :: proc "contextless" (a, b, s: f64) -> f64 {
+		u := 1 - s
+		return 3 * u * u * s * a + 3 * u * s * s * b + s * s * s
+	}
+	lo, hi := 0.0, 1.0
+	for _ in 0..<30 {
+		mid := (lo + hi) / 2
+		if bezier(0.4, 0.2, mid) < t do lo = mid
+		else do hi = mid
+	}
+	return bezier(0, 1, (lo + hi) / 2)
 }
 
 // A card over the current page, inside the window (not a separate OS window). A modal dialog dims
@@ -1282,6 +1403,7 @@ theme_notify :: proc() {
 	if dark == g_dark do return
 	g_dark = dark
 	g_backend.theme_recolor()
+	for p := g_progress; p != nil; p = p.next do canvas_redraw(p.canvas)
 	if g_theme.on_change != nil {
 		callback_enter()
 		defer callback_exit()

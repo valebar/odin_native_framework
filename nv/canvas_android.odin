@@ -110,6 +110,12 @@ _stroke_ellipse :: proc(p: ^Painter, x, y, w, h: f64, color: Color, width: f64) 
 	canvas_draw_oval(g_android.env, jobject(p.native), f32(x), f32(y), f32(x + w), f32(y + h), paint(p, color, true, width))
 }
 
+@(private)
+_stroke_arc :: proc(p: ^Painter, cx, cy, radius, start, sweep: f64, color: Color, width: f64) {
+	l, t, r, b := f32(cx - radius), f32(cy - radius), f32(cx + radius), f32(cy + radius)
+	canvas_draw_arc(g_android.env, jobject(p.native), l, t, r, b, f32(start), f32(sweep), false, paint(p, color, true, width))
+}
+
 // drawText takes the baseline; ascent() is negative, so baseline = top - ascent. The size and
 // typeface (the style's, from android_style_typeface: a cached global ref, so the same style
 // gives the same object) go on the shared fill Paint when they differ from the last text drawn;

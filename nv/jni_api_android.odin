@@ -553,6 +553,12 @@ canvas_draw_oval :: proc "contextless" (env: JNI_Env, self: jobject, left: f32, 
 	jni_call_void(env, self, &jm_canvas_draw_oval, jv_float(left), jv_float(top), jv_float(right), jv_float(bottom), jv_obj(paint))
 }
 
+// android.graphics.Canvas.drawArc(float, float, float, float, float, float, boolean, android.graphics.Paint)
+@(private) jm_canvas_draw_arc := Jni_Method{cls = &jc_canvas, name = "drawArc", sig = "(FFFFFFZLandroid/graphics/Paint;)V"}
+canvas_draw_arc :: proc "contextless" (env: JNI_Env, self: jobject, left: f32, top: f32, right: f32, bottom: f32, start_angle: f32, sweep_angle: f32, use_center: bool, paint: jobject) {
+	jni_call_void(env, self, &jm_canvas_draw_arc, jv_float(left), jv_float(top), jv_float(right), jv_float(bottom), jv_float(start_angle), jv_float(sweep_angle), jv_bool(use_center), jv_obj(paint))
+}
+
 // android.graphics.Canvas.drawText(java.lang.String, float, float, android.graphics.Paint)
 @(private) jm_canvas_draw_text := Jni_Method{cls = &jc_canvas, name = "drawText", sig = "(Ljava/lang/String;FFLandroid/graphics/Paint;)V"}
 canvas_draw_text :: proc (env: JNI_Env, self: jobject, text: string, x: f32, y: f32, paint: jobject) {

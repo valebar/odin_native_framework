@@ -213,6 +213,75 @@ test_container_frame :: proc(t: ^testing.T) {
 	testing.expect_value(t, container_frame(&h), Insets{16, 27, 38, 49})
 }
 
+// A progress is a canvas inside a fixed-size container; both belong to the page's scope.
+@(test)
+test_progress_create :: proc(t: ^testing.T) {
+	mock_begin(t)
+	defer mock_end(t)
+	root := Mock_Page{name = "Root"}
+	mock_launch(&root)
+	callback_enter()
+	p := progress_create({value = 0.3})
+	testing.expect_value(t, p.progress.stroke, 4)
+	testing.expect_value(t, p.progress.size, 36)
+	testing.expect_value(t, p.container.container.width, 36)
+	testing.expect_value(t, p.container.container.child, p.canvas.root)
+	testing.expect_value(t, progress_view(p), p.container.root)
+	progress_set_value(p, nil)
+	callback_exit()
+	expect_log(t, "canvas_init", "container_init", "canvas_redraw")
+}
+
+// A light / dark flip repaints every live progress (the default color is the palette's accent).
+@(test)
+test_progress_follows_theme :: proc(t: ^testing.T) {
+	mock_begin(t)
+	defer mock_end(t)
+	theme_set({mode = .System})
+	root := Mock_Page{name = "Root"}
+	mock_launch(&root)
+	callback_enter()
+	a := progress_create({})
+	b := progress_create({value = 0.5})
+	callback_exit()
+	testing.expect(t, g_progress == b && b.next == a && a.prev == b)
+	expect_log(t, "canvas_init", "container_init", "canvas_init", "container_init")
+	mock.system_dark = true
+	theme_notify()
+	expect_log(t, "theme_recolor true", "canvas_redraw", "canvas_redraw")
+}
+
+@(test)
+test_fast_out_slow_in :: proc(t: ^testing.T) {
+	testing.expect(t, abs(fast_out_slow_in(0)) < 1e-6)
+	testing.expect(t, abs(fast_out_slow_in(1) - 1) < 1e-6)
+	prev := 0.0
+	for i in 1..=100 {
+		y := fast_out_slow_in(f64(i) / 100)
+		testing.expect(t, y >= prev)
+		prev = y
+	}
+	testing.expect(t, fast_out_slow_in(0.5) > 0.5) // fast out
+}
+
+// The indeterminate arc never vanishes, peaks near 270° mid-cycle and its start is continuous
+// across a cycle boundary (mod 360).
+@(test)
+test_progress_arc :: proc(t: ^testing.T) {
+	peak := 0.0
+	for ms := 0.0; ms < 5000; ms += 7 {
+		_, sweep := progress_arc(ms)
+		testing.expect(t, sweep > 0 && sweep <= 270)
+		peak = max(peak, sweep)
+	}
+	testing.expect(t, peak > 260)
+	a, _ := progress_arc(1333 - 0.01)
+	b, _ := progress_arc(1333)
+	d := a - b
+	d -= 360 * f64(i64(d / 360 + (d >= 0 ? 0.5 : -0.5)))
+	testing.expect(t, abs(d) < 0.5)
+}
+
 @(test)
 test_color_argb :: proc(t: ^testing.T) {
 	testing.expect_value(t, color_argb({1, 0, 0, 1}), 0xFFFF0000)
