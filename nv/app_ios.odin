@@ -34,6 +34,7 @@ _run :: proc() {
 	}, {"UIWindowSceneDelegate"})
 	nav_target := objc_class(&nav_target_class, "NVNavTarget", "NSObject", {
 		{"nvAction:", auto_cast nav_action_clicked, "v@:@"},
+		{"nvMenu:", auto_cast nav_menu_clicked, "v@:@"},
 	})
 	g_app.nav_target = NS.class_createInstance(nav_target, 0)
 

@@ -14,7 +14,9 @@ package nv
 // `bitmap_from_file`, `bitmap_fetch`), which the canvas can draw too (`draw_image`). Pages stack
 // with `push` / `pop`; `run` shows the root page. A page's bar carries its title, a back button
 // and its `actions` (`page_set_title`, `page_set_actions`). A dialog (`dialog_show`,
-// `dialog_close`) is a card drawn over the page inside the window, modal or not. A Font loaded
+// `dialog_close`) is a card drawn over the page inside the window, modal or not. A page's body can
+// be a Flutter-style Scaffold (`scaffold_create`, scaffold.odin): bottom tabs, a floating action
+// button, SnackBars (`snackbar_show`) and a drawer opened from the bar. A Font loaded
 // from bytes or an asset file (`font_from_bytes`, `font_from_file`) can replace the system font in
 // labels, inputs, buttons and canvas text.
 //
@@ -101,7 +103,7 @@ Build_Proc :: proc(page: ^Page_Handle, user: rawptr) -> View
 
 // System icons every platform has (SF Symbols / android.R.drawable / GTK icon names / Segoe MDL2
 // Assets). A platform without a given icon shows the action's title as text instead.
-Icon :: enum { None, Add, Edit, Delete, Search, Share, Settings, Refresh, Done, Info, More, Close }
+Icon :: enum { None, Add, Edit, Delete, Search, Share, Settings, Refresh, Done, Info, More, Close, Menu, Home, Star, Person }
 
 // One button in the page's bar, shown trailing in declared order. `title` is the button text when
 // `icon` is None, and the tooltip / accessibility label otherwise.
@@ -128,6 +130,7 @@ Page_Handle :: struct {
 	actions: [dynamic]^Action_Handle, // owned; freed by nav_actions_free
 	native:  rawptr,                  // backend per-page object: the UIViewController on iOS
 	scope:   ^Scope,                  // the page's widgets; handed to the backend by _nav_release
+	scaffold: ^Scaffold_Handle,       // set by scaffold_create during `build`, nil without one
 }
 
 // The page stack: g_nav[0] is the root page from `run`, the depth is len(g_nav) - 1. Backends
@@ -285,6 +288,7 @@ nav_finish_pop :: proc(top: ^Page_Handle) {
 	dialog_close_page(top)
 	g_backend.nav_release(top) // retires top.scope now or later: the widget handles stay valid through on_pop
 	top.root, top.native, top.scope = nil, nil, nil // a page_set_* from on_pop has nothing to show
+	nav_detach_scaffold(top)
 	if top.page.on_pop != nil {
 		callback_enter()
 		defer callback_exit()
@@ -294,6 +298,13 @@ nav_finish_pop :: proc(top: ^Page_Handle) {
 	delete(top.page.title)
 	free(top)
 	dialog_set_page_hidden(g_nav[len(g_nav) - 1], false)
+}
+
+// The page's scaffold dies with its scope, which may outlive the page's views (and the handle):
+// called wherever a page gives up its scope, so nothing reads the scaffold through the page later.
+@(private)
+nav_detach_scaffold :: proc "contextless" (e: ^Page_Handle) {
+	e.scaffold = nil
 }
 
 @(private)
@@ -320,13 +331,15 @@ nav_actions_free :: proc(h: ^Page_Handle) {
 
 // Called by the backends when the bar's back button was clicked (macOS, GTK, Windows; Android's
 // Back key closes a modal dialog instead, iOS's bar is under the scrim). Ignored while a modal
-// dialog is up, since the bar sits outside the scrim on macOS and GTK.
+// dialog is up, since the bar sits outside the scrim on macOS and GTK. An open drawer closes
+// instead of the page popping, as Flutter's back does.
 @(private)
 nav_back_notify :: proc() {
 	if dialog_top_modal() != nil do return
 	callback_enter()
 	defer callback_exit()
-	pop()
+	if s := scaffold_top_drawer(); s != nil do scaffold_close_drawer(s)
+	else do pop()
 }
 
 // Called by the backends when an action was clicked. The callback may replace the page's actions
@@ -1404,6 +1417,7 @@ theme_notify :: proc() {
 	g_dark = dark
 	g_backend.theme_recolor()
 	for p := g_progress; p != nil; p = p.next do canvas_redraw(p.canvas)
+	scaffold_recolor()
 	if g_theme.on_change != nil {
 		callback_enter()
 		defer callback_exit()

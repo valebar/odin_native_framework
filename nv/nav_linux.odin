@@ -21,6 +21,10 @@ import "core:strings"
 	.Info     = "dialog-information-symbolic",
 	.More     = "view-more-symbolic",
 	.Close    = "window-close-symbolic",
+	.Menu     = "open-menu-symbolic",
+	.Home     = "go-home-symbolic",
+	.Star     = "starred-symbolic",
+	.Person   = "avatar-default-symbolic",
 }
 
 @(private)
@@ -73,6 +77,7 @@ _nav_actions_changed :: proc(e: ^Page_Handle) {
 nav_update_chrome :: proc(e: ^Page_Handle) {
 	nav_set_title(e)
 	gtk_widget_set_visible(g_linux.back, len(g_nav) > 1)
+	gtk_widget_set_visible(g_linux.menu, gboolean(nav_shows_menu(e)))
 	nav_rebuild_actions(e)
 }
 

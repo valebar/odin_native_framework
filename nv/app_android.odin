@@ -84,6 +84,7 @@ jni_on_create :: proc "c" (env: JNI_Env, _: jclass, activity: jobject) {
 	for len(g_nav) > 1 do nav_system_pop() // pushed pages are gone with the old Activity
 	dialog_close_page(g_nav[0]) // and so are the root's dialogs
 	scope_retire(g_nav[0].scope) // the old root's widgets, once this callback returns
+	nav_detach_scaffold(g_nav[0]) // its scaffold dies with them; the rebuild makes a new one
 	g_nav[0].scope = scope_new()
 	g_nav[0].root = nil // rebuilt by set_content; nil means "building" to page_set_*
 	theme_notify() // a night mode change recreates the Activity

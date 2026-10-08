@@ -16,6 +16,8 @@ import NS "core:sys/darwin/Foundation"
 	content: ^NS.View, // the window's content view: pages and dialogs are its subviews
 	back:   ^Titlebar_Accessory_View_Controller, // owned for the run; detached on the root page
 	back_attached: bool,
+	menu:   ^Titlebar_Accessory_View_Controller, // owned for the run; attached on a root page with a drawer (nav_shows_menu)
+	menu_attached: bool,
 	actions: ^Titlebar_Accessory_View_Controller, // trailing; the top page's action buttons, nil when it has none
 	nav_target: NS.id, // NVNavTarget: receives the back button's and the actions' clicks
 }

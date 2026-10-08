@@ -273,10 +273,20 @@ check :: proc(opt: Options) {
 				if _, set := os.lookup_env(key, context.allocator); !set do os.set_env(key, "x")
 			}
 		}
+		// `odin check` refuses a Windows target off Windows (it wants -windows-sdk-root, which only
+		// `build` takes), so there an object build against an empty SDK root stands in: it type-checks
+		// the same way and never links.
+		cross_windows := p == .windows && ODIN_OS != .Windows
+		if cross_windows do mkdir("build/check/winsdk")
 		for flags in target_flags[p] {
 			for pkg in ([]string{"nv", "app"}) {
 				cmd := make([dynamic]string)
-				append(&cmd, "odin", "check", pkg, "-vet", "-strict-style")
+				if cross_windows {
+					append(&cmd, "odin", "build", pkg, "-vet", "-strict-style", "-build-mode:obj",
+						"-windows-sdk-root:build/check/winsdk", fmt.tprintf("-out:build/check/%s.obj", pkg))
+				} else {
+					append(&cmd, "odin", "check", pkg, "-vet", "-strict-style")
+				}
 				if pkg == "nv" do append(&cmd, "-no-entry-point")
 				append(&cmd, ..flags)
 				if !try_run(..cmd[:]) do append(&failed, fmt.tprintf("%s for %s", pkg, strings.join(flags, " ")))

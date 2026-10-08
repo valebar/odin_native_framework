@@ -16,7 +16,8 @@ package main
 // text use a font loaded from an asset file (Tuffy Bold, public domain). The theme sets an accent
 // and follows the OS light / dark; the Theme action cycles System → Light → Dark, and the canvas
 // redraws with the palette on a flip. The Bench action pushes a page that times the canvas draw
-// path over a fixed workload.
+// path over a fixed workload, and the Scaffold action a page with bottom tabs, a FAB, SnackBars and
+// a drawer (scaffold_demo.odin).
 
 import "core:fmt"
 import "core:strconv"
@@ -70,6 +71,9 @@ main :: proc() {
 			}},
 			{title = "Bench", icon = .Refresh, user = state, on_click = proc(user: rawptr) {
 				push_bench((^State)(user))
+			}},
+			{title = "Scaffold", icon = .Home, on_click = proc(_: rawptr) {
+				push_scaffold_demo()
 			}},
 			{title = "Theme", icon = .Settings, on_click = proc(_: rawptr) {
 				next := nv.Mode((int(nv.theme_mode()) + 1) % len(nv.Mode))

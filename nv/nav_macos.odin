@@ -61,6 +61,15 @@ nav_update_chrome :: proc(e: ^Page_Handle) {
 		}
 		g_macos.back_attached = show_back
 	}
+	show_menu := nav_shows_menu(e)
+	if show_menu != g_macos.menu_attached {
+		if show_menu {
+			window_add_titlebar_accessory(g_macos.window, g_macos.menu)
+		} else {
+			window_remove_titlebar_accessory(g_macos.window, g_macos.menu)
+		}
+		g_macos.menu_attached = show_menu
+	}
 	nav_rebuild_actions(e)
 }
 
@@ -111,17 +120,26 @@ nav_rebuild_actions :: proc(e: ^Page_Handle) {
 	g_macos.actions = vc
 }
 
+// The back button and the menu button (Flutter's drawer hamburger): one leading accessory each,
+// attached only while it shows.
 @(private)
 nav_install_back_button :: proc() {
 	cls := objc_class(&nav_target_class, "NVNavTarget", "NSObject", {
 		{"nvBack:", auto_cast nav_back_clicked, "v@:@"},
 		{"nvAction:", auto_cast nav_action_clicked, "v@:@"},
+		{"nvMenu:", auto_cast nav_menu_clicked, "v@:@"},
 	})
 	target := NS.class_createInstance(cls, 0) // lives for the whole run
 	g_macos.nav_target = target
+	g_macos.back = nav_leading_accessory("chevron.backward", "Back", "nvBack:")
+	g_macos.menu = nav_leading_accessory(sf_symbol_names[.Menu], "Menu", "nvMenu:")
+}
 
-	image := image_system_symbol(ns_string("chevron.backward"), ns_string("Back"))
-	button := button_with_image(image, target, intrinsics.objc_find_selector("nvBack:"))
+// Returns an owned (+1) controller, kept while detached (also during the button's own callback).
+@(private)
+nav_leading_accessory :: proc(symbol, description: string, selector: cstring) -> ^Titlebar_Accessory_View_Controller {
+	image := image_system_symbol(ns_string(symbol), ns_string(description))
+	button := button_with_image(image, g_macos.nav_target, NS.sel_registerName(selector))
 	button_set_bezel_style(button, BEZEL_STYLE_TEXTURED_ROUNDED)
 	send(nil, button, "sizeToFit")
 	size := send(NS.Rect, button, "frame").size
@@ -136,13 +154,17 @@ nav_install_back_button :: proc() {
 	titlebar_accessory_set_view(vc, container)
 	container->release()
 	titlebar_accessory_set_layout_attribute(vc, LAYOUT_ATTRIBUTE_LEADING)
-	// Keep our owning reference while detached, including during the button's own callback.
-	// nav_update_chrome attaches it only when a pushed page is visible.
-	g_macos.back = vc
+	return vc
 }
 
 @(private)
 nav_back_clicked :: proc "c" (self: NS.id, _: NS.SEL, _: NS.id) {
 	context = g_macos.ctx
 	nav_back_notify()
+}
+
+@(private)
+nav_menu_clicked :: proc "c" (self: NS.id, _: NS.SEL, _: NS.id) {
+	context = g_macos.ctx
+	nav_menu_notify()
 }

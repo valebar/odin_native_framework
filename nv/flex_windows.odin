@@ -71,11 +71,15 @@ flex_layout :: proc(hwnd: win.HWND) {
 	main := int(d.axis) // .Horizontal lays out along x, .Vertical along y
 	cross := 1 - main
 
+	// A hidden child takes no space and no spacing, like in a stack view, LinearLayout or GtkBox.
 	n := len(d.children)
 	natural := make([]i32, n, context.temp_allocator)
-	used := d.spacing * i32(max(n - 1, 0))
+	shown := 0
+	for c in d.children do if window_shown(win.HWND(c.view)) do shown += 1
+	used := d.spacing * i32(max(shown - 1, 0))
 	total_flex := 0
 	for c, i in d.children {
+		if !window_shown(win.HWND(c.view)) do continue
 		if c.flex > 0 {
 			total_flex += c.flex
 		} else {
@@ -88,6 +92,7 @@ flex_layout :: proc(hwnd: win.HWND) {
 	pos, spent: i32
 	flex_so_far := 0
 	for c, i in d.children {
+		if !window_shown(win.HWND(c.view)) do continue
 		length := natural[i]
 		if c.flex > 0 {
 			// Cumulative split, so the rounding error never adds up.
@@ -105,12 +110,16 @@ flex_layout :: proc(hwnd: win.HWND) {
 	}
 }
 
-// Lays out again every Row / Column that contains `hwnd`, innermost first, after its natural size
-// changed. Layout only runs on WM_SIZE, and nothing sends one when a control's content changes.
+// Lays out again every Row / Column (and scaffold overlay) that contains `hwnd`, innermost first,
+// after its natural size or its visibility changed. Layout only runs on WM_SIZE, and nothing
+// sends one when a control's content changes.
 @(private)
 flex_relayout_ancestors :: proc(hwnd: win.HWND) {
 	for p := win.GetParent(hwnd); p != nil; p = win.GetParent(p) {
-		if class_name(p) == CLASS_FLEX do flex_layout(p)
+		switch class_name(p) {
+		case CLASS_FLEX:    flex_layout(p)
+		case CLASS_OVERLAY: overlay_layout(p)
+		}
 	}
 }
 
@@ -124,10 +133,13 @@ measure :: proc(hwnd: win.HWND) -> [2]i32 {
 		d := flex_data(hwnd)
 		main := int(d.axis)
 		out: [2]i32
-		for c, i in d.children {
+		shown := 0
+		for c in d.children {
+			if !window_shown(win.HWND(c.view)) do continue
 			m := measure(win.HWND(c.view))
-			out[main] += m[main] + (i > 0 ? d.spacing : 0)
+			out[main] += m[main] + (shown > 0 ? d.spacing : 0)
 			out[1 - main] = max(out[1 - main], m[1 - main])
+			shown += 1
 		}
 		return out
 	case CLASS_INPUT:
@@ -138,6 +150,13 @@ measure :: proc(hwnd: win.HWND) -> [2]i32 {
 		return image_measure(hwnd)
 	case CLASS_CONTAINER:
 		return container_measure(hwnd)
+	case CLASS_OVERLAY: // the base's; the children float over it
+		h := overlay_handle_of(hwnd)
+		return h != nil ? measure(win.HWND(h.base)) : {}
+	case CLASS_FAB:
+		return fab_measure(hwnd)
+	case CLASS_TABBAR:
+		return tabbar_measure(hwnd)
 	case CLASS_NAV: // fills whatever it gets, like a list
 		return {}
 	case "Static":

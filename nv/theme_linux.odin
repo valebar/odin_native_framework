@@ -114,6 +114,9 @@ theme_css_reload :: proc() {
 		fmt.sbprintf(&b, "button.nv-accent:active {{ background-color: shade(%s, 0.85); }}\n", c)
 		fmt.sbprintf(&b, "entry:focus-within {{ outline-color: alpha(%s, 0.6); }}\n", c)
 		fmt.sbprintf(&b, "listview > row:selected {{ background-color: alpha(%s, 0.25); }}\n", c)
+		fmt.sbprintf(&b, "button.nv-fab {{ background-color: %s; }}\n", c)
+		fmt.sbprintf(&b, "button.nv-fab:hover {{ background-color: mix(%s, white, 0.1); }}\n", c)
+		fmt.sbprintf(&b, ".nv-tabbar button:checked {{ color: %s; }}\n", c)
 	}
 	strings.write_string(&b, strings.to_string(g_theme_linux.rules))
 	gtk_css_provider_load_from_data(g_theme_linux.css, strings.to_cstring(&b), -1)

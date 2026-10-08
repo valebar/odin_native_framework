@@ -45,6 +45,7 @@ import "core:strings"
 @(private) jc_bitmap := Jni_Class{name = "android/graphics/Bitmap"}
 @(private) jc_bitmap_factory := Jni_Class{name = "android/graphics/BitmapFactory"}
 @(private) jc_image_view := Jni_Class{name = "android/widget/ImageView"}
+@(private) jc_image_button := Jni_Class{name = "android/widget/ImageButton"}
 @(private) jc_image_view_scale_type := Jni_Class{name = "android/widget/ImageView$ScaleType"}
 @(private) jc_typeface := Jni_Class{name = "android/graphics/Typeface"}
 @(private) jc_nv_click_listener := Jni_Class{name = "nv/NvClickListener"}
@@ -54,6 +55,8 @@ import "core:strings"
 @(private) jc_nv_container_view := Jni_Class{name = "nv/NvContainerView"}
 @(private) jc_nv_image_view := Jni_Class{name = "nv/NvImageView"}
 @(private) jc_nv_fetch := Jni_Class{name = "nv/NvFetch"}
+@(private) jc_nv_tap_listener := Jni_Class{name = "nv/NvTapListener"}
+@(private) jc_nv_timer := Jni_Class{name = "nv/NvTimer"}
 
 // android.app.Activity.getWindow()
 @(private) jm_activity_get_window := Jni_Method{cls = &jc_activity, name = "getWindow", sig = "()Landroid/view/Window;"}
@@ -191,6 +194,12 @@ action_bar_set_background_drawable :: proc "contextless" (env: JNI_Env, self: jo
 	jni_call_void(env, self, &jm_action_bar_set_background_drawable, jv_obj(d))
 }
 
+// android.app.ActionBar.setHomeAsUpIndicator(int)
+@(private) jm_action_bar_set_home_as_up_indicator := Jni_Method{cls = &jc_action_bar, name = "setHomeAsUpIndicator", sig = "(I)V"}
+action_bar_set_home_as_up_indicator :: proc "contextless" (env: JNI_Env, self: jobject, res: int) {
+	jni_call_void(env, self, &jm_action_bar_set_home_as_up_indicator, jv_int(res))
+}
+
 // java.io.File.getAbsolutePath()
 @(private) jm_file_get_absolute_path := Jni_Method{cls = &jc_file, name = "getAbsolutePath", sig = "()Ljava/lang/String;"}
 file_get_absolute_path :: proc "contextless" (env: JNI_Env, self: jobject) -> jobject {
@@ -277,6 +286,24 @@ view_set_visibility :: proc "contextless" (env: JNI_Env, self: jobject, visibili
 	jni_call_void(env, self, &jm_view_set_visibility, jv_int(visibility))
 }
 
+// android.view.View.setLayoutParams(android.view.ViewGroup$LayoutParams)
+@(private) jm_view_set_layout_params := Jni_Method{cls = &jc_view, name = "setLayoutParams", sig = "(Landroid/view/ViewGroup$LayoutParams;)V"}
+view_set_layout_params :: proc "contextless" (env: JNI_Env, self: jobject, params: jobject) {
+	jni_call_void(env, self, &jm_view_set_layout_params, jv_obj(params))
+}
+
+// android.view.View.setMinimumWidth(int)
+@(private) jm_view_set_minimum_width := Jni_Method{cls = &jc_view, name = "setMinimumWidth", sig = "(I)V"}
+view_set_minimum_width :: proc "contextless" (env: JNI_Env, self: jobject, width: int) {
+	jni_call_void(env, self, &jm_view_set_minimum_width, jv_int(width))
+}
+
+// android.view.View.setMinimumHeight(int)
+@(private) jm_view_set_minimum_height := Jni_Method{cls = &jc_view, name = "setMinimumHeight", sig = "(I)V"}
+view_set_minimum_height :: proc "contextless" (env: JNI_Env, self: jobject, height: int) {
+	jni_call_void(env, self, &jm_view_set_minimum_height, jv_int(height))
+}
+
 // android.view.View.getParent()
 @(private) jm_view_get_parent := Jni_Method{cls = &jc_view, name = "getParent", sig = "()Landroid/view/ViewParent;"}
 view_get_parent :: proc "contextless" (env: JNI_Env, self: jobject) -> jobject {
@@ -319,6 +346,12 @@ view_group_remove_view :: proc "contextless" (env: JNI_Env, self: jobject, child
 	jni_call_void(env, self, &jm_view_group_remove_view, jv_obj(child))
 }
 
+// android.view.ViewGroup.setDescendantFocusability(int)
+@(private) jm_view_group_set_descendant_focusability := Jni_Method{cls = &jc_view_group, name = "setDescendantFocusability", sig = "(I)V"}
+view_group_set_descendant_focusability :: proc "contextless" (env: JNI_Env, self: jobject, focusability: int) {
+	jni_call_void(env, self, &jm_view_group_set_descendant_focusability, jv_int(focusability))
+}
+
 // android.view.ViewGroup$MarginLayoutParams.setMargins(int, int, int, int)
 @(private) jm_view_group_margin_layout_params_set_margins := Jni_Method{cls = &jc_view_group_margin_layout_params, name = "setMargins", sig = "(IIII)V"}
 view_group_margin_layout_params_set_margins :: proc "contextless" (env: JNI_Env, self: jobject, left: int, top: int, right: int, bottom: int) {
@@ -353,6 +386,12 @@ linear_layout_new :: proc "contextless" (env: JNI_Env, ctx: jobject) -> jobject 
 @(private) jm_linear_layout_set_orientation := Jni_Method{cls = &jc_linear_layout, name = "setOrientation", sig = "(I)V"}
 linear_layout_set_orientation :: proc "contextless" (env: JNI_Env, self: jobject, orientation: int) {
 	jni_call_void(env, self, &jm_linear_layout_set_orientation, jv_int(orientation))
+}
+
+// android.widget.LinearLayout.setGravity(int)
+@(private) jm_linear_layout_set_gravity := Jni_Method{cls = &jc_linear_layout, name = "setGravity", sig = "(I)V"}
+linear_layout_set_gravity :: proc "contextless" (env: JNI_Env, self: jobject, gravity: int) {
+	jni_call_void(env, self, &jm_linear_layout_set_gravity, jv_int(gravity))
 }
 
 // android.widget.LinearLayout$LayoutParams.<init>(int, int, float)
@@ -441,6 +480,18 @@ text_view_add_text_changed_listener :: proc "contextless" (env: JNI_Env, self: j
 @(private) jm_text_view_set_on_editor_action_listener := Jni_Method{cls = &jc_text_view, name = "setOnEditorActionListener", sig = "(Landroid/widget/TextView$OnEditorActionListener;)V"}
 text_view_set_on_editor_action_listener :: proc "contextless" (env: JNI_Env, self: jobject, listener: jobject) {
 	jni_call_void(env, self, &jm_text_view_set_on_editor_action_listener, jv_obj(listener))
+}
+
+// android.widget.TextView.setCompoundDrawablesRelativeWithIntrinsicBounds(int, int, int, int)
+@(private) jm_text_view_set_compound_drawables_relative_with_intrinsic_bounds := Jni_Method{cls = &jc_text_view, name = "setCompoundDrawablesRelativeWithIntrinsicBounds", sig = "(IIII)V"}
+text_view_set_compound_drawables_relative_with_intrinsic_bounds :: proc "contextless" (env: JNI_Env, self: jobject, start: int, top: int, end: int, bottom: int) {
+	jni_call_void(env, self, &jm_text_view_set_compound_drawables_relative_with_intrinsic_bounds, jv_int(start), jv_int(top), jv_int(end), jv_int(bottom))
+}
+
+// android.widget.TextView.setCompoundDrawablePadding(int)
+@(private) jm_text_view_set_compound_drawable_padding := Jni_Method{cls = &jc_text_view, name = "setCompoundDrawablePadding", sig = "(I)V"}
+text_view_set_compound_drawable_padding :: proc "contextless" (env: JNI_Env, self: jobject, pad: int) {
+	jni_call_void(env, self, &jm_text_view_set_compound_drawable_padding, jv_int(pad))
 }
 
 // android.widget.Button.<init>(android.content.Context)
@@ -615,6 +666,12 @@ gradient_drawable_set_stroke :: proc "contextless" (env: JNI_Env, self: jobject,
 	jni_call_void(env, self, &jm_gradient_drawable_set_stroke, jv_int(width), jv_int(argb))
 }
 
+// android.graphics.drawable.GradientDrawable.setShape(int)
+@(private) jm_gradient_drawable_set_shape := Jni_Method{cls = &jc_gradient_drawable, name = "setShape", sig = "(I)V"}
+gradient_drawable_set_shape :: proc "contextless" (env: JNI_Env, self: jobject, shape: int) {
+	jni_call_void(env, self, &jm_gradient_drawable_set_shape, jv_int(shape))
+}
+
 // android.graphics.drawable.InsetDrawable.<init>(android.graphics.drawable.Drawable, int, int, int, int)
 @(private) jm_inset_drawable_new := Jni_Method{cls = &jc_inset_drawable, name = "<init>", sig = "(Landroid/graphics/drawable/Drawable;IIII)V"}
 inset_drawable_new :: proc "contextless" (env: JNI_Env, drawable: jobject, left: int, top: int, right: int, bottom: int) -> jobject {
@@ -657,6 +714,30 @@ image_view_set_scale_type :: proc "contextless" (env: JNI_Env, self: jobject, ty
 @(private) jm_image_view_set_image_bitmap := Jni_Method{cls = &jc_image_view, name = "setImageBitmap", sig = "(Landroid/graphics/Bitmap;)V"}
 image_view_set_image_bitmap :: proc "contextless" (env: JNI_Env, self: jobject, bitmap: jobject) {
 	jni_call_void(env, self, &jm_image_view_set_image_bitmap, jv_obj(bitmap))
+}
+
+// android.widget.ImageView.<init>(android.content.Context)
+@(private) jm_image_view_new := Jni_Method{cls = &jc_image_view, name = "<init>", sig = "(Landroid/content/Context;)V"}
+image_view_new :: proc "contextless" (env: JNI_Env, ctx: jobject) -> jobject {
+	return jni_new_object(env, &jm_image_view_new, jv_obj(ctx))
+}
+
+// android.widget.ImageView.setImageResource(int)
+@(private) jm_image_view_set_image_resource := Jni_Method{cls = &jc_image_view, name = "setImageResource", sig = "(I)V"}
+image_view_set_image_resource :: proc "contextless" (env: JNI_Env, self: jobject, res: int) {
+	jni_call_void(env, self, &jm_image_view_set_image_resource, jv_int(res))
+}
+
+// android.widget.ImageView.setColorFilter(int)
+@(private) jm_image_view_set_color_filter := Jni_Method{cls = &jc_image_view, name = "setColorFilter", sig = "(I)V"}
+image_view_set_color_filter :: proc "contextless" (env: JNI_Env, self: jobject, argb: int) {
+	jni_call_void(env, self, &jm_image_view_set_color_filter, jv_int(argb))
+}
+
+// android.widget.ImageButton.<init>(android.content.Context)
+@(private) jm_image_button_new := Jni_Method{cls = &jc_image_button, name = "<init>", sig = "(Landroid/content/Context;)V"}
+image_button_new :: proc "contextless" (env: JNI_Env, ctx: jobject) -> jobject {
+	return jni_new_object(env, &jm_image_button_new, jv_obj(ctx))
 }
 
 // static android.widget.ImageView$ScaleType.valueOf(java.lang.String)
@@ -743,5 +824,17 @@ nv_fetch_start :: proc (env: JNI_Env, req: i64, url: string) {
 	url_ := jni_string(env, strings.clone_to_cstring(url, context.temp_allocator))
 	defer jni_delete_local_ref(env, url_)
 	jni_call_void(env, nil, &jm_nv_fetch_start, jv_long(req), jv_obj(url_))
+}
+
+// nv.NvTapListener.<init>(long, int)
+@(private) jm_nv_tap_listener_new := Jni_Method{cls = &jc_nv_tap_listener, name = "<init>", sig = "(JI)V"}
+nv_tap_listener_new :: proc "contextless" (env: JNI_Env, handle: i64, kind: int) -> jobject {
+	return jni_new_object(env, &jm_nv_tap_listener_new, jv_long(handle), jv_int(kind))
+}
+
+// static nv.NvTimer.start(long, long)
+@(private) jm_nv_timer_start := Jni_Method{cls = &jc_nv_timer, name = "start", sig = "(JJ)V", static = true}
+nv_timer_start :: proc "contextless" (env: JNI_Env, timer: i64, ms: i64) {
+	jni_call_void(env, nil, &jm_nv_timer_start, jv_long(timer), jv_long(ms))
 }
 

@@ -105,6 +105,7 @@ foreign gobj {
 @(default_calling_convention="c")
 foreign glib {
 	g_idle_add :: proc(function: GSourceFunc, data: gpointer) -> guint ---
+	g_timeout_add :: proc(interval: guint, function: GSourceFunc, data: gpointer) -> guint ---
 	g_bytes_new    :: proc(data: rawptr, size: uint) -> ^GBytes ---
 	g_bytes_unref  :: proc(bytes: ^GBytes) ---
 	g_error_free   :: proc(error: ^GError) ---
@@ -188,6 +189,7 @@ foreign gtk {
 	gtk_label_set_attributes :: proc(label: ^GtkWidget, attrs: ^PangoAttrList) ---
 	gtk_entry_set_attributes :: proc(entry: ^GtkWidget, attrs: ^PangoAttrList) ---
 
+	gtk_button_new            :: proc() -> ^GtkWidget ---
 	gtk_button_new_with_label :: proc(label: cstring) -> ^GtkWidget ---
 	gtk_button_set_label      :: proc(button: ^GtkWidget, label: cstring) ---
 	gtk_button_new_from_icon_name :: proc(icon_name: cstring) -> ^GtkWidget ---
@@ -224,6 +226,16 @@ foreign gtk {
 	gtk_widget_add_controller      :: proc(widget: ^GtkWidget, controller: ^GtkEventController) ---
 	gtk_gesture_drag_new           :: proc() -> ^GtkEventController ---
 	gtk_gesture_drag_get_start_point :: proc(gesture: ^GtkEventController, x, y: ^f64) -> gboolean ---
+	gtk_gesture_click_new          :: proc() -> ^GtkEventController ---
+
+	gtk_box_set_homogeneous         :: proc(box: ^GtkWidget, homogeneous: gboolean) ---
+	gtk_toggle_button_new           :: proc() -> ^GtkWidget ---
+	gtk_toggle_button_set_group     :: proc(button: ^GtkWidget, group: ^GtkWidget) ---
+	gtk_toggle_button_set_active    :: proc(button: ^GtkWidget, is_active: gboolean) ---
+	gtk_toggle_button_get_active    :: proc(button: ^GtkWidget) -> gboolean ---
+	gtk_button_set_child            :: proc(button: ^GtkWidget, child: ^GtkWidget) ---
+	gtk_image_new_from_icon_name    :: proc(icon_name: cstring) -> ^GtkWidget ---
+	gtk_image_set_pixel_size        :: proc(image: ^GtkWidget, pixel_size: i32) ---
 }
 
 @(default_calling_convention="c")

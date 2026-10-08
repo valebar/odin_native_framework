@@ -70,5 +70,6 @@ linux_dialog_apply_modal :: proc() {
 	enabled := gboolean(dialog_top_modal() == nil)
 	gtk_widget_set_sensitive(g_linux.stack, enabled)
 	gtk_widget_set_sensitive(g_linux.back, enabled)
+	gtk_widget_set_sensitive(g_linux.menu, enabled)
 	for b in g_linux.actions do gtk_widget_set_sensitive(b, enabled)
 }

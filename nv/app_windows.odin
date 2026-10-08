@@ -69,6 +69,10 @@ window_proc :: proc "system" (hwnd: win.HWND, msg: win.UINT, wparam: win.WPARAM,
 		return ctlcolor_button(lparam)
 	case win.WM_ERASEBKGND:
 		return erase_background(hwnd, win.HDC(wparam))
+	case win.WM_TIMER: // a scaffold timer, whose id is its ^Timer (scaffold_windows.odin)
+		win.KillTimer(hwnd, win.UINT_PTR(wparam))
+		timer_fire((^Timer)(rawptr(uintptr(wparam))))
+		return 0
 	case WM_NV_FETCHED: // posted by a download's worker thread (image_windows.odin)
 		f := (^Fetch)(uintptr(lparam))
 		context = f.ctx

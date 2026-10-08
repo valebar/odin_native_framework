@@ -69,6 +69,7 @@ dialog_apply_modal :: proc() {
 	enabled := win.BOOL(dialog_top_modal() == nil)
 	win.EnableWindow(win.HWND(g_nav[len(g_nav) - 1].root), enabled)
 	win.EnableWindow(g_windows.nav_back, enabled)
+	win.EnableWindow(g_windows.nav_menu, enabled)
 	for b in g_windows.nav_actions do win.EnableWindow(b, enabled)
 }
 
@@ -92,8 +93,17 @@ dialog_layout :: proc(rc: win.RECT) {
 	}
 }
 
+// A dialog's scrim only swallows the mouse; a scaffold's (scaffold_windows.odin) has its overlay
+// in GWLP_USERDATA and reports a click.
 @(private)
 scrim_proc :: proc "system" (hwnd: win.HWND, msg: win.UINT, wparam: win.WPARAM, lparam: win.LPARAM) -> win.LRESULT {
+	if msg == win.WM_LBUTTONDOWN {
+		if h := overlay_handle_of(hwnd); h != nil {
+			context = h.ctx
+			overlay_scrim_notify(h)
+			return 0
+		}
+	}
 	return win.DefWindowProcW(hwnd, msg, wparam, lparam)
 }
 

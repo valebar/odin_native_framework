@@ -53,6 +53,19 @@ package nv
 	dialog_close:        proc(h: ^Dialog_Handle),
 	dialog_set_hidden:   proc(h: ^Dialog_Handle, hidden: bool),
 
+	// The scaffold's pieces (see Scaffold): any view's visibility (a hidden child of a Row / Column
+	// takes no space), the overlay, the FAB, the tab bar and a one-shot timer
+	view_set_hidden:     proc(v: View, hidden: bool),
+	view_set_enabled:    proc(v: View, enabled: bool), // keyboard / focus off a subtree (under the drawer)
+	overlay_init:        proc(h: ^Overlay_Handle),
+	overlay_add:         proc(h: ^Overlay_Handle, child: View, place: Overlay_Place),
+	overlay_place:       proc(h: ^Overlay_Handle, child: View, place: Overlay_Place),
+	overlay_scrim_init:  proc(h: ^Overlay_Handle),
+	fab_init:            proc(h: ^Fab_Handle),
+	tabbar_init:         proc(h: ^Tabbar_Handle),
+	tabbar_select:       proc(h: ^Tabbar_Handle),
+	post_delayed:        proc(ms: int, t: ^Timer),
+
 	// The theme (see g_theme)
 	theme_system_dark:   proc() -> bool,
 	theme_system_accent: proc() -> Color,
@@ -92,6 +105,16 @@ package nv
 	dialog_show         = _dialog_show,
 	dialog_close        = _dialog_close,
 	dialog_set_hidden   = _dialog_set_hidden,
+	view_set_hidden     = _view_set_hidden,
+	view_set_enabled    = _view_set_enabled,
+	overlay_init        = _overlay_init,
+	overlay_add         = _overlay_add,
+	overlay_place       = _overlay_place,
+	overlay_scrim_init  = _overlay_scrim_init,
+	fab_init            = _fab_init,
+	tabbar_init         = _tabbar_init,
+	tabbar_select       = _tabbar_select,
+	post_delayed        = _post_delayed,
 	theme_system_dark   = _theme_system_dark,
 	theme_system_accent = _theme_system_accent,
 	theme_apply_mode    = _theme_apply_mode,

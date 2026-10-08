@@ -54,6 +54,7 @@ mock: struct {
 	system_dark:       bool,
 	system_accent:     Color,
 	modal_after_close: ^Dialog_Handle,  // dialog_top_modal() as _dialog_close saw it
+	timers:            [dynamic]^Timer, // in post_delayed order, until mock_fire_timers
 }
 
 mock_backend := Backend{
@@ -88,6 +89,16 @@ mock_backend := Backend{
 	dialog_show         = mock_dialog_show,
 	dialog_close        = mock_dialog_close,
 	dialog_set_hidden   = mock_dialog_set_hidden,
+	view_set_hidden     = mock_view_set_hidden,
+	view_set_enabled    = mock_view_set_enabled,
+	overlay_init        = mock_overlay_init,
+	overlay_add         = mock_overlay_add,
+	overlay_place       = mock_overlay_place,
+	overlay_scrim_init  = mock_overlay_scrim_init,
+	fab_init            = mock_fab_init,
+	tabbar_init         = mock_tabbar_init,
+	tabbar_select       = mock_tabbar_select,
+	post_delayed        = mock_post_delayed,
 	theme_system_dark   = mock_theme_system_dark,
 	theme_system_accent = mock_theme_system_accent,
 	theme_apply_mode    = mock_theme_apply_mode,
@@ -106,7 +117,7 @@ mock_begin :: proc(t: ^testing.T) {
 	g_nav, g_nav_pending, g_dialogs, g_dialogs_pending = {}, {}, {}, {}
 	g_nav_building, g_callback_depth = 0, 0
 	g_scope_override, g_scopes_retired = nil, {}
-	g_progress = nil
+	g_progress, g_scaffolds = nil, nil
 	g_theme, g_dark, g_theme_live = {}, false, false
 	g_backend = mock_backend
 	mock = {t = t, nav_pop_ok = true, decode_ok = true, font_ok = true}
@@ -114,6 +125,7 @@ mock_begin :: proc(t: ^testing.T) {
 	mock.log = make([dynamic]string, mock_allocator())
 	mock.parked = make([dynamic]^Scope, mock_allocator())
 	mock.fetches = make([dynamic]^Fetch, mock_allocator())
+	mock.timers = make([dynamic]^Timer, mock_allocator())
 }
 
 // Ends a test, then fails on what it left. What is still up is torn down the way Android's relaunch
@@ -132,6 +144,7 @@ mock_end :: proc(t: ^testing.T, loc := #caller_location) {
 		root := g_nav[0]
 		dialog_close_page(root)
 		scope_retire(root.scope)
+		nav_detach_scaffold(root)
 		nav_actions_free(root)
 		delete(root.page.title)
 		free(root)
@@ -146,6 +159,7 @@ mock_end :: proc(t: ^testing.T, loc := #caller_location) {
 	callback_exit()
 	mock_retire_parked()
 	for f, i in mock.fetches do if f != nil do mock_fetch_finish(i, nil)
+	mock_fire_timers() // the cancelled ones only free themselves
 	delete(g_nav)
 	delete(g_nav_pending)
 	delete(g_dialogs)
@@ -153,6 +167,7 @@ mock_end :: proc(t: ^testing.T, loc := #caller_location) {
 	delete(g_scopes_retired)
 	g_nav, g_nav_pending, g_dialogs, g_dialogs_pending, g_scopes_retired = {}, {}, {}, {}, {}
 	testing.expectf(t, g_progress == nil, "a progress outlived its scope", loc = loc)
+	testing.expectf(t, g_scaffolds == nil, "a scaffold outlived its scope", loc = loc)
 	testing.expectf(t, mock.views == 0, "%d views outlived their page or dialog", mock.views, loc = loc)
 	virtual.arena_destroy(&mock.arena)
 }
@@ -185,13 +200,14 @@ mock_require :: proc(ok: bool, what: string, loc := #caller_location) {
 
 // A fake native view in the current scope, released by a disposer like a backend's reference.
 Mock_View :: struct {
-	kind: string,
-	text: string, // what the widget shows (mock arena)
+	kind:   string,
+	text:   string, // what the widget shows (mock arena)
+	hidden: bool,
 }
 
 mock_view :: proc(kind: string, text := "") -> View {
 	v := scope_new_in(Mock_View)
-	v^ = {kind, strings.clone(text, mock_allocator())}
+	v^ = {kind = kind, text = strings.clone(text, mock_allocator())}
 	scope_on_dispose(mock_view_release, v)
 	mock.views += 1
 	return View(rawptr(v))
@@ -222,6 +238,18 @@ mock_retire_parked :: proc(bracketed := false) {
 	for s in mock.parked do scope_retire(s)
 	clear(&mock.parked)
 	if bracketed do callback_exit()
+}
+
+// Every timer posted so far is up, in post order (a timer posted meanwhile waits for the next call).
+mock_fire_timers :: proc() {
+	timers := mock.timers[:]
+	mock.timers = make([dynamic]^Timer, mock_allocator())
+	for t in timers do timer_fire(t)
+}
+
+mock_view_name :: proc(v: View) -> string {
+	m := mock_view_of(v)
+	return m.text == "" ? m.kind : fmt.tprintf("%s %s", m.kind, m.text)
 }
 
 // The user typed `text` (and pressed Enter, with submit), reported the way the backends do.
@@ -403,6 +431,57 @@ mock_dialog_close :: proc(h: ^Dialog_Handle) {
 mock_dialog_set_hidden :: proc(h: ^Dialog_Handle, hidden: bool) {
 	mock_require(h.hidden == hidden, "_dialog_set_hidden after the core set the flag")
 	mock_log("dialog_set_hidden %s %v", h.dialog.title, hidden)
+}
+
+mock_view_set_hidden :: proc(v: View, hidden: bool) {
+	mock_require(v != nil, "_view_set_hidden gets a view")
+	mock_view_of(v).hidden = hidden
+	mock_log("%s %s", hidden ? "hide" : "show", mock_view_name(v))
+}
+
+mock_view_set_enabled :: proc(v: View, enabled: bool) {
+	mock_require(v != nil, "_view_set_enabled gets a view")
+	mock_log("%s %s", enabled ? "enable" : "disable", mock_view_name(v))
+}
+
+mock_overlay_init :: proc(h: ^Overlay_Handle) {
+	mock_require(h.base != nil, "_overlay_init gets a base view")
+	h.root = mock_view("overlay")
+	mock_log("overlay_init %s", mock_view_name(h.base))
+}
+
+mock_overlay_add :: proc(h: ^Overlay_Handle, child: View, place: Overlay_Place) {
+	mock_require(h.root != nil && child != nil, "_overlay_add gets a made overlay and a view")
+	mock_log("overlay_add %s %v %v", mock_view_name(child), place.h, place.v)
+}
+
+mock_overlay_place :: proc(h: ^Overlay_Handle, child: View, place: Overlay_Place) {
+	mock_log("overlay_place %s bottom %v", mock_view_name(child), place.margin.bottom)
+}
+
+mock_overlay_scrim_init :: proc(h: ^Overlay_Handle) {
+	mock_require(h.root != nil && h.scrim == nil, "_overlay_scrim_init once per made overlay")
+	h.scrim = mock_view("scrim")
+	mock_log("overlay_scrim_init")
+}
+
+mock_fab_init :: proc(h: ^Fab_Handle) {
+	h.root = mock_view("fab", h.fab.label)
+	mock_log("fab_init %v %s", h.fab.icon, h.fab.label)
+}
+
+mock_tabbar_init :: proc(h: ^Tabbar_Handle) {
+	h.root = mock_view("tabbar")
+	mock_log("tabbar_init %d %d", len(h.tabs), h.selected)
+}
+
+mock_tabbar_select :: proc(h: ^Tabbar_Handle) {
+	mock_log("tabbar_select %d", h.selected)
+}
+
+mock_post_delayed :: proc(ms: int, t: ^Timer) {
+	append(&mock.timers, t)
+	mock_log("post_delayed %d", ms)
 }
 
 mock_theme_system_dark :: proc() -> bool {

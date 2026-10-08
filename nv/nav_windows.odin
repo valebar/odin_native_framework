@@ -27,6 +27,10 @@ import win "core:sys/windows"
 	.Info     = "\uE946",
 	.More     = "\uE712",
 	.Close    = "\uE711",
+	.Menu     = "\uE700",
+	.Home     = "\uE80F",
+	.Star     = "\uE734",
+	.Person   = "\uE77B",
 }
 
 @(private)
@@ -43,6 +47,15 @@ nav_create_host :: proc(wnd: win.HWND) {
 	win.SendMessageW(back, win.WM_SETFONT, win.WPARAM(uintptr(g_windows.font)), 0)
 	theme_control(back)
 	g_windows.nav_back = back
+
+	menu_text, menu_font := "☰", g_windows.font // the glyph when the icon font is there
+	if g_windows.icon_font != nil do menu_text, menu_font = mdl2_glyphs[.Menu], g_windows.icon_font
+	menu := win.CreateWindowExW(0, wstr("Button"), wstr(menu_text),
+		win.WS_CHILD | win.WS_TABSTOP | win.WS_CLIPSIBLINGS | win.BS_PUSHBUTTON,
+		0, 0, 0, 0, host, nil, g_windows.hinstance, nil)
+	win.SendMessageW(menu, win.WM_SETFONT, win.WPARAM(uintptr(menu_font)), 0)
+	theme_control(menu)
+	g_windows.nav_menu = menu
 
 	g_windows.nav_title = label_new("", host, win.SS_CENTERIMAGE | win.WS_CLIPSIBLINGS, g_windows.title)
 }
@@ -95,6 +108,7 @@ nav_update_chrome :: proc(e: ^Page_Handle) {
 	nav_set_title(e)
 	nav_rebuild_actions(e)
 	win.ShowWindow(g_windows.nav_back, len(g_nav) > 1 ? win.SW_SHOW : win.SW_HIDE)
+	win.ShowWindow(g_windows.nav_menu, nav_shows_menu(e) ? win.SW_SHOW : win.SW_HIDE)
 	win.ShowWindow(g_windows.nav_title, nav_bar_shown() ? win.SW_SHOW : win.SW_HIDE)
 }
 
@@ -134,7 +148,8 @@ nav_rebuild_actions :: proc(e: ^Page_Handle) {
 
 @(private)
 nav_bar_shown :: proc "contextless" () -> bool {
-	return len(g_nav) > 1 || len(g_nav[len(g_nav) - 1].actions) > 0
+	top := g_nav[len(g_nav) - 1]
+	return len(g_nav) > 1 || len(top.actions) > 0 || nav_shows_menu(top)
 }
 
 // The bar, when shown, is the title font height plus padding: the back button at the left, the
@@ -153,6 +168,10 @@ nav_layout :: proc(host: win.HWND) {
 			back_w := button_ideal_size(g_windows.nav_back).x
 			win.MoveWindow(g_windows.nav_back, px(8), px(4), back_w, bar - px(8), true)
 			x = px(16) + back_w
+		} else if nav_shows_menu(g_nav[0]) {
+			side := bar - px(8) // square, like an icon action
+			win.MoveWindow(g_windows.nav_menu, px(8), px(4), side, side, true)
+			x = px(16) + side
 		}
 		right := rc.right - px(8)
 		#reverse for b in g_windows.nav_actions {
@@ -188,6 +207,10 @@ nav_proc :: proc "system" (hwnd: win.HWND, msg: win.UINT, wparam: win.WPARAM, lp
 			sender := win.HWND(uintptr(lparam))
 			if sender == g_windows.nav_back {
 				nav_back_notify()
+				return 0
+			}
+			if sender == g_windows.nav_menu {
+				nav_menu_notify()
 				return 0
 			}
 			if slice.contains(g_windows.nav_actions[:], sender) {

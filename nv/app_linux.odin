@@ -14,6 +14,7 @@ import "base:runtime"
 	window: ^GtkWidget,
 	header: ^GtkWidget, // the title bar
 	back:   ^GtkWidget, // header bar back button, visible on pushed pages
+	menu:   ^GtkWidget, // header bar menu button, visible on a root page with a drawer (nav_shows_menu)
 	actions: [dynamic]^GtkWidget, // the top page's action buttons, packed at the end of the header
 	overlay: ^GtkWidget, // the window child: the stack below, dialogs on top
 	stack:  ^GtkWidget, // one child per page
@@ -26,6 +27,14 @@ import "base:runtime"
 .nv-scrim  { background-color: rgba(0, 0, 0, 0.4); }
 .nv-dialog { background-color: @theme_base_color; color: @theme_fg_color; border: 1px solid @borders;
              border-radius: 12px; padding: 16px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.3); }
+button.nv-fab { min-width: 56px; min-height: 56px; padding: 0; border-radius: 28px; color: white;
+                background-image: none; background-color: @theme_selected_bg_color;
+                box-shadow: 0 3px 8px rgba(0, 0, 0, 0.35); }
+button.nv-fab:hover  { background-color: mix(@theme_selected_bg_color, white, 0.1); }
+button.nv-fab.nv-extended { padding: 0 20px; }
+.nv-tabbar { background-color: @theme_bg_color; border-top: 1px solid @borders; padding: 4px; }
+.nv-tabbar button { padding: 4px 0; }
+.nv-tabbar button:checked { background: none; color: @theme_selected_bg_color; }
 `
 
 @(private)
@@ -53,6 +62,11 @@ on_activate :: proc "c" (app: ^GtkApplication, _: gpointer) {
 	gtk_widget_set_visible(back, false)
 	g_signal_connect(back, "clicked", rawptr(on_back_clicked), nil)
 	gtk_header_bar_pack_start(header, back)
+	menu := gtk_button_new_from_icon_name(gtk_icon_names[.Menu])
+	gtk_widget_set_visible(menu, false)
+	g_signal_connect(menu, "clicked", rawptr(on_menu_clicked), nil)
+	gtk_header_bar_pack_start(header, menu)
+	g_linux.menu = menu
 	gtk_window_set_titlebar(wnd, header)
 	g_linux.header = header
 	g_linux.back = back
@@ -80,4 +94,10 @@ on_activate :: proc "c" (app: ^GtkApplication, _: gpointer) {
 on_back_clicked :: proc "c" (_: ^GtkWidget, _: gpointer) {
 	context = g_linux.ctx
 	nav_back_notify()
+}
+
+@(private)
+on_menu_clicked :: proc "c" (_: ^GtkWidget, _: gpointer) {
+	context = g_linux.ctx
+	nav_menu_notify()
 }

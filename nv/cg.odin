@@ -133,6 +133,8 @@ ct_font :: proc "c" (f: ^Font, size: f64) -> ^NS.Object {
 foreign libsystem {
 	_dispatch_main_q: u8 // dispatch_get_main_queue() is a macro for its address
 	dispatch_async_f :: proc(queue: rawptr, ctx: rawptr, work: proc "c" (ctx: rawptr)) ---
+	dispatch_after_f :: proc(when_: u64, queue: rawptr, ctx: rawptr, work: proc "c" (ctx: rawptr)) ---
+	dispatch_time    :: proc(when_: u64, delta: i64) -> u64 --- // dispatch_time_t; DISPATCH_TIME_NOW is 0
 }
 
 // Images: ImageIO decodes into a CGImage, shared by both canvases and both image views. EXIF

@@ -38,6 +38,7 @@ foreign gdi32 {
 	parking:    win.HWND, // main window; parent of every control until it is re-parented
 	root:       win.HWND, // the NVNav host (nav_windows.odin), which holds the pages
 	nav_back:   win.HWND, // the host's bar: a back button (pushed pages) and the page title
+	nav_menu:   win.HWND, // the bar's menu button, on a root page with a drawer (nav_shows_menu)
 	nav_title:  win.HWND,
 	nav_actions: [dynamic]win.HWND, // the bar's action buttons for the top page
 	dpi:        u32,
@@ -98,6 +99,9 @@ register_classes :: proc() {
 	register(CLASS_SCRIM, scrim_proc, win.HBRUSH(win.GetStockObject(win.BLACK_BRUSH)))
 	register(CLASS_DIALOG, dialog_proc)
 	register(CLASS_CONTAINER, container_proc, nil) // paints every pixel itself
+	register(CLASS_OVERLAY, overlay_proc)
+	register(CLASS_FAB, fab_proc)
+	register(CLASS_TABBAR, tabbar_proc)
 }
 
 // Fonts follow the user's message font (Settings > Accessibility > Text size included) at `dpi`.

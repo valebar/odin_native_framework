@@ -33,6 +33,12 @@ page_controller_new :: proc(e: ^Page_Handle) -> ^UI_View_Controller {
 	container->release()
 	ui_view_controller_set_title(vc, ns_string(e.page.title))
 	ios_apply_actions(vc, e)
+	if nav_shows_menu(e) { // the root page with a drawer: Flutter's hamburger where a back button would be
+		item := ui_bar_button_item_with_image(ui_image_system(ns_string(sf_symbol_names[.Menu])), g_app.nav_target, intrinsics.objc_find_selector("nvMenu:"))
+		ui_bar_button_item_set_accessibility_label(item, ns_string("Menu"))
+		send(nil, ui_view_controller_navigation_item(vc), "setLeftBarButtonItem:", item)
+		send(nil, item, "release")
+	}
 	e.native = vc // owned by the navigation controller
 	return vc
 }
@@ -129,4 +135,11 @@ page_did_move :: proc "c" (self: NS.id, _: NS.SEL, parent: NS.id) {
 		g_app.removing = nil
 		return
 	}
+}
+
+// The menu button; the scrim of a modal dialog covers the bar, so it needs no check of its own.
+@(private)
+nav_menu_clicked :: proc "c" (self: NS.id, _: NS.SEL, _: NS.id) {
+	context = g_app.ctx
+	nav_menu_notify()
 }

@@ -22,6 +22,10 @@ package nv
 	.Info     = "ic_menu_info_details",
 	.More     = "ic_menu_more",
 	.Close    = "ic_menu_close_clear_cancel",
+	.Menu     = "ic_menu_sort_by_size", // no public hamburger drawable; the closest set of lines
+	.Home     = "ic_menu_myplaces",
+	.Star     = "btn_star_big_on",
+	.Person   = "", // no public person drawable
 }
 
 @(private) MENU_SHOW_AS_ACTION_IF_ROOM :: 1
@@ -56,7 +60,9 @@ android_chrome :: proc(e: ^Page_Handle) {
 	activity := g_android.activity
 	activity_set_title(env, activity, e.page.title)
 	if bar := activity_get_action_bar(env, activity); bar != nil {
-		action_bar_set_display_home_as_up_enabled(env, bar, len(g_nav) > 1)
+		menu := nav_shows_menu(e) // the up arrow becomes the drawer's menu button (nativeOnMenu)
+		action_bar_set_display_home_as_up_enabled(env, bar, len(g_nav) > 1 || menu)
+		action_bar_set_home_as_up_indicator(env, bar, menu ? android_icon_res(env, .Menu) : 0) // 0: the theme's arrow
 		if g_theme.accent.a > 0 {
 			cd := color_drawable_new(env, android_argb(g_theme.accent))
 			action_bar_set_background_drawable(env, bar, cd)
@@ -90,10 +96,8 @@ jni_on_create_menu :: proc "c" (env: JNI_Env, _: jclass, menu: jobject) {
 	for h, i in e.actions {
 		item := menu_add(env, menu, 0, i + 1, i, h.action.title)
 		if item == nil do continue
-		if name := android_icon_names[h.action.icon]; name != "" {
-			if id := jni_get_static_int_field(env, "android/R$drawable", name); id != 0 {
-				jni_delete_local_ref(env, menu_item_set_icon(env, item, int(id)))
-			}
+		if id := android_icon_res(env, h.action.icon); id != 0 {
+			jni_delete_local_ref(env, menu_item_set_icon(env, item, id))
 		}
 		menu_item_set_show_as_action(env, item, MENU_SHOW_AS_ACTION_IF_ROOM)
 		jni_delete_local_ref(env, item)
@@ -114,7 +118,7 @@ jni_on_action :: proc "c" (env: JNI_Env, _: jclass, id: jint) -> jboolean {
 }
 
 // Back key or ActionBar up arrow. A modal dialog takes it first and closes, as Android dialogs
-// do. Returns false on the root page, so the default handling finishes the Activity (or moves the
+// do, then an open drawer. Returns false on the root page, so the default handling finishes the Activity (or moves the
 // task to the back when the launcher started it).
 @(export, link_name="Java_nv_NvActivity_nativeOnBack")
 jni_on_back :: proc "c" (env: JNI_Env, _: jclass) -> jboolean {
@@ -126,9 +130,26 @@ jni_on_back :: proc "c" (env: JNI_Env, _: jclass) -> jboolean {
 		dialog_close(d)
 		return 1
 	}
+	if s := scaffold_top_drawer(); s != nil { // an open drawer closes before anything pops
+		callback_enter()
+		defer callback_exit()
+		scaffold_close_drawer(s)
+		return 1
+	}
 	if len(g_nav) <= 1 do return 0
 	callback_enter()
 	defer callback_exit()
 	pop()
+	return 1
+}
+
+// The ActionBar's home button on a root page with a drawer (nav_shows_menu) toggles the drawer;
+// false elsewhere, so NvActivity goes on to nativeOnBack.
+@(export, link_name="Java_nv_NvActivity_nativeOnMenu")
+jni_on_menu :: proc "c" (env: JNI_Env, _: jclass) -> jboolean {
+	context = g_android.ctx
+	g_android.env = env
+	if len(g_nav) == 0 || !nav_shows_menu(g_nav[len(g_nav) - 1]) do return 0
+	nav_menu_notify()
 	return 1
 }
