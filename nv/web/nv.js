@@ -47,7 +47,7 @@ const css = (argb) => {
 	return `rgba(${(argb >>> 16) & 255}, ${(argb >>> 8) & 255}, ${argb & 255}, ${((argb >>> 24) / 255).toFixed(3)})`;
 };
 
-// Material icons (Apache 2.0), by nv.Icon; 16 is the back arrow.
+// Material icons (Apache 2.0), by nv.Icon; the one after the last Icon (17) is the back arrow.
 const ICONS = [
 	"",
 	"M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z",
@@ -65,6 +65,7 @@ const ICONS = [
 	"M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z",
 	"M12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z",
 	"M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z",
+	"M8.4 18.2c.38.5.6 1.12.6 1.8 0 1.66-1.34 3-3 3s-3-1.34-3-3 1.34-3 3-3c.44 0 .85.09 1.23.26l1.41-1.77c-.92-1.03-1.29-2.39-1.09-3.69l-2.03-.68C4.98 11.95 4.06 12.5 3 12.5c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3c0 .07 0 .14-.01.21l2.03.68c.64-1.21 1.82-2.09 3.22-2.32V5.91C9.96 5.57 9 4.4 9 3c0-1.66 1.34-3 3-3s3 1.34 3 3c0 1.4-.96 2.57-2.25 2.91v2.16c1.4.23 2.58 1.11 3.22 2.32l2.03-.68c-.01-.07-.01-.14-.01-.21 0-1.66 1.34-3 3-3s3 1.34 3 3-1.34 3-3 3c-1.06 0-1.98-.55-2.52-1.37l-2.03.68c.2 1.29-.16 2.65-1.09 3.69l1.41 1.77c.38-.17.79-.26 1.23-.26 1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3c0-.68.22-1.3.6-1.8l-1.41-1.77c-1.35.75-3.01.76-4.37 0L8.4 18.2z",
 	"M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z",
 ];
 
@@ -200,6 +201,23 @@ function listRender(l) {
 
 // ---- canvases ----
 
+const SCROLL_LINE = 40; // nv.SCROLL_LINE: points per wheel notch
+
+// Sets the text font on the canvas being drawn; its line box ({ascent, height}), measured once per
+// font (the cache is cleared when a loaded face arrives).
+function textFont(ctx, size, weight, italic, font) {
+	const family = font ? `"nv-font-${font}", ${SYSTEM_FONT}` : SYSTEM_FONT;
+	const f = `${italic ? "italic " : ""}${weight} ${size}px ${family}`;
+	if (cur.font !== f) { cur.font = f; ctx.font = f; }
+	let box = cur.ascent.get(f);
+	if (box === undefined) {
+		const m = ctx.measureText("Hg");
+		box = {ascent: m.fontBoundingBoxAscent, height: m.fontBoundingBoxAscent + m.fontBoundingBoxDescent};
+		cur.ascent.set(f, box);
+	}
+	return box;
+}
+
 const canvases = new Set();
 let cur = null; // the canvas being drawn: the draw imports paint on cur.ctx
 
@@ -223,6 +241,12 @@ function canvasCreate(h) {
 	const up = (e) => { if (!s.down) return; s.down = false; ex.nv_web_pointer(s.h, 2, ...pos(e)); };
 	c.addEventListener("pointerup", up);
 	c.addEventListener("pointercancel", up);
+	// deltaMode: 0 pixels, 1 lines (SCROLL_LINE points each), 2 pages. Positive is down / right,
+	// as on_scroll wants; prevented only when Odin took it.
+	c.addEventListener("wheel", (e) => {
+		const k = e.deltaMode === 1 ? SCROLL_LINE : e.deltaMode === 2 ? c.clientHeight : 1;
+		if (ex.nv_web_scroll(s.h, e.deltaX * k, e.deltaY * k)) e.preventDefault();
+	}, {passive: false});
 	return put(wrap);
 }
 
@@ -424,17 +448,15 @@ const imports = {
 	// (x, y) is the top-left of the line box: the baseline is the font's ascent below it.
 	js_draw_text: (p, n, x, y, size, weight, italic, font, c) => {
 		const ctx = fillStyle(c);
-		const family = font ? `"nv-font-${font}", ${SYSTEM_FONT}` : SYSTEM_FONT;
-		const f = `${italic ? "italic " : ""}${weight} ${size}px ${family}`;
-		if (cur.font !== f) { cur.font = f; ctx.font = f; }
-		let ascent = cur.ascent.get(f);
-		if (ascent === undefined) {
-			ascent = ctx.measureText("Hg").fontBoundingBoxAscent;
-			cur.ascent.set(f, ascent);
-		}
+		const ascent = textFont(ctx, size, weight, italic, font).ascent;
 		ctx.textBaseline = "alphabetic";
 		ctx.fillText(S(p, n), x, y + ascent);
 	},
+	js_measure_text: (p, n, size, weight, italic, font) => {
+		textFont(cur.ctx, size, weight, italic, font);
+		return cur.ctx.measureText(S(p, n)).width;
+	},
+	js_text_height: (size, weight, italic, font) => textFont(cur.ctx, size, weight, italic, font).height,
 	js_draw_image: (id, x, y, w, h) => {
 		const b = bitmaps[id];
 		if (!b || !b.image) return; // still decoding: every canvas redraws once it is done
@@ -516,6 +538,10 @@ function devLog(text) {
 	logChain = logChain.then(() => fetch("/__nv/log", {method: "POST", body}).catch(() => {}));
 }
 
+// opts: {wasm, devLog, imports}. `imports(env)`, optional, returns the app's own import modules
+// ({"app": {js_x: (...) => ...}}) for its `foreign import x "app"` blocks; `env` gives them the
+// memory (env.mem, odin.js's WasmMemoryInterface: loadString / loadBytes) and, once instantiated,
+// the wasm's exports (env.exports()), so they can call the app's @(export) procs.
 async function start(opts) {
 	const list = await fetch("assets.json").then((r) => (r.ok ? r.json() : []), () => []);
 	await Promise.all(list.map(async (p) => {
@@ -532,6 +558,7 @@ async function start(opts) {
 		window.addEventListener("error", (e) => devLog(`nv: ${e.message} (${e.filename}:${e.lineno})\n`));
 		window.addEventListener("unhandledrejection", (e) => devLog(`nv: ${e.reason}\n`));
 	}
+	if (opts.imports) Object.assign(all, opts.imports({mem, exports: () => ex}));
 	all.nv = imports;
 
 	const bytes = await fetch(opts.wasm).then((r) => r.arrayBuffer());

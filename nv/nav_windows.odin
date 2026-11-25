@@ -31,6 +31,7 @@ import win "core:sys/windows"
 	.Home     = "\uE80F",
 	.Star     = "\uE734",
 	.Person   = "\uE77B",
+	.Hub      = "", // no MDL2 hub glyph: the title shows
 }
 
 @(private)

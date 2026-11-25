@@ -10,7 +10,7 @@ package nv
 // backend comment above g_theme.
 //
 // The draw procs (_fill_rect, _stroke_rect, _draw_line, _fill_ellipse, _stroke_ellipse,
-// _stroke_arc, _draw_text, _draw_image) belong to the contract too, but the core calls them directly: they are
+// _stroke_arc, _draw_text, _measure_text, _draw_image) belong to the contract too, but the core calls them directly: they are
 // the canvas's hot path and only run inside on_draw with a Painter the backend made, so no test
 // replaces them. A missing one fails at its call in nv.odin.
 @(private) Backend :: struct {
@@ -65,6 +65,7 @@ package nv
 	tabbar_init:         proc(h: ^Tabbar_Handle),
 	tabbar_select:       proc(h: ^Tabbar_Handle),
 	post_delayed:        proc(ms: int, t: ^Timer),
+	post_timer:          proc(t: ^Timer), // from any thread: timer_fire on the main thread, soon (see post_main)
 
 	// The theme (see g_theme)
 	theme_system_dark:   proc() -> bool,
@@ -115,6 +116,7 @@ package nv
 	tabbar_init         = _tabbar_init,
 	tabbar_select       = _tabbar_select,
 	post_delayed        = _post_delayed,
+	post_timer          = _post_timer,
 	theme_system_dark   = _theme_system_dark,
 	theme_system_accent = _theme_system_accent,
 	theme_apply_mode    = _theme_apply_mode,

@@ -16,7 +16,7 @@ import OBJC "core:sys/darwin/ObjectiveC"
 _nav_push :: proc(e: ^Page_Handle) {
 	root := (^AK.View)(e.root)
 	view_set_translates_autoresizing_mask(root, false)
-	if len(g_nav) > 1 do view_set_hidden((^AK.View)(g_nav[len(g_nav) - 2].root), true)
+	if len(g_nav) > 1 do ak_view_set_hidden((^AK.View)(g_nav[len(g_nav) - 2].root), true)
 	g_macos.content->addSubview(root) // added last: above the lower pages and their dialogs
 	layout_pin_page(root, g_macos.content)
 	nav_update_chrome(e)
@@ -25,7 +25,7 @@ _nav_push :: proc(e: ^Page_Handle) {
 @(private)
 _nav_pop :: proc(top, below: ^Page_Handle) -> bool {
 	view_remove_from_superview((^AK.View)(top.root))
-	view_set_hidden((^AK.View)(below.root), false)
+	ak_view_set_hidden((^AK.View)(below.root), false)
 	nav_update_chrome(below)
 	return true
 }

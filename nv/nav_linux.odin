@@ -25,6 +25,7 @@ import "core:strings"
 	.Home     = "go-home-symbolic",
 	.Star     = "starred-symbolic",
 	.Person   = "avatar-default-symbolic",
+	.Hub      = "nv-hub-symbolic", // bundled (app_linux.odin): the theme has no hub
 }
 
 @(private)

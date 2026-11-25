@@ -246,6 +246,16 @@ _draw_text :: proc(p: ^Painter, text: string, x, y: f64, style: Text_Style) {
 	win.TextOutW(dc, px(x), px(y), w, i32(len(string16_of(w))))
 }
 
+// GDI's extent of the same font _draw_text selects: the advance and the line height (tmHeight).
+@(private)
+_measure_text :: proc(p: ^Painter, text: string, style: Text_Style) -> (width, height: f64) {
+	dc: win.HDC
+	GdipGetDC(p.native, &dc)
+	defer GdipReleaseDC(p.native, dc)
+	sz := text_size(dc, style_font(style, g_windows.font), text)
+	return dp(sz.cx), dp(sz.cy)
+}
+
 // px → dp, the inverse of `px`.
 @(private)
 dp :: proc "contextless" (v: i32) -> f64 {
@@ -316,6 +326,15 @@ canvas_proc :: proc "system" (hwnd: win.HWND, msg: win.UINT, wparam: win.WPARAM,
 			win.ReleaseCapture()
 			canvas_pointer_notify(h, .Up, x, y)
 		}
+		return 0
+	case win.WM_MOUSEWHEEL, win.WM_MOUSEHWHEEL:
+		// WHEEL_DELTA (120) per notch; the vertical wheel is positive away from the user (towards
+		// the top), the horizontal one positive to the right. Without on_scroll, DefWindowProc
+		// hands it to the parent.
+		if h.canvas.on_scroll == nil do break
+		d := f64(win.GET_WHEEL_DELTA_WPARAM(wparam)) / 120 * SCROLL_LINE
+		if msg == win.WM_MOUSEWHEEL do canvas_scroll_notify(h, 0, -d)
+		else do canvas_scroll_notify(h, d, 0)
 		return 0
 	}
 	return win.DefWindowProcW(hwnd, msg, wparam, lparam)

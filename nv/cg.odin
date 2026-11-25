@@ -350,6 +350,19 @@ apple_canvas_redraw_main :: proc "c" (data: rawptr) {
 // NSForegroundColorAttributeName in both AppKit and UIKit.
 @(private)
 _draw_text :: proc(p: ^Painter, text: string, x, y: f64, style: Text_Style) {
+	send(nil, ns_string(text), "drawAtPoint:withAttributes:", NS.Point{NS.Float(x), NS.Float(y)}, apple_text_attrs(p, style))
+}
+
+// sizeWithAttributes: is the box drawAtPoint:withAttributes: fills: the advance and the line height.
+@(private)
+_measure_text :: proc(p: ^Painter, text: string, style: Text_Style) -> (width, height: f64) {
+	size := send(NS.Size, ns_string(text), "sizeWithAttributes:", apple_text_attrs(p, style))
+	return f64(size.width), f64(size.height)
+}
+
+// The canvas's attribute dictionary for `style`, kept while the style repeats.
+@(private)
+apple_text_attrs :: proc(p: ^Painter, style: Text_Style) -> ^NS.Object {
 	c := (^Apple_Canvas)(p.h.extra)
 	if c.attrs == nil || c.style != style {
 		keys := [2]^NS.Object{NS.AT("NSFont"), NS.AT("NSColor")}
@@ -359,7 +372,7 @@ _draw_text :: proc(p: ^Painter, text: string, x, y: f64, style: Text_Style) {
 		if c.attrs != nil do send(nil, c.attrs, "release")
 		c.attrs, c.style = attrs, style
 	}
-	send(nil, ns_string(text), "drawAtPoint:withAttributes:", NS.Point{NS.Float(x), NS.Float(y)}, c.attrs)
+	return c.attrs
 }
 
 // Sys_Font / Sys_Color (NSFont / UIFont, NSColor / UIColor, which share the selectors used here)

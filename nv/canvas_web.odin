@@ -54,15 +54,28 @@ _stroke_arc :: proc(p: ^Painter, cx, cy, radius, start, sweep: f64, color: Color
 // The system font, or a loaded face with its own weight and slant unless the style sets them.
 @(private)
 _draw_text :: proc(p: ^Painter, text: string, x, y: f64, style: Text_Style) {
-	weight := web_weight(text_weight(style.weight, false))
-	italic := style.italic
-	font: i32
+	weight, italic, font := web_text_font(style)
+	js_draw_text(text, x, y, style.size, weight, italic, font, color_argb(style.color))
+}
+
+// measureText's advance; the line box is the font's ascent and descent (fontBoundingBox).
+@(private)
+_measure_text :: proc(p: ^Painter, text: string, style: Text_Style) -> (width, height: f64) {
+	weight, italic, font := web_text_font(style)
+	width = js_measure_text(text, style.size, weight, italic, font)
+	return width, js_text_height(style.size, weight, italic, font)
+}
+
+@(private)
+web_text_font :: proc(style: Text_Style) -> (weight: i32, italic: b32, font: i32) {
+	w := web_weight(text_weight(style.weight, false))
+	it := style.italic
 	if f := style.font; f != nil {
 		font = i32(uintptr(f.native))
-		italic ||= f.italic
-		if style.weight == .Default do weight = f.weight
+		it ||= f.italic
+		if style.weight == .Default do w = f.weight
 	}
-	js_draw_text(text, x, y, style.size, i32(weight), b32(italic), font, color_argb(style.color))
+	return i32(w), b32(it), font
 }
 
 @(private)

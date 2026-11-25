@@ -25,7 +25,7 @@ foreign import nv_js "nv"
 }
 
 // The icon nv.js draws for the bar's back button, after the nv.Icon ones.
-@(private) WEB_ICON_BACK :: 16
+@(private) WEB_ICON_BACK :: len(Icon) // nv.js's ICONS: one path per Icon, then the back arrow
 
 @(private, default_calling_convention = "contextless")
 foreign nv_js {
@@ -66,6 +66,8 @@ foreign nv_js {
 	js_stroke_ellipse :: proc(x, y, w, h: f64, argb: u32, width: f64) ---
 	js_arc            :: proc(cx, cy, r, start, sweep: f64, argb: u32, width: f64) ---
 	js_draw_text      :: proc(text: string, x, y, size: f64, weight: i32, italic: b32, font: i32, argb: u32) ---
+	js_measure_text   :: proc(text: string, size: f64, weight: i32, italic: b32, font: i32) -> f64 ---
+	js_text_height    :: proc(size: f64, weight: i32, italic: b32, font: i32) -> f64 ---
 	js_draw_image     :: proc(bitmap: i32, x, y, w, h: f64) ---
 
 	// Bitmaps, fonts, assets, downloads, timers
@@ -248,6 +250,15 @@ nv_web_draw :: proc "c" (h: ^Canvas_Handle, width, height: f64) {
 nv_web_pointer :: proc "c" (h: ^Canvas_Handle, kind: i32, x, y: f64) {
 	context = h.ctx
 	canvas_pointer_notify(h, Pointer(kind), x, y)
+}
+
+// A wheel event in points; false without on_scroll, so the page scrolls instead.
+@(private, export)
+nv_web_scroll :: proc "c" (h: ^Canvas_Handle, dx, dy: f64) -> b32 {
+	context = h.ctx
+	if h.canvas.on_scroll == nil do return false
+	canvas_scroll_notify(h, dx, dy)
+	return true
 }
 
 // A buffer for bytes nv.js hands over (a download), on the heap like Fetch.data.

@@ -578,6 +578,20 @@ paint_ascent :: proc "contextless" (env: JNI_Env, self: jobject) -> f32 {
 	return jni_call_float(env, self, &jm_paint_ascent)
 }
 
+// android.graphics.Paint.descent()
+@(private) jm_paint_descent := Jni_Method{cls = &jc_paint, name = "descent", sig = "()F"}
+paint_descent :: proc "contextless" (env: JNI_Env, self: jobject) -> f32 {
+	return jni_call_float(env, self, &jm_paint_descent)
+}
+
+// android.graphics.Paint.measureText(java.lang.String)
+@(private) jm_paint_measure_text := Jni_Method{cls = &jc_paint, name = "measureText", sig = "(Ljava/lang/String;)F"}
+paint_measure_text :: proc (env: JNI_Env, self: jobject, text: string) -> f32 {
+	text_ := jni_string(env, strings.clone_to_cstring(text, context.temp_allocator))
+	defer jni_delete_local_ref(env, text_)
+	return jni_call_float(env, self, &jm_paint_measure_text, jv_obj(text_))
+}
+
 // static android.graphics.Paint$Style.valueOf(java.lang.String)
 @(private) jm_paint_style_value_of := Jni_Method{cls = &jc_paint_style, name = "valueOf", sig = "(Ljava/lang/String;)Landroid/graphics/Paint$Style;", static = true}
 paint_style_value_of :: proc (env: JNI_Env, name: string) -> jobject {

@@ -151,3 +151,9 @@ web_tab_clicked :: proc(h: ^Tabbar_Handle, index: int) {
 _post_delayed :: proc(ms: int, t: ^Timer) {
 	js_timeout(i32(max(ms, 0)), t)
 }
+
+// The web has no threads: every caller is on the main thread already.
+@(private)
+_post_timer :: proc(t: ^Timer) {
+	js_timeout(0, t)
+}

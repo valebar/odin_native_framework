@@ -96,6 +96,7 @@ objc_clear_data_source_on_dispose :: proc(obj: rawptr) {
 	.Home     = "house",
 	.Star     = "star",
 	.Person   = "person",
+	.Hub      = "point.3.connected.trianglepath.dotted", // SF Symbols 3 (macOS 12, iOS 15)
 }
 
 // nvAction: for the bar's action buttons on both platforms. `sender` is the NSButton /
@@ -380,6 +381,12 @@ _overlay_scrim_init :: proc(h: ^Overlay_Handle) {
 @(private)
 _post_delayed :: proc(ms: int, t: ^Timer) {
 	dispatch_after_f(dispatch_time(0, i64(max(ms, 0)) * 1_000_000), &_dispatch_main_q, t, timer_main)
+}
+
+// dispatch_async_f is thread-safe.
+@(private)
+_post_timer :: proc(t: ^Timer) {
+	dispatch_async_f(&_dispatch_main_q, t, timer_main)
 }
 
 @(private)

@@ -2,7 +2,8 @@
 package nv
 
 // macOS canvas backend: an NSView subclass, NVCanvasView, registered at runtime. It is flipped
-// (origin top-left), draws in drawRect: through cg.odin, and reports the left mouse button.
+// (origin top-left), draws in drawRect: through cg.odin, and reports the left mouse button and
+// the scroll wheel / trackpad (scrollWheel:; passed on up the responder chain without on_scroll).
 
 import NS "core:sys/darwin/Foundation"
 import AK "vendor:darwin/AppKit"
@@ -18,6 +19,7 @@ _canvas_init :: proc(h: ^Canvas_Handle) {
 		{"mouseDown:", auto_cast canvas_mouse_down, "v@:@"},
 		{"mouseDragged:", auto_cast canvas_mouse_dragged, "v@:@"},
 		{"mouseUp:", auto_cast canvas_mouse_up, "v@:@"},
+		{"scrollWheel:", auto_cast canvas_scroll_wheel, "v@:@"},
 	})
 	obj := objc_alloc_with_handle(cls, h)
 	view := objc_own(send(^AK.View, (^AK.View)(obj), "initWithFrame:", NS.Rect{{0, 0}, {400, 300}}))
@@ -64,3 +66,22 @@ canvas_mouse :: proc "c" (self: NS.id, event: NS.id, kind: Pointer) {
 @(private) canvas_mouse_down    :: proc "c" (self: NS.id, _: NS.SEL, e: NS.id) { canvas_mouse(self, e, .Down) }
 @(private) canvas_mouse_dragged :: proc "c" (self: NS.id, _: NS.SEL, e: NS.id) { canvas_mouse(self, e, .Move) }
 @(private) canvas_mouse_up      :: proc "c" (self: NS.id, _: NS.SEL, e: NS.id) { canvas_mouse(self, e, .Up) }
+
+// scrollingDelta is positive when the content should move down / right (towards the top / left),
+// the opposite of on_scroll; without precise deltas (a mouse wheel) it counts lines.
+@(private)
+canvas_scroll_wheel :: proc "c" (self: NS.id, _: NS.SEL, event: NS.id) {
+	h := objc_handle(self, Canvas_Handle)
+	context = h.ctx
+	if h.canvas.on_scroll == nil {
+		next := send(^NS.Object, (^NS.Object)(self), "nextResponder")
+		if next != nil do send(nil, next, "scrollWheel:", event)
+		return
+	}
+	e := (^NS.Object)(event)
+	dx, dy := f64(send(NS.Float, e, "scrollingDeltaX")), f64(send(NS.Float, e, "scrollingDeltaY"))
+	if !bool(send(NS.BOOL, e, "hasPreciseScrollingDeltas")) {
+		dx, dy = dx * SCROLL_LINE, dy * SCROLL_LINE
+	}
+	canvas_scroll_notify(h, -dx, -dy)
+}

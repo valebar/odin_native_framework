@@ -8,6 +8,8 @@ package nv
 // overlay children (dialog_linux.odin), styled by the CSS below.
 
 import "base:runtime"
+import "core:os"
+import "core:strings"
 
 @(private) g_linux: struct {
 	ctx:    runtime.Context,
@@ -47,11 +49,33 @@ _run :: proc() {
 	g_object_unref(app)
 }
 
+// Icons the GTK theme lacks (Adwaita has no hub), as Material's paths: symbolic SVGs in
+// <user cache>/nv-icons (rewritten at every start, so a killed app leaves nothing behind) on the
+// icon theme's search path, so gtk_icon_names can name them like any theme icon; GTK recolours a
+// *-symbolic.svg with the widget's foreground.
+@(private) LINUX_BUNDLED_ICONS := [?]struct{name, path: string}{
+	{"nv-hub-symbolic", MATERIAL_HUB_PATH},
+}
+
+@(private)
+linux_add_icons :: proc() {
+	cache, err := os.user_cache_dir(context.temp_allocator)
+	if err != nil do return // the bundled icons fall back to the action titles' text
+	dir := strings.concatenate({cache, "/nv-icons"}, context.temp_allocator)
+	if os.make_directory_all(dir) != nil && !os.exists(dir) do return
+	for icon in LINUX_BUNDLED_ICONS {
+		svg := strings.concatenate({`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"><path fill="#2e3436" d="`, icon.path, `"/></svg>`}, context.temp_allocator)
+		_ = os.write_entire_file(strings.concatenate({dir, "/", icon.name, ".svg"}, context.temp_allocator), svg) // a missing one shows the title
+	}
+	gtk_icon_theme_add_search_path(gtk_icon_theme_get_for_display(gdk_display_get_default()), strings.clone_to_cstring(dir, context.temp_allocator))
+}
+
 @(private)
 on_activate :: proc "c" (app: ^GtkApplication, _: gpointer) {
 	context = g_linux.ctx
 	callback_enter()
 	defer callback_exit()
+	linux_add_icons() // before the first button names one
 
 	wnd := gtk_application_window_new(app)
 	gtk_window_set_default_size(wnd, 400, 600)

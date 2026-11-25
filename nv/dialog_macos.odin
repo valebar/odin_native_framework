@@ -60,6 +60,6 @@ _dialog_close :: proc(h: ^Dialog_Handle) {
 
 @(private)
 _dialog_set_hidden :: proc(h: ^Dialog_Handle, hidden: bool) {
-	view_set_hidden((^AK.View)(h.card), NS.BOOL(hidden))
-	if h.scrim != nil do view_set_hidden((^AK.View)(h.scrim), NS.BOOL(hidden))
+	ak_view_set_hidden((^AK.View)(h.card), NS.BOOL(hidden))
+	if h.scrim != nil do ak_view_set_hidden((^AK.View)(h.scrim), NS.BOOL(hidden))
 }

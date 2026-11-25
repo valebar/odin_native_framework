@@ -76,7 +76,7 @@ view_set_frame :: proc "c" (v: ^AK.View, frame: NS.Rect) {
 	send(nil, v, "setFrame:", frame)
 }
 
-view_set_hidden :: proc "c" (v: ^AK.View, hidden: NS.BOOL) {
+ak_view_set_hidden :: proc "c" (v: ^AK.View, hidden: NS.BOOL) {
 	send(nil, v, "setHidden:", hidden)
 }
 

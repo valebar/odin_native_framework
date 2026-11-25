@@ -26,6 +26,7 @@ package nv
 	.Home     = "ic_menu_myplaces",
 	.Star     = "btn_star_big_on",
 	.Person   = "", // no public person drawable
+	.Hub      = "", // no public hub drawable
 }
 
 @(private) MENU_SHOW_AS_ACTION_IF_ROOM :: 1

@@ -50,6 +50,13 @@ cairo_font_extents_t :: struct {
 	ascent, descent, height, max_x_advance, max_y_advance: f64,
 }
 
+cairo_text_extents_t :: struct {
+	x_bearing, y_bearing, width, height, x_advance, y_advance: f64,
+}
+
+GTK_EVENT_CONTROLLER_SCROLL_BOTH_AXES :: u32(3) // VERTICAL | HORIZONTAL
+GDK_SCROLL_UNIT_WHEEL                 :: i32(0) // notches; GDK_SCROLL_UNIT_SURFACE (1) is pixels
+
 CAIRO_LINE_CAP_BUTT  :: i32(0)
 CAIRO_LINE_CAP_ROUND :: i32(1)
 CAIRO_FORMAT_ARGB32  :: i32(0)
@@ -175,6 +182,8 @@ foreign gtk {
 	gtk_style_context_add_provider_for_display :: proc(display: ^GdkDisplay, provider: gpointer, priority: guint) ---
 	gtk_style_context_remove_provider_for_display :: proc(display: ^GdkDisplay, provider: gpointer) ---
 	gdk_display_get_default           :: proc() -> ^GdkDisplay ---
+	gtk_icon_theme_get_for_display    :: proc(display: ^GdkDisplay) -> rawptr ---
+	gtk_icon_theme_add_search_path    :: proc(theme: rawptr, path: cstring) ---
 	gtk_settings_get_default          :: proc() -> gpointer ---
 
 	gtk_scrolled_window_new       :: proc() -> ^GtkWidget ---
@@ -226,6 +235,8 @@ foreign gtk {
 	gtk_widget_remove_tick_callback :: proc(widget: ^GtkWidget, id: guint) ---
 	gtk_widget_add_controller      :: proc(widget: ^GtkWidget, controller: ^GtkEventController) ---
 	gtk_gesture_drag_new           :: proc() -> ^GtkEventController ---
+	gtk_event_controller_scroll_new      :: proc(flags: u32) -> ^GtkEventController ---
+	gtk_event_controller_scroll_get_unit :: proc(controller: ^GtkEventController) -> i32 --- // GTK 4.8
 	gtk_gesture_drag_get_start_point :: proc(gesture: ^GtkEventController, x, y: ^f64) -> gboolean ---
 	gtk_gesture_click_new          :: proc() -> ^GtkEventController ---
 
@@ -258,6 +269,7 @@ foreign cairo {
 	cairo_select_font_face :: proc(cr: ^cairo_t, family: cstring, slant, weight: i32) ---
 	cairo_set_font_size    :: proc(cr: ^cairo_t, size: f64) ---
 	cairo_font_extents     :: proc(cr: ^cairo_t, extents: ^cairo_font_extents_t) ---
+	cairo_text_extents     :: proc(cr: ^cairo_t, utf8: cstring, extents: ^cairo_text_extents_t) ---
 	cairo_show_text        :: proc(cr: ^cairo_t, utf8: cstring) ---
 	cairo_set_source_surface     :: proc(cr: ^cairo_t, surface: ^cairo_surface_t, x, y: f64) ---
 	cairo_image_surface_create   :: proc(format: i32, width, height: i32) -> ^cairo_surface_t ---

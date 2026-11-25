@@ -3,6 +3,7 @@ package nv
 
 // iOS canvas backend: a UIView subclass, NVCanvasView, registered at runtime. It draws in
 // drawRect: through cg.odin and reports a single touch (UIView ignores extra touches by default).
+// There is no wheel: on_scroll is never called, and a list drags through on_pointer.
 
 import "base:intrinsics"
 import NS "core:sys/darwin/Foundation"

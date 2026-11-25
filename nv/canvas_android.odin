@@ -1,7 +1,7 @@
 #+build linux:android
 package nv
 
-// Android canvas backend: nv.NvCanvasView (Java shim) forwards onDraw and touches. Drawing goes
+// Android canvas backend: nv.NvCanvasView (Java shim) forwards onDraw, touches and a mouse's wheel. Drawing goes
 // through android.graphics.Canvas, scaled by the display density so units are dp. Two
 // anti-aliased Paints (fill, stroke) are kept per canvas; Android_Canvas remembers what they were
 // last set to, so a primitive in the same colour (width, font) costs one JNI call, not two or
@@ -19,6 +19,7 @@ package nv
 	typeface: jobject, // last text state on the fill Paint
 	size:     f32,
 	ascent:   f32,
+	descent:  f32,
 	text_ok:  bool,
 	rect:     jobject, // a RectF global ref that _draw_image reuses
 }
@@ -122,6 +123,22 @@ _stroke_arc :: proc(p: ^Painter, cx, cy, radius, start, sweep: f64, color: Color
 // setTypeface returns the previous Typeface, a local ref to drop.
 @(private)
 _draw_text :: proc(p: ^Painter, text: string, x, y: f64, style: Text_Style) {
+	pt := text_paint(p, style)
+	c := (^Android_Canvas)(p.h.extra)
+	canvas_draw_text(g_android.env, jobject(p.native), text, f32(x), f32(y) - c.ascent, pt)
+}
+
+// The fill Paint's advance for `text`; the line box is ascent (negative) to descent.
+@(private)
+_measure_text :: proc(p: ^Painter, text: string, style: Text_Style) -> (width, height: f64) {
+	pt := text_paint(p, style)
+	c := (^Android_Canvas)(p.h.extra)
+	return f64(paint_measure_text(g_android.env, pt, text)), f64(c.descent - c.ascent)
+}
+
+// The fill Paint in the style's color, size and typeface.
+@(private)
+text_paint :: proc(p: ^Painter, style: Text_Style) -> jobject {
 	env := g_android.env
 	c := (^Android_Canvas)(p.h.extra)
 	pt := paint(p, style.color)
@@ -129,9 +146,10 @@ _draw_text :: proc(p: ^Painter, text: string, x, y: f64, style: Text_Style) {
 	if size := f32(style.size); !c.text_ok || tf != c.typeface || size != c.size {
 		paint_set_text_size(env, pt, size)
 		if old := paint_set_typeface(env, pt, tf); old != nil do jni_delete_local_ref(env, old)
-		c.typeface, c.size, c.ascent, c.text_ok = tf, size, paint_ascent(env, pt), true
+		c.typeface, c.size, c.text_ok = tf, size, true
+		c.ascent, c.descent = paint_ascent(env, pt), paint_descent(env, pt)
 	}
-	canvas_draw_text(env, jobject(p.native), text, f32(x), f32(y) - c.ascent, pt)
+	return pt
 }
 
 @(export, link_name="Java_nv_NvCanvasView_nativeOnDraw")
@@ -160,4 +178,16 @@ jni_canvas_on_touch :: proc "c" (env: JNI_Env, _: jclass, handle: jlong, action:
 	}
 	d := android_density()
 	canvas_pointer_notify(h, kind, f64(x) / d, f64(y) / d)
+}
+
+// A mouse wheel (MotionEvent.ACTION_SCROLL): AXIS_VSCROLL is positive towards the top, AXIS_HSCROLL
+// towards the right, in notches. False without on_scroll, so the view passes it on.
+@(export, link_name="Java_nv_NvCanvasView_nativeOnScroll")
+jni_canvas_on_scroll :: proc "c" (env: JNI_Env, _: jclass, handle: jlong, h_axis, v_axis: f32) -> jboolean {
+	h := (^Canvas_Handle)(uintptr(handle))
+	context = h.ctx
+	g_android.env = env
+	if h.canvas.on_scroll == nil do return 0
+	canvas_scroll_notify(h, f64(h_axis) * SCROLL_LINE, -f64(v_axis) * SCROLL_LINE)
+	return 1
 }

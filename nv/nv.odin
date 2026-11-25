@@ -19,7 +19,8 @@ package nv
 // be a Flutter-style Scaffold (`scaffold_create`, scaffold.odin): bottom tabs, a floating action
 // button, SnackBars (`snackbar_show`) and a drawer opened from the bar. A Font loaded
 // from bytes or an asset file (`font_from_bytes`, `font_from_file`) can replace the system font in
-// labels, inputs, buttons and canvas text.
+// labels, inputs, buttons and canvas text. A worker thread hands its results back to the main
+// thread with `post_main`.
 //
 // Every widget follows one shape: `X :: struct` describes it, `x_create(X) -> ^X_Handle` makes it,
 // `x_view(h)` is the view to embed, `x_set_y(h, ..)` changes it. Row / Column return a plain View:
@@ -103,7 +104,11 @@ Build_Proc :: proc(page: ^Page_Handle, user: rawptr) -> View
 
 // System icons every platform has (SF Symbols / android.R.drawable / GTK icon names / Segoe MDL2
 // Assets). A platform without a given icon shows the action's title as text instead.
-Icon :: enum { None, Add, Edit, Delete, Search, Share, Settings, Refresh, Done, Info, More, Close, Menu, Home, Star, Person }
+Icon :: enum { None, Add, Edit, Delete, Search, Share, Settings, Refresh, Done, Info, More, Close, Menu, Home, Star, Person, Hub }
+
+// Material's hub icon (Apache 2.0) on a 24-unit grid, for the backends that draw it themselves
+// (GTK bundles it; nv.js has the same path).
+@(private) MATERIAL_HUB_PATH :: "M8.4 18.2c.38.5.6 1.12.6 1.8 0 1.66-1.34 3-3 3s-3-1.34-3-3 1.34-3 3-3c.44 0 .85.09 1.23.26l1.41-1.77c-.92-1.03-1.29-2.39-1.09-3.69l-2.03-.68C4.98 11.95 4.06 12.5 3 12.5c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3c0 .07 0 .14-.01.21l2.03.68c.64-1.21 1.82-2.09 3.22-2.32V5.91C9.96 5.57 9 4.4 9 3c0-1.66 1.34-3 3-3s3 1.34 3 3c0 1.4-.96 2.57-2.25 2.91v2.16c1.4.23 2.58 1.11 3.22 2.32l2.03-.68c-.01-.07-.01-.14-.01-.21 0-1.66 1.34-3 3-3s3 1.34 3 3-1.34 3-3 3c-1.06 0-1.98-.55-2.52-1.37l-2.03.68c.2 1.29-.16 2.65-1.09 3.69l1.41 1.77c.38-.17.79-.26 1.23-.26 1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3c0-.68.22-1.3.6-1.8l-1.41-1.77c-1.35.75-3.01.76-4.37 0L8.4 18.2z"
 
 // One button in the page's bar, shown trailing in declared order. `title` is the button text when
 // `icon` is None, and the tooltip / accessibility label otherwise.
@@ -161,6 +166,7 @@ Page_Handle :: struct {
 // JNIEnv until the first onCreate; Windows starts GDI+, which decodes bitmaps, in `_run`).
 run :: proc(p: Page) {
 	assert(len(g_nav) == 0, "nv.run twice")
+	g_main_ctx = context
 	append(&g_nav, nav_page_new(p))
 	g_backend.run()
 }
@@ -195,6 +201,21 @@ pop :: proc() {
 	}
 	nav_finish_pop(top)
 }
+
+// Runs `fn(data)` on the main thread from the event loop, soon, in post order; callable from any
+// thread, so a worker hands its result back this way. `fn` runs inside a callback bracket like
+// every other callback (its temp memory is freed after it), with the context `run` was called
+// with: the poster's temp allocator belongs to its own thread. `data` stays the app's: nv neither
+// copies nor frees it. Called after `run` only. Not on Android yet (the backend panics).
+post_main :: proc(fn: proc(data: rawptr), data: rawptr) {
+	assert(g_main_ctx.allocator.procedure != nil, "nv.post_main before nv.run")
+	t := new(Timer, nv_heap())
+	t^ = {fn = fn, data = data, ctx = g_main_ctx}
+	g_backend.post_timer(t)
+}
+
+// The context `run` was called with, on the main thread; post_main's callbacks run with it.
+@(private) g_main_ctx: runtime.Context
 
 // Replaces the title shown in the page's bar; `title` is copied.
 page_set_title :: proc(h: ^Page_Handle, title: string) {
@@ -438,6 +459,13 @@ stack_create :: proc(children: []Stack_Child) -> View {
 	return o.root
 }
 
+// Hides or shows any view (Flutter's Visibility / Offstage). A hidden child of a Row / Column
+// takes no space, so a layout can swap between alternatives built once: Row / Column children are
+// fixed at creation. Views start shown.
+view_set_hidden :: proc(v: View, hidden: bool) {
+	g_backend.view_set_hidden(v, hidden)
+}
+
 // Per-side distances in points / dp (Flutter's EdgeInsets).
 Insets :: struct {
 	left, top, right, bottom: f64,
@@ -677,12 +705,20 @@ Pointer :: enum { Down, Move, Up }
 
 // Custom-drawn view. `on_draw` runs whenever the platform repaints; call `canvas_redraw` after
 // the state it draws changed. Units are points / dp with the origin top-left. The canvas has no
-// natural size, so give it `flex` > 0 in a Row / Column.
+// natural size, so give it `flex` > 0 in a Row / Column. `on_scroll` reports the mouse wheel and
+// touchpad scrolling over the canvas (a touch screen drags, which `on_pointer` reports): the
+// distance in points the content should move, positive `dy` to see what is below (the content
+// moves up), positive `dx` to see what is right. A wheel notch is SCROLL_LINE.
 Canvas :: struct {
 	on_draw:    proc(user: rawptr, p: ^Painter, width, height: f64),
 	on_pointer: proc(user: rawptr, kind: Pointer, x, y: f64), // optional; Move only while pressed
+	on_scroll:  proc(user: rawptr, dx, dy: f64),             // optional
 	user:       rawptr,
 }
+
+// Points per wheel notch, for the backends whose wheel reports notches (GTK, Windows, a web page
+// in line mode, Android's mouse).
+SCROLL_LINE :: 40
 
 Canvas_Handle :: struct {
 	canvas: Canvas,
@@ -753,6 +789,24 @@ draw_text :: proc(p: ^Painter, text: string, x, y: f64, style: Text_Style = {}) 
 	if s.size <= 0 do s.size = 15
 	if s.color.a == 0 do s.color = theme_palette().text
 	_draw_text(p, text, x, y, s)
+}
+
+// The size `draw_text` gives `text` in the same style: its advance width and the height of its
+// line box (from the top-left draw_text takes to the bottom of the descent), in points. Only
+// inside `on_draw`, like the draw procs.
+measure_text :: proc(p: ^Painter, text: string, style: Text_Style = {}) -> (width, height: f64) {
+	s := text_style_merge(style, g_theme.body)
+	if s.size <= 0 do s.size = 15
+	return _measure_text(p, text, s)
+}
+
+// Called by the backends for the wheel / touchpad (see Canvas.on_scroll).
+@(private)
+canvas_scroll_notify :: proc(h: ^Canvas_Handle, dx, dy: f64) {
+	if h.canvas.on_scroll == nil || (dx == 0 && dy == 0) do return
+	callback_enter()
+	defer callback_exit()
+	h.canvas.on_scroll(h.canvas.user, dx, dy)
 }
 
 // Called by the backends on repaint; `native` / `dc` as in Painter.

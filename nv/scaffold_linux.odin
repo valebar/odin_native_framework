@@ -167,6 +167,12 @@ _post_delayed :: proc(ms: int, t: ^Timer) {
 	g_timeout_add(guint(max(ms, 0)), timer_source, t)
 }
 
+// g_idle_add is thread-safe: it attaches to the default main context from any thread.
+@(private)
+_post_timer :: proc(t: ^Timer) {
+	g_idle_add(timer_source, t)
+}
+
 @(private)
 timer_source :: proc "c" (data: gpointer) -> gboolean {
 	timer_fire((^Timer)(data))

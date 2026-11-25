@@ -214,6 +214,13 @@ tabbar_paint :: proc(h: ^Tabbar_Handle, selected: int) {
 	}
 }
 
+// Not supported yet: the event loop is Java's, and NvTimer needs the main thread's JNIEnv (a
+// worker would have to attach to the VM and post through a Handler).
+@(private)
+_post_timer :: proc(t: ^Timer) {
+	panic("nv.post_main is not supported on Android yet")
+}
+
 @(private)
 _post_delayed :: proc(ms: int, t: ^Timer) {
 	nv_timer_start(g_android.env, i64(uintptr(t)), i64(max(ms, 0)))

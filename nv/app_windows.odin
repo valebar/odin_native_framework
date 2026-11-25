@@ -73,6 +73,9 @@ window_proc :: proc "system" (hwnd: win.HWND, msg: win.UINT, wparam: win.WPARAM,
 		win.KillTimer(hwnd, win.UINT_PTR(wparam))
 		timer_fire((^Timer)(rawptr(uintptr(wparam))))
 		return 0
+	case WM_NV_POSTED: // post_main from any thread (scaffold_windows.odin)
+		timer_fire((^Timer)(rawptr(uintptr(lparam))))
+		return 0
 	case WM_NV_FETCHED: // posted by a download's worker thread (image_windows.odin)
 		f := (^Fetch)(uintptr(lparam))
 		context = f.ctx

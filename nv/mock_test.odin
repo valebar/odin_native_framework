@@ -100,6 +100,7 @@ mock_backend := Backend{
 	tabbar_init         = mock_tabbar_init,
 	tabbar_select       = mock_tabbar_select,
 	post_delayed        = mock_post_delayed,
+	post_timer          = mock_post_timer,
 	theme_system_dark   = mock_theme_system_dark,
 	theme_system_accent = mock_theme_system_accent,
 	theme_apply_mode    = mock_theme_apply_mode,
@@ -117,6 +118,7 @@ mock_install :: proc "contextless" () {
 mock_begin :: proc(t: ^testing.T) {
 	g_nav, g_nav_pending, g_dialogs, g_dialogs_pending = {}, {}, {}, {}
 	g_nav_building, g_callback_depth = 0, 0
+	g_main_ctx = {}
 	g_scope_override, g_scopes_retired = nil, {}
 	g_progress, g_scaffolds = nil, nil
 	g_theme, g_dark, g_theme_live = {}, false, false
@@ -483,6 +485,13 @@ mock_tabbar_select :: proc(h: ^Tabbar_Handle) {
 mock_post_delayed :: proc(ms: int, t: ^Timer) {
 	append(&mock.timers, t)
 	mock_log("post_delayed %d", ms)
+}
+
+// Queued with the timers (mock_fire_timers runs it). A test posting from a worker thread joins it
+// before touching the mock again: nothing here is locked.
+mock_post_timer :: proc(t: ^Timer) {
+	append(&mock.timers, t)
+	mock_log("post_timer")
 }
 
 mock_theme_system_dark :: proc() -> bool {

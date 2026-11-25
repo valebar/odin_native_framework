@@ -1,8 +1,9 @@
 #+build linux:default
 package nv
 
-// Linux canvas backend: a GtkDrawingArea drawn with cairo, and a GtkGestureDrag for the pointer
-// (it reports offsets from the start point, so Move / Up add them back).
+// Linux canvas backend: a GtkDrawingArea drawn with cairo, a GtkGestureDrag for the pointer
+// (it reports offsets from the start point, so Move / Up add them back) and a
+// GtkEventControllerScroll for the wheel / touchpad.
 
 import "core:math"
 import "core:strings"
@@ -19,6 +20,10 @@ _canvas_init :: proc(h: ^Canvas_Handle) {
 	g_signal_connect(drag, "drag-update", rawptr(on_canvas_drag_update), h)
 	g_signal_connect(drag, "drag-end", rawptr(on_canvas_drag_end), h)
 	gtk_widget_add_controller(area, drag) // takes ownership
+
+	scroll := gtk_event_controller_scroll_new(GTK_EVENT_CONTROLLER_SCROLL_BOTH_AXES)
+	g_signal_connect(scroll, "scroll", rawptr(on_canvas_scroll), h)
+	gtk_widget_add_controller(area, scroll)
 
 	// The canvas holds its own reference, so a pending tick can still be removed when the scope dies.
 	g_object_ref_sink(area)
@@ -140,6 +145,23 @@ _stroke_arc :: proc(p: ^Painter, cx, cy, radius, start, sweep: f64, color: Color
 @(private)
 _draw_text :: proc(p: ^Painter, text: string, x, y: f64, style: Text_Style) {
 	cr := cairo_of(p, style.color)
+	ext := canvas_font(cr, style)
+	cairo_move_to(cr, x, y + ext.ascent)
+	cairo_show_text(cr, strings.clone_to_cstring(text, context.temp_allocator))
+}
+
+@(private)
+_measure_text :: proc(p: ^Painter, text: string, style: Text_Style) -> (width, height: f64) {
+	cr := (^cairo_t)(p.native)
+	ext := canvas_font(cr, style)
+	te: cairo_text_extents_t
+	cairo_text_extents(cr, strings.clone_to_cstring(text, context.temp_allocator), &te)
+	return te.x_advance, ext.ascent + ext.descent
+}
+
+// Selects the style's face and size on `cr`; its extents.
+@(private)
+canvas_font :: proc(cr: ^cairo_t, style: Text_Style) -> (ext: cairo_font_extents_t) {
 	family: cstring = "sans-serif"
 	italic, bold := style.italic, style.weight >= .Semibold
 	if f := style.font; f != nil {
@@ -149,10 +171,8 @@ _draw_text :: proc(p: ^Painter, text: string, x, y: f64, style: Text_Style) {
 	}
 	cairo_select_font_face(cr, family, italic ? CAIRO_FONT_SLANT_ITALIC : 0, bold ? CAIRO_FONT_WEIGHT_BOLD : 0)
 	cairo_set_font_size(cr, style.size)
-	ext: cairo_font_extents_t
 	cairo_font_extents(cr, &ext)
-	cairo_move_to(cr, x, y + ext.ascent)
-	cairo_show_text(cr, strings.clone_to_cstring(text, context.temp_allocator))
+	return
 }
 
 @(private)
@@ -188,4 +208,16 @@ on_canvas_drag_update :: proc "c" (g: ^GtkEventController, dx, dy: f64, user: gp
 @(private)
 on_canvas_drag_end :: proc "c" (g: ^GtkEventController, dx, dy: f64, user: gpointer) {
 	canvas_drag(g, dx, dy, (^Canvas_Handle)(user), .Up)
+}
+
+// Wheel deltas come in notches, a touchpad's (GDK_SCROLL_UNIT_SURFACE) in pixels; both are
+// positive towards the bottom / right, like on_scroll.
+@(private)
+on_canvas_scroll :: proc "c" (c: ^GtkEventController, dx, dy: f64, user: gpointer) -> gboolean {
+	h := (^Canvas_Handle)(user)
+	context = h.ctx
+	if h.canvas.on_scroll == nil do return false
+	k := gtk_event_controller_scroll_get_unit(c) == GDK_SCROLL_UNIT_WHEEL ? f64(SCROLL_LINE) : 1
+	canvas_scroll_notify(h, dx * k, dy * k)
+	return true
 }

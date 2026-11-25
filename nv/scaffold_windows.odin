@@ -423,6 +423,14 @@ tabbar_cell :: proc "contextless" (hwnd: win.HWND, h: ^Tabbar_Handle, lparam: wi
 	return int(x * i32(len(h.tabs)) / rc.right)
 }
 
+@(private) WM_NV_POSTED :: win.WM_APP + 3 // lparam: the ^Timer (post_main)
+
+// PostMessageW is thread-safe; window_proc fires the timer.
+@(private)
+_post_timer :: proc(t: ^Timer) {
+	win.PostMessageW(g_windows.parking, WM_NV_POSTED, 0, win.LPARAM(uintptr(t)))
+}
+
 // The timer's pointer is its id on the main window (window_proc's WM_TIMER).
 @(private)
 _post_delayed :: proc(ms: int, t: ^Timer) {
