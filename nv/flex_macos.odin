@@ -7,6 +7,7 @@ package nv
 // across the cross axis.
 
 import NS "core:sys/darwin/Foundation"
+import AK "vendor:darwin/AppKit"
 
 @(private)
 _flex_create :: proc(f: Flex) -> View {
@@ -17,7 +18,7 @@ _flex_create :: proc(f: Flex) -> View {
 	stack_view_set_alignment(stack, f.axis == .Vertical ? LAYOUT_ATTRIBUTE_WIDTH : LAYOUT_ATTRIBUTE_HEIGHT)
 
 	for c in f.children {
-		child := (^NS.View)(c.view)
+		child := (^AK.View)(c.view)
 		view_set_translates_autoresizing_mask(child, false)
 		stack_view_add_arranged_subview(stack, child)
 		priority := c.flex > 0 ? LAYOUT_PRIORITY_FLEX : LAYOUT_PRIORITY_REQUIRED

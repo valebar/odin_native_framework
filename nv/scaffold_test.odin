@@ -1,4 +1,5 @@
 #+build-project-name nv
+#+build !js
 package nv
 
 import "core:fmt"

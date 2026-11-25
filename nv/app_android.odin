@@ -4,14 +4,16 @@ package nv
 // Android app backend. The Java embedder (nv/android/java/nv/NvActivity.java) loads libapp.so
 // in its static initializer and calls nativeOnCreate on the UI thread for every Activity.
 //
-// The runtime's `_odin_entry_point` (the @init procs, then the app's main) should be the
-// library's DT_INIT, run by System.loadLibrary. Odin before 085af86da (the pinned dev-2026-09
-// included) spawns the linker without a shell, so `-Wl,-init,'_odin_entry_point'` reaches LLD
-// with its quotes and DT_INIT is silently left out (desktop shared libraries lose it too). Both
-// cases work: android_runtime_started marks the start, and the first jni_on_create that finds no
-// mark runs the entry through dlsym, before it stores the env and the Activity. So the app's main
-// never has a JNIEnv or an Activity: nv.run's _run only keeps the context, and the first onCreate
-// starts the theme and builds the root page.
+// The runtime's `_odin_entry_point` (the @init procs) should be the library's DT_INIT, run by
+// System.loadLibrary. Odin before 085af86da spawns the linker without a shell, so
+// `-Wl,-init,'_odin_entry_point'` reaches LLD with its quotes and DT_INIT is silently left out
+// (desktop shared libraries lose it too). Both cases work: android_runtime_started marks the start,
+// and the first jni_on_create that finds no mark runs the entry through dlsym. Since dev-2026-11 the
+// Android entry point no longer calls `main` (core:sys/android/native_app_glue does, for a
+// NativeActivity, on a thread of its own); here the first jni_on_create runs it on the UI thread
+// (intrinsics.__entry_point, as the glue does), before it stores the env and the Activity. So the
+// app's main never has a JNIEnv or an Activity: nv.run's _run only keeps the context, and the first
+// onCreate starts the theme and builds the root page.
 //
 // The entry point runs once per process. A later Activity in the same process (a night-mode
 // recreation, or a launch after Back on the root finished the Activity, which it does unless the
@@ -19,6 +21,7 @@ package nv
 // the Activity that created them: the page stack is reset to the root first. Configuration changes such as rotation don't recreate the Activity
 // (android:configChanges in the manifest).
 
+import "base:intrinsics"
 import "base:runtime"
 import "core:sys/posix"
 
@@ -38,6 +41,7 @@ foreign liblog {
 	density:  f32,      // DisplayMetrics.density, read lazily by android_dp
 	cache_dir: string,  // Context.getCacheDir(), read lazily by _font_load
 	started:  bool,     // the runtime started: android_runtime_started ran
+	main_ran: bool,     // the app's main ran (the first onCreate)
 	shown:    bool,     // an Activity built the root page, so a later onCreate is a relaunch
 }
 
@@ -63,6 +67,10 @@ jni_on_create :: proc "c" (env: JNI_Env, _: jclass, activity: jobject) {
 			return
 		}
 		entry()
+	}
+	if !g_android.main_ran {
+		g_android.main_ran = true
+		intrinsics.__entry_point() // the app's main, which calls nv.run and returns
 	}
 	if len(g_nav) == 0 {
 		__android_log_write(ANDROID_LOG_ERROR, "nv", "the app's main did not call nv.run")

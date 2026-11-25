@@ -7,13 +7,14 @@ package nv
 
 import "base:intrinsics"
 import NS "core:sys/darwin/Foundation"
+import OBJC "core:sys/darwin/ObjectiveC"
 
 @(private) send :: intrinsics.objc_send
 
 // Copies bytes, so the Odin string may be freed afterwards. Autoreleased.
 ns_string :: proc "c" (s: string) -> ^NS.String {
 	str := send(^NS.String, NS.String, "alloc")
-	str = send(^NS.String, str, "initWithBytes:length:encoding:", raw_data(s), NS.UInteger(len(s)), NS.StringEncoding.UTF8)
+	str = send(^NS.String, str, "initWithBytes:length:encoding:", raw_data(s), NS.UInteger(len(s)), NS.StringEncoding(NS.UTF8StringEncoding))
 	send(nil, str, "autorelease")
 	return str
 }
@@ -31,10 +32,10 @@ Objc_Method :: struct {
 // target and view subclass goes through here; `cls` is the caller's package-level cache.
 objc_class :: proc(cls: ^NS.Class, name, super: cstring, methods: []Objc_Method, protocols: []cstring = nil) -> NS.Class {
 	if cls^ != nil do return cls^
-	c := NS.objc_allocateClassPair(NS.objc_lookUpClass(super), name, 0)
-	for m in methods do NS.class_addMethod(c, NS.sel_registerName(m.sel), m.imp, m.types)
-	for p in protocols do NS.class_addProtocol(c, NS.objc_getProtocol(p))
-	NS.objc_registerClassPair(c)
+	c := OBJC.objc_allocateClassPair(OBJC.objc_lookUpClass(super), name, 0)
+	for m in methods do OBJC.class_addMethod(c, OBJC.sel_registerName(m.sel), OBJC.IMP(m.imp), m.types)
+	for p in protocols do OBJC.class_addProtocol(c, OBJC.objc_getProtocol(p))
+	OBJC.objc_registerClassPair(c)
 	cls^ = c
 	return c
 }
@@ -42,15 +43,15 @@ objc_class :: proc(cls: ^NS.Class, name, super: cstring, methods: []Objc_Method,
 // class_createInstance with room for one pointer in the indexed ivars, set to `h`. Owned, like
 // alloc; a view subclass still needs its initWithFrame:, a plain delegate needs no init.
 objc_alloc_with_handle :: proc(cls: NS.Class, h: ^$T) -> NS.id {
-	obj := NS.class_createInstance(cls, size_of(^T))
-	(^^T)(NS.object_getIndexedIvars(obj))^ = h
+	obj := OBJC.class_createInstance(cls, size_of(^T))
+	(^^T)(OBJC.object_getIndexedIvars(obj))^ = h
 	return obj
 }
 
 // The handle stored by objc_alloc_with_handle; contextless so an IMP can read it first and then
 // set `context = h.ctx`.
 objc_handle :: #force_inline proc "c" (self: NS.id, $T: typeid) -> ^T {
-	return (^^T)(NS.object_getIndexedIvars(self))^
+	return (^^T)(OBJC.object_getIndexedIvars(self))^
 }
 
 // Hands the creator's +1 on `obj` to the current scope (see Scope), which autoreleases it when
@@ -281,7 +282,7 @@ _view_set_hidden :: proc(v: View, hidden: bool) {
 // A class looked up by name, as a receiver for class methods (objc_send wants a typed receiver).
 @(private)
 objc_class_object :: proc "c" (name: cstring) -> ^NS.Object {
-	return (^NS.Object)(rawptr(NS.objc_lookUpClass(name)))
+	return (^NS.Object)(rawptr(OBJC.objc_lookUpClass(name)))
 }
 
 // A plain NSView / UIView with the base pinned to its edges.

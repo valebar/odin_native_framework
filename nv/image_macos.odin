@@ -6,6 +6,7 @@ package nv
 // flipped like the canvas, and its intrinsicContentSize is the natural size.
 
 import NS "core:sys/darwin/Foundation"
+import AK "vendor:darwin/AppKit"
 
 @(private) image_class: NS.Class
 
@@ -17,7 +18,7 @@ _image_init :: proc(h: ^Image_Handle) {
 		{"intrinsicContentSize", auto_cast image_intrinsic_size, "{CGSize=dd}@:"},
 	})
 	obj := objc_alloc_with_handle(cls, h)
-	view := objc_own(send(^NS.View, (^NS.View)(obj), "initWithFrame:", NS.Rect{}))
+	view := objc_own(send(^AK.View, (^AK.View)(obj), "initWithFrame:", NS.Rect{}))
 
 	h.root = View(view)
 	h.view = view
@@ -25,7 +26,7 @@ _image_init :: proc(h: ^Image_Handle) {
 
 @(private)
 _image_set_bitmap :: proc(h: ^Image_Handle) {
-	view := (^NS.View)(h.view)
+	view := (^AK.View)(h.view)
 	send(nil, view, "invalidateIntrinsicContentSize")
 	send(nil, view, "setNeedsDisplay:", NS.BOOL(true))
 }

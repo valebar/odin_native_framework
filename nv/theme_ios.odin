@@ -8,6 +8,7 @@ package nv
 
 import "base:intrinsics"
 import NS "core:sys/darwin/Foundation"
+import OBJC "core:sys/darwin/ObjectiveC"
 
 @(private)
 _theme_system_dark :: proc() -> bool {
@@ -43,10 +44,10 @@ theme_install :: proc(w: ^UI_Window) {
 	_theme_apply_mode()
 	if g_theme.accent.a > 0 do send(nil, w, "setTintColor:", canvas_color(g_theme.accent))
 
-	cls := NS.objc_allocateClassPair(intrinsics.objc_find_class("UIView"), "NVTraitView", 0)
-	NS.class_addMethod(cls, intrinsics.objc_find_selector("traitCollectionDidChange:"), auto_cast trait_view_changed, "v@:@")
-	NS.objc_registerClassPair(cls)
-	v := send(^UI_View, (^UI_View)(NS.class_createInstance(cls, 0)), "initWithFrame:", NS.Rect{})
+	cls := OBJC.objc_allocateClassPair(intrinsics.objc_find_class("UIView"), "NVTraitView", 0)
+	OBJC.class_addMethod(cls, intrinsics.objc_find_selector("traitCollectionDidChange:"), auto_cast trait_view_changed, "v@:@")
+	OBJC.objc_registerClassPair(cls)
+	v := send(^UI_View, (^UI_View)(OBJC.class_createInstance(cls, 0)), "initWithFrame:", NS.Rect{})
 	send(nil, v, "setUserInteractionEnabled:", NS.BOOL(false))
 	ui_view_add_subview(w, v)
 	v->release()

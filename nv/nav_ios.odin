@@ -9,6 +9,7 @@ package nv
 
 import "base:intrinsics"
 import NS "core:sys/darwin/Foundation"
+import OBJC "core:sys/darwin/ObjectiveC"
 
 @(private) page_controller_class: NS.Class
 
@@ -28,7 +29,7 @@ page_controller_new :: proc(e: ^Page_Handle) -> ^UI_View_Controller {
 	container := ui_view_new()
 	ui_view_set_background_color(container, ui_color_system_background())
 	ui_view_pin_to_safe_area((^UI_View)(e.root), container)
-	vc := send(^UI_View_Controller, (^UI_View_Controller)(NS.class_createInstance(cls, 0)), "init")
+	vc := send(^UI_View_Controller, (^UI_View_Controller)(OBJC.class_createInstance(cls, 0)), "init")
 	ui_view_controller_set_view(vc, container)
 	container->release()
 	ui_view_controller_set_title(vc, ns_string(e.page.title))

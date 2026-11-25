@@ -1,4 +1,5 @@
 #+build-project-name nv
+#+build !js
 package nv
 
 // The core's widgets, bitmaps, fonts and theme against the mock backend (mock_test.odin), and its

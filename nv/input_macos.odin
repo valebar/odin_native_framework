@@ -8,6 +8,7 @@ package nv
 import "base:intrinsics"
 import "core:strings"
 import NS "core:sys/darwin/Foundation"
+import AK "vendor:darwin/AppKit"
 
 @(private) input_class: NS.Class
 
@@ -18,7 +19,7 @@ _input_init :: proc(h: ^Input_Handle) {
 	if h.input.placeholder != "" do text_field_set_placeholder(field, ns_string(h.input.placeholder))
 	s := h.input.style
 	if style_sets_font(s) do text_field_set_font(field, (^NS_Font)(apple_font(s, font_point_size(send(^NS.Object, field, "font")), false)))
-	if s.color.a > 0 do text_field_set_text_color(field, (^NS.Color)(canvas_color(s.color)))
+	if s.color.a > 0 do text_field_set_text_color(field, (^AK.Color)(canvas_color(s.color)))
 
 	d := objc_own(input_delegate_alloc(h))
 	text_field_set_delegate(field, d) // weak; the delegate lives as long as the handle's scope

@@ -4,6 +4,7 @@ package nv
 // macOS list backend: NSTableView inside NSScrollView, with cell reuse.
 
 import NS "core:sys/darwin/Foundation"
+import AK "vendor:darwin/AppKit"
 
 @(private) TAG_TITLE    :: 1
 @(private) TAG_SUBTITLE :: 2
@@ -81,7 +82,7 @@ selection_did_change :: proc "c" (self: NS.id, _: NS.SEL, _: ^NS.Notification) {
 }
 
 @(private)
-view_for_row :: proc "c" (self: NS.id, _: NS.SEL, tv: ^Table_View, _: ^Table_Column, row: NS.Integer) -> ^NS.View {
+view_for_row :: proc "c" (self: NS.id, _: NS.SEL, tv: ^Table_View, _: ^Table_Column, row: NS.Integer) -> ^AK.View {
 	h := objc_handle(self, List_Handle)
 	context = h.ctx
 	callback_enter()
@@ -100,12 +101,12 @@ view_for_row :: proc "c" (self: NS.id, _: NS.SEL, tv: ^Table_View, _: ^Table_Col
 
 // Autoreleased cell: title on top, subtitle below.
 @(private)
-make_row_cell :: proc(h: ^List_Handle) -> ^NS.View {
+make_row_cell :: proc(h: ^List_Handle) -> ^AK.View {
 	h.cells_created += 1
 	width := NS.Float(400)
 	height := NS.Float(h.list.item_height)
 
-	cell := NS.View.alloc()->initWithFrame({{0, 0}, {width, height}})
+	cell := AK.View.alloc()->initWithFrame({{0, 0}, {width, height}})
 	view_set_identifier(cell, NS.AT(ROW_ID))
 
 	// Bold 13pt over 11pt by default; the pair is centred (the cell is not flipped: y grows upwards).
@@ -116,7 +117,7 @@ make_row_cell :: proc(h: ^List_Handle) -> ^NS.View {
 
 	title := text_field_label(NS.AT(""))
 	text_field_set_font(title, (^NS_Font)(title_font))
-	if c := h.list.title_style.color; c.a > 0 do text_field_set_text_color(title, (^NS.Color)(canvas_color(c)))
+	if c := h.list.title_style.color; c.a > 0 do text_field_set_text_color(title, (^AK.Color)(canvas_color(c)))
 	text_field_set_tag(title, TAG_TITLE)
 	view_set_frame(title, {{8, bottom + subtitle_h}, {width - 16, title_h}})
 	view_set_autoresizing(title, RESIZE_WIDTH)
@@ -125,7 +126,7 @@ make_row_cell :: proc(h: ^List_Handle) -> ^NS.View {
 	subtitle := text_field_label(NS.AT(""))
 	text_field_set_font(subtitle, (^NS_Font)(subtitle_font))
 	c := h.list.subtitle_style.color
-	text_field_set_text_color(subtitle, c.a > 0 ? (^NS.Color)(canvas_color(c)) : color_secondary_label())
+	text_field_set_text_color(subtitle, c.a > 0 ? (^AK.Color)(canvas_color(c)) : color_secondary_label())
 	text_field_set_tag(subtitle, TAG_SUBTITLE)
 	view_set_frame(subtitle, {{8, bottom}, {width - 16, subtitle_h}})
 	view_set_autoresizing(subtitle, RESIZE_WIDTH)

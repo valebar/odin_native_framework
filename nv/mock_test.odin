@@ -1,4 +1,5 @@
 #+build-project-name nv
+#+build !js
 package nv
 
 // The mock backend and the fixture of the core's tests (`odin run tools/nvbuild -- test`). The

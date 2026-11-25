@@ -6,6 +6,7 @@ package nv
 // the child to the corners (masksToBounds).
 
 import NS "core:sys/darwin/Foundation"
+import OBJC "core:sys/darwin/ObjectiveC"
 
 @(private) container_class: NS.Class
 
@@ -50,7 +51,7 @@ _container_set_color :: proc(h: ^Container_Handle) {
 // See container_macos.odin.
 @(private)
 container_forward_hugging :: proc "c" (v: ^UI_View, priority: f32, axis: Axis) {
-	if container_class == nil || NS.object_getClass(NS.id(v)) != container_class do return
+	if container_class == nil || OBJC.object_getClass(NS.id(v)) != container_class do return
 	h := objc_handle(NS.id(v), Container_Handle)
 	if h.container.child == nil do return
 	if (axis == .Horizontal ? h.container.width : h.container.height) > 0 do return

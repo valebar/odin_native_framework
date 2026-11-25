@@ -7,6 +7,7 @@ package nv
 
 import "base:runtime"
 import NS "core:sys/darwin/Foundation"
+import OBJC "core:sys/darwin/ObjectiveC"
 
 @(private) app_delegate_class, scene_delegate_class, nav_target_class: NS.Class
 
@@ -36,9 +37,9 @@ _run :: proc() {
 		{"nvAction:", auto_cast nav_action_clicked, "v@:@"},
 		{"nvMenu:", auto_cast nav_menu_clicked, "v@:@"},
 	})
-	g_app.nav_target = NS.class_createInstance(nav_target, 0)
+	g_app.nav_target = OBJC.class_createInstance(nav_target, 0)
 
-	args := runtime.args__
+	args := runtime.args__.([]cstring) // UTF-8 everywhere but Windows
 	UIApplicationMain(i32(len(args)), raw_data(args), nil, NS.AT("NVAppDelegate"))
 }
 

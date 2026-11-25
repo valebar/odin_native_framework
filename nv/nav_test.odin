@@ -1,4 +1,5 @@
 #+build-project-name nv
+#+build !js
 package nv
 
 // The core's page stack, dialogs and scopes against the mock backend (mock_test.odin). Each test

@@ -8,13 +8,15 @@ package nv
 
 import "base:intrinsics"
 import NS "core:sys/darwin/Foundation"
+import AK "vendor:darwin/AppKit"
+import OBJC "core:sys/darwin/ObjectiveC"
 
 @(private) APPEARANCE_AQUA      :: "NSAppearanceNameAqua"
 @(private) APPEARANCE_DARK_AQUA :: "NSAppearanceNameDarkAqua"
 
 @(private)
 _theme_system_dark :: proc() -> bool {
-	appearance := send(^NS.Object, NS.Application.sharedApplication(), "effectiveAppearance")
+	appearance := send(^NS.Object, AK.Application.sharedApplication(), "effectiveAppearance")
 	names := [2]^NS.Object{NS.AT(APPEARANCE_AQUA), NS.AT(APPEARANCE_DARK_AQUA)}
 	best := send(^NS.String, appearance, "bestMatchFromAppearancesWithNames:", array_with_objects(&names[0], 2))
 	return best != nil && send(NS.BOOL, best, "isEqualToString:", NS.AT(APPEARANCE_DARK_AQUA))
@@ -22,7 +24,7 @@ _theme_system_dark :: proc() -> bool {
 
 @(private)
 _theme_system_accent :: proc() -> Color {
-	return apple_color_components(send(^NS.Object, NS.Color, "controlAccentColor"))
+	return apple_color_components(send(^NS.Object, AK.Color, "controlAccentColor"))
 }
 
 @(private)
@@ -33,7 +35,7 @@ _theme_apply_mode :: proc() {
 	case .Light: appearance = NS.id(send(^Appearance, Appearance, "appearanceNamed:", NS.AT(APPEARANCE_AQUA)))
 	case .Dark:  appearance = NS.id(send(^Appearance, Appearance, "appearanceNamed:", NS.AT(APPEARANCE_DARK_AQUA)))
 	}
-	send(nil, NS.Application.sharedApplication(), "setAppearance:", appearance)
+	send(nil, AK.Application.sharedApplication(), "setAppearance:", appearance)
 }
 
 // Dynamic colors follow on their own.
@@ -42,14 +44,14 @@ _theme_recolor :: proc() {}
 
 // The window's content view: a plain NSView that reports appearance changes.
 @(private)
-content_view_new :: proc(frame: NS.Rect) -> ^NS.View {
+content_view_new :: proc(frame: NS.Rect) -> ^AK.View {
 	@(static) cls: NS.Class
 	if cls == nil {
-		cls = NS.objc_allocateClassPair(intrinsics.objc_find_class("NSView"), "NVContentView", 0)
-		NS.class_addMethod(cls, intrinsics.objc_find_selector("viewDidChangeEffectiveAppearance"), auto_cast content_appearance_changed, "v@:")
-		NS.objc_registerClassPair(cls)
+		cls = OBJC.objc_allocateClassPair(intrinsics.objc_find_class("NSView"), "NVContentView", 0)
+		OBJC.class_addMethod(cls, intrinsics.objc_find_selector("viewDidChangeEffectiveAppearance"), auto_cast content_appearance_changed, "v@:")
+		OBJC.objc_registerClassPair(cls)
 	}
-	return send(^NS.View, (^NS.View)(NS.class_createInstance(cls, 0)), "initWithFrame:", frame) // owned
+	return send(^AK.View, (^AK.View)(OBJC.class_createInstance(cls, 0)), "initWithFrame:", frame) // owned
 }
 
 @(private)

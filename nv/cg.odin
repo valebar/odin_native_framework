@@ -354,7 +354,7 @@ _draw_text :: proc(p: ^Painter, text: string, x, y: f64, style: Text_Style) {
 	if c.attrs == nil || c.style != style {
 		keys := [2]^NS.Object{NS.AT("NSFont"), NS.AT("NSColor")}
 		values := [2]^NS.Object{apple_font(style, style.size, false), canvas_color(style.color)}
-		attrs := (^NS.Object)(NS.Dictionary.dictionaryWithObjects(&values[0], &keys[0], 2))
+		attrs := (^NS.Object)(NS.Dictionary.dictionaryWithObjects((^NS.id)(&values[0]), (^^NS.Copying)(&keys[0]), 2))
 		send(nil, attrs, "retain")
 		if c.attrs != nil do send(nil, c.attrs, "release")
 		c.attrs, c.style = attrs, style
@@ -362,14 +362,8 @@ _draw_text :: proc(p: ^Painter, text: string, x, y: f64, style: Text_Style) {
 	send(nil, ns_string(text), "drawAtPoint:withAttributes:", NS.Point{NS.Float(x), NS.Float(y)}, c.attrs)
 }
 
-// NSFont and UIFont share the selectors below, and so do NSColor and UIColor.
-when IS_IOS {
-	@(private) Sys_Font  :: UI_Font
-	@(private) Sys_Color :: UI_Color
-} else {
-	@(private) Sys_Font  :: NS_Font
-	@(private) Sys_Color :: NS.Color
-}
+// Sys_Font / Sys_Color (NSFont / UIFont, NSColor / UIColor, which share the selectors used here)
+// are aliased in appkit_macos.odin and uikit.odin.
 
 // True when the style changes the font, so a widget keeps its native one otherwise.
 @(private)

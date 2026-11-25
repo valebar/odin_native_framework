@@ -3,7 +3,8 @@ package nv
 // Shared public API. Platform backends: *_macos.odin (`#+build darwin:default`) / *_ios.odin
 // (`#+build darwin:ios`: the device and the simulator), with what they share in appkit.odin and
 // cg.odin (`#+build darwin`), *_android.odin (`#+build linux:android`), *_linux.odin
-// (`#+build linux:default`, GTK4) and *_windows.odin (`#+build windows`, Win32). The core reaches
+// (`#+build linux:default`, GTK4), *_windows.odin (`#+build windows`, Win32) and *_web.odin
+// (`#+build js`: the DOM, through nv/web/nv.js; web.odin). The core reaches
 // them through g_backend (backend.odin), except the draw procs, which it calls directly.
 //
 // Widgets: a scrolling list (`list_create`), a text label (`label_create`), a text input
@@ -26,7 +27,6 @@ package nv
 
 import "base:builtin"
 import "base:runtime"
-import "core:os"
 import "core:slice"
 import "core:strings"
 import "core:time"
@@ -35,7 +35,7 @@ IS_IOS     :: ODIN_PLATFORM_SUBTARGET_IOS
 IS_ANDROID :: ODIN_PLATFORM_SUBTARGET == .Android
 
 // Opaque native view: NSView* on macOS, UIView* on iOS, global jobject on Android, GtkWidget* on Linux,
-// HWND on Windows.
+// HWND on Windows, an element id (nv.js's table) on the web.
 View :: distinct rawptr
 
 Item :: struct {
@@ -519,7 +519,7 @@ Label_Handle :: struct {
 label_create :: proc(l: Label) -> ^Label_Handle {
 	h := scope_new_in(Label_Handle)
 	h.label = l
-	h.label.text = strings.clone(l.text, runtime.heap_allocator())
+	h.label.text = strings.clone(l.text, nv_heap())
 	h.label.style = text_style_merge(l.style, l.heading ? g_theme.heading : g_theme.body)
 	font_retain(h.label.style.font)
 	scope_on_dispose(label_dispose, h)
@@ -530,7 +530,7 @@ label_create :: proc(l: Label) -> ^Label_Handle {
 @(private)
 label_dispose :: proc(data: rawptr) {
 	h := (^Label_Handle)(data)
-	delete(h.label.text, runtime.heap_allocator())
+	delete(h.label.text, nv_heap())
 	font_free(h.label.style.font)
 }
 
@@ -541,8 +541,8 @@ label_view :: proc(h: ^Label_Handle) -> View {
 // Replaces the text; `text` is copied. The size of a flex-0 label follows on the next layout.
 label_set_text :: proc(h: ^Label_Handle, text: string) {
 	old := h.label.text
-	h.label.text = strings.clone(text, runtime.heap_allocator())
-	delete(old, runtime.heap_allocator())
+	h.label.text = strings.clone(text, nv_heap())
+	delete(old, nv_heap())
 	g_backend.label_set_text(h, text)
 }
 
@@ -626,7 +626,7 @@ Button_Handle :: struct {
 button_create :: proc(b: Button) -> ^Button_Handle {
 	h := scope_new_in(Button_Handle)
 	h.button = b
-	h.button.title = strings.clone(b.title, runtime.heap_allocator())
+	h.button.title = strings.clone(b.title, nv_heap())
 	h.button.style = text_style_merge(b.style, g_theme.body)
 	h.ctx = context
 	font_retain(h.button.style.font)
@@ -638,7 +638,7 @@ button_create :: proc(b: Button) -> ^Button_Handle {
 @(private)
 button_dispose :: proc(data: rawptr) {
 	h := (^Button_Handle)(data)
-	delete(h.button.title, runtime.heap_allocator())
+	delete(h.button.title, nv_heap())
 	font_free(h.button.style.font)
 }
 
@@ -649,8 +649,8 @@ button_view :: proc(h: ^Button_Handle) -> View {
 // Replaces the title; `title` is copied. The size of a flex-0 button follows on the next layout.
 button_set_title :: proc(h: ^Button_Handle, title: string) {
 	old := h.button.title
-	h.button.title = strings.clone(title, runtime.heap_allocator())
-	delete(old, runtime.heap_allocator())
+	h.button.title = strings.clone(title, nv_heap())
+	delete(old, nv_heap())
 	g_backend.button_set_title(h, title)
 }
 
@@ -812,8 +812,8 @@ bitmap_from_file :: proc(path: string) -> ^Bitmap {
 // Downloads and decodes an image in the background. `on_load` runs later on the UI thread with
 // the bitmap, which the caller then owns, or nil if the download or the decode failed.
 bitmap_fetch :: proc(url: string, on_load: proc(user: rawptr, b: ^Bitmap), user: rawptr) {
-	f := new(Fetch, runtime.heap_allocator())
-	f^ = {url = strings.clone(url, runtime.heap_allocator()), on_load = on_load, user = user, ctx = context}
+	f := new(Fetch, nv_heap())
+	f^ = {url = strings.clone(url, nv_heap()), on_load = on_load, user = user, ctx = context}
 	g_backend.fetch_start(f)
 }
 
@@ -882,22 +882,6 @@ font_retain :: proc(f: ^Font) -> ^Font {
 	return f
 }
 
-// Reads a file for bitmap_from_file / font_from_file; a relative path resolves against the
-// `assets` directory next to the executable (inside the .app on iOS). Android overrides this with
-// the APK's assets.
-@(private)
-asset_read_file :: proc(path: string, allocator := context.allocator) -> []u8 {
-	full := path
-	if !os.is_absolute_path(path) {
-		dir, err := os.get_executable_directory(context.temp_allocator)
-		if err != nil do return nil
-		full, _ = os.join_path({dir, "assets", path}, context.temp_allocator)
-	}
-	data, err := os.read_entire_file(full, allocator)
-	if err != nil do return nil
-	return data
-}
-
 // An image download in flight. Heap-allocated, since the worker thread has its own context:
 // only `url` and `data` are touched off the UI thread.
 @(private) Fetch :: struct {
@@ -915,9 +899,9 @@ fetch_notify :: proc(f: ^Fetch) {
 	defer callback_exit()
 	b := bitmap_from_bytes(f.data)
 	on_load, user := f.on_load, f.user
-	delete(f.data, runtime.heap_allocator())
-	delete(f.url, runtime.heap_allocator())
-	free(f, runtime.heap_allocator())
+	delete(f.data, nv_heap())
+	delete(f.url, nv_heap())
+	free(f, nv_heap())
 	if on_load != nil {
 		on_load(user, b)
 	} else {
@@ -963,7 +947,7 @@ image_create :: proc(i: Image) -> ^Image_Handle {
 	g_backend.image_init(h)
 	if i.bitmap == nil && i.url != "" {
 		// On the heap: the download can land after the page and its scope are gone.
-		t := new(Image_Fetch, runtime.heap_allocator())
+		t := new(Image_Fetch, nv_heap())
 		t^ = {h, h.seq}
 		h.fetch = t
 		bitmap_fetch(i.url, image_fetched, t)
@@ -999,7 +983,7 @@ image_set_bitmap :: proc(h: ^Image_Handle, b: ^Bitmap) {
 @(private)
 image_fetched :: proc(user: rawptr, b: ^Bitmap) {
 	t := (^Image_Fetch)(user)
-	defer free(t, runtime.heap_allocator())
+	defer free(t, nv_heap())
 	if t.h != nil {
 		t.h.fetch = nil
 		if t.h.seq == t.seq && b != nil do image_set_bitmap(t.h, b)

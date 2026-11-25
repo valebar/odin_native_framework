@@ -5,6 +5,10 @@ package nv
 
 import NS "core:sys/darwin/Foundation"
 
+// The shared Apple code (cg.odin) uses UIFont / UIColor under these names, AppKit's on macOS (appkit_macos.odin).
+@(private) Sys_Font  :: UI_Font
+@(private) Sys_Color :: UI_Color
+
 @(require) foreign import uikit "system:UIKit.framework"
 
 foreign uikit {

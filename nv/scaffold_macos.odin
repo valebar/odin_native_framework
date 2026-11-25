@@ -10,6 +10,7 @@ package nv
 
 import "base:intrinsics"
 import NS "core:sys/darwin/Foundation"
+import AK "vendor:darwin/AppKit"
 
 @(private) scrim_class, fab_target_class, tab_target_class: NS.Class
 
@@ -39,7 +40,7 @@ scrim_new :: proc(h: ^Overlay_Handle) -> ^NS.Object {
 	cls := objc_class(&scrim_class, "NVScrimView", "NSView", {
 		{"mouseDown:", auto_cast scrim_mouse_down, "v@:@"},
 	})
-	v := objc_own(send(^NS.View, (^NS.View)(objc_alloc_with_handle(cls, h)), "initWithFrame:", NS.Rect{}))
+	v := objc_own(send(^AK.View, (^AK.View)(objc_alloc_with_handle(cls, h)), "initWithFrame:", NS.Rect{}))
 	send(nil, v, "setWantsLayer:", NS.BOOL(true))
 	send(nil, send(^NS.Object, v, "layer"), "setBackgroundColor:", send(rawptr, canvas_color({0, 0, 0, 0.4}), "CGColor"))
 	return v
@@ -104,7 +105,7 @@ _tabbar_init :: proc(h: ^Tabbar_Handle) {
 
 	labels := make([]^NS.Object, len(h.tabs), context.temp_allocator)
 	for tab, i in h.tabs do labels[i] = ns_string(tab.title)
-	seg := send(^NS.View, objc_class_object("NSSegmentedControl"), "segmentedControlWithLabels:trackingMode:target:action:",
+	seg := send(^AK.View, objc_class_object("NSSegmentedControl"), "segmentedControlWithLabels:trackingMode:target:action:",
 		array_with_objects(raw_data(labels), len(labels)), SEGMENT_SWITCH_TRACKING_SELECT_ONE, t, intrinsics.objc_find_selector("nvTab:"))
 	for tab, i in h.tabs {
 		if name := sf_symbol_names[tab.icon]; name != "" {
@@ -114,7 +115,7 @@ _tabbar_init :: proc(h: ^Tabbar_Handle) {
 	send(nil, seg, "setSelectedSegment:", NS.Integer(h.selected))
 	view_set_translates_autoresizing_mask(seg, false)
 
-	bar := objc_own(NS.View.alloc()->initWithFrame({}))
+	bar := objc_own(AK.View.alloc()->initWithFrame({}))
 	bar->addSubview(seg) // retains it; the control is autoreleased
 	layout_anchor_equal(anchor_center_x(seg), anchor_center_x(bar))
 	layout_anchor_equal_offset(anchor_top(seg), anchor_top(bar), 8)

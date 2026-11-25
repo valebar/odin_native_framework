@@ -5,6 +5,11 @@ package nv
 // backend only; what it shares with the iOS backend is in appkit.odin.
 
 import NS "core:sys/darwin/Foundation"
+import AK "vendor:darwin/AppKit"
+
+// The shared Apple code (cg.odin) uses NSFont / NSColor under these names, UIKit's on iOS (uikit.odin).
+@(private) Sys_Font  :: NS_Font
+@(private) Sys_Color :: AK.Color
 
 // NSAutoresizingMaskOptions
 RESIZE_MIN_X_MARGIN :: NS.UInteger(1)
@@ -28,25 +33,25 @@ Titlebar_Accessory_View_Controller :: struct { using _: NS.Object }
 Table_View_Style_Plain :: 4
 
 @(objc_class="NSScrollView")
-Scroll_View :: struct { using _: NS.View }
+Scroll_View :: struct { using _: AK.View }
 
 @(objc_class="NSStackView")
-Stack_View :: struct { using _: NS.View }
+Stack_View :: struct { using _: AK.View }
 
 // NSStackViewDistribution (GravityAreas is -1, so Fill is 0 like UIStackViewDistributionFill).
 STACK_DISTRIBUTION_FILL :: NS.Integer(0)
 
 @(objc_class="NSTableView")
-Table_View :: struct { using _: NS.View }
+Table_View :: struct { using _: AK.View }
 
 @(objc_class="NSTableColumn")
 Table_Column :: struct { using _: NS.Object }
 
 @(objc_class="NSTextField")
-Text_Field :: struct { using _: NS.View }
+Text_Field :: struct { using _: AK.View }
 
 @(objc_class="NSButton")
-Button_View :: struct { using _: NS.View }
+Button_View :: struct { using _: AK.View }
 
 @(objc_class="NSFont")
 NS_Font :: struct { using _: NS.Object } // `Font` is the public loaded-font type
@@ -61,21 +66,21 @@ Appearance :: struct { using _: NS.Object }
 Graphics_Context :: struct { using _: NS.Object }
 
 @(objc_class="NSBox")
-Box :: struct { using _: NS.View }
+Box :: struct { using _: AK.View }
 
 // NSBoxCustom: no title, the fill and corner radius are the box's own.
 BOX_TYPE_CUSTOM   :: NS.Integer(4)
 BOX_TITLE_NONE    :: NS.Integer(0)
 
-view_set_frame :: proc "c" (v: ^NS.View, frame: NS.Rect) {
+view_set_frame :: proc "c" (v: ^AK.View, frame: NS.Rect) {
 	send(nil, v, "setFrame:", frame)
 }
 
-view_set_hidden :: proc "c" (v: ^NS.View, hidden: NS.BOOL) {
+view_set_hidden :: proc "c" (v: ^AK.View, hidden: NS.BOOL) {
 	send(nil, v, "setHidden:", hidden)
 }
 
-view_remove_from_superview :: proc "c" (v: ^NS.View) {
+view_remove_from_superview :: proc "c" (v: ^AK.View) {
 	send(nil, v, "removeFromSuperview")
 }
 
@@ -90,7 +95,7 @@ box_new :: proc "c" (frame: NS.Rect) -> ^Box {
 	return b
 }
 
-box_set_fill_color :: proc "c" (b: ^Box, c: ^NS.Color) {
+box_set_fill_color :: proc "c" (b: ^Box, c: ^AK.Color) {
 	send(nil, b, "setFillColor:", c)
 }
 
@@ -99,46 +104,46 @@ box_set_corner_radius :: proc "c" (b: ^Box, r: NS.Float) {
 }
 
 // The border of a custom box, drawn inside its bounds.
-box_set_border :: proc "c" (b: ^Box, c: ^NS.Color, width: NS.Float) {
+box_set_border :: proc "c" (b: ^Box, c: ^AK.Color, width: NS.Float) {
 	send(nil, b, "setBorderColor:", c)
 	send(nil, b, "setBorderWidth:", width)
 }
 
 // The box's inner view, which holds its subviews.
-box_content_view :: proc "c" (b: ^Box) -> ^NS.View {
-	return send(^NS.View, b, "contentView")
+box_content_view :: proc "c" (b: ^Box) -> ^AK.View {
+	return send(^AK.View, b, "contentView")
 }
 
-color_window_background :: proc "c" () -> ^NS.Color {
-	return send(^NS.Color, NS.Color, "windowBackgroundColor")
+color_window_background :: proc "c" () -> ^AK.Color {
+	return send(^AK.Color, AK.Color, "windowBackgroundColor")
 }
 
-view_set_autoresizing :: proc "c" (v: ^NS.View, mask: NS.UInteger) {
+view_set_autoresizing :: proc "c" (v: ^AK.View, mask: NS.UInteger) {
 	send(nil, v, "setAutoresizingMask:", mask)
 }
 
-view_with_tag :: proc "c" (v: ^NS.View, tag: NS.Integer) -> ^NS.View {
-	return send(^NS.View, v, "viewWithTag:", tag)
+view_with_tag :: proc "c" (v: ^AK.View, tag: NS.Integer) -> ^AK.View {
+	return send(^AK.View, v, "viewWithTag:", tag)
 }
 
-view_set_tool_tip :: proc "c" (v: ^NS.View, s: ^NS.String) {
+view_set_tool_tip :: proc "c" (v: ^AK.View, s: ^NS.String) {
 	send(nil, v, "setToolTip:", s)
 }
 
-view_set_identifier :: proc "c" (v: ^NS.View, ident: ^NS.String) {
+view_set_identifier :: proc "c" (v: ^AK.View, ident: ^NS.String) {
 	send(nil, v, "setIdentifier:", ident)
 }
 
-view_set_translates_autoresizing_mask :: proc "c" (v: ^NS.View, translates: NS.BOOL) {
+view_set_translates_autoresizing_mask :: proc "c" (v: ^AK.View, translates: NS.BOOL) {
 	send(nil, v, "setTranslatesAutoresizingMaskIntoConstraints:", translates)
 }
 
 // orientation: NSLayoutConstraintOrientation, same values as Axis.
-view_set_content_hugging_priority :: proc "c" (v: ^NS.View, priority: f32, orientation: NS.Integer) {
+view_set_content_hugging_priority :: proc "c" (v: ^AK.View, priority: f32, orientation: NS.Integer) {
 	send(nil, v, "setContentHuggingPriority:forOrientation:", priority, orientation)
 }
 
-view_set_content_compression_resistance_priority :: proc "c" (v: ^NS.View, priority: f32, orientation: NS.Integer) {
+view_set_content_compression_resistance_priority :: proc "c" (v: ^AK.View, priority: f32, orientation: NS.Integer) {
 	send(nil, v, "setContentCompressionResistancePriority:forOrientation:", priority, orientation)
 }
 
@@ -166,7 +171,7 @@ stack_view_set_alignment :: proc "c" (sv: ^Stack_View, alignment: NS.Integer) {
 	send(nil, sv, "setAlignment:", alignment)
 }
 
-stack_view_add_arranged_subview :: proc "c" (sv: ^Stack_View, v: ^NS.View) {
+stack_view_add_arranged_subview :: proc "c" (sv: ^Stack_View, v: ^AK.View) {
 	send(nil, sv, "addArrangedSubview:", v)
 }
 
@@ -175,7 +180,7 @@ scroll_view_new :: proc "c" (frame: NS.Rect) -> ^Scroll_View {
 	return send(^Scroll_View, sv, "initWithFrame:", frame)
 }
 
-scroll_view_set_document_view :: proc "c" (sv: ^Scroll_View, v: ^NS.View) {
+scroll_view_set_document_view :: proc "c" (sv: ^Scroll_View, v: ^AK.View) {
 	send(nil, sv, "setDocumentView:", v)
 }
 
@@ -200,7 +205,7 @@ table_view_set_delegate :: proc "c" (tv: ^Table_View, d: NS.id) {
 	send(nil, tv, "setDelegate:", d)
 }
 
-table_view_set_header_view :: proc "c" (tv: ^Table_View, v: ^NS.View) {
+table_view_set_header_view :: proc "c" (tv: ^Table_View, v: ^AK.View) {
 	send(nil, tv, "setHeaderView:", v)
 }
 
@@ -216,8 +221,8 @@ table_view_reload_data :: proc "c" (tv: ^Table_View) {
 	send(nil, tv, "reloadData")
 }
 
-table_view_make_view :: proc "c" (tv: ^Table_View, ident: ^NS.String) -> ^NS.View {
-	return send(^NS.View, tv, "makeViewWithIdentifier:owner:", ident, NS.id(nil))
+table_view_make_view :: proc "c" (tv: ^Table_View, ident: ^NS.String) -> ^AK.View {
+	return send(^AK.View, tv, "makeViewWithIdentifier:owner:", ident, NS.id(nil))
 }
 
 table_view_selected_row :: proc "c" (tv: ^Table_View) -> NS.Integer {
@@ -251,7 +256,7 @@ text_field_set_font :: proc "c" (tf: ^Text_Field, f: ^NS_Font) {
 	send(nil, tf, "setFont:", f)
 }
 
-text_field_set_text_color :: proc "c" (tf: ^Text_Field, c: ^NS.Color) {
+text_field_set_text_color :: proc "c" (tf: ^Text_Field, c: ^AK.Color) {
 	send(nil, tf, "setTextColor:", c)
 }
 
@@ -304,7 +309,7 @@ titlebar_accessory_new :: proc "c" () -> ^Titlebar_Accessory_View_Controller {
 	return send(^Titlebar_Accessory_View_Controller, Titlebar_Accessory_View_Controller, "new")
 }
 
-titlebar_accessory_set_view :: proc "c" (vc: ^Titlebar_Accessory_View_Controller, v: ^NS.View) {
+titlebar_accessory_set_view :: proc "c" (vc: ^Titlebar_Accessory_View_Controller, v: ^AK.View) {
 	send(nil, vc, "setView:", v)
 }
 
@@ -314,12 +319,12 @@ titlebar_accessory_set_layout_attribute :: proc "c" (vc: ^Titlebar_Accessory_Vie
 }
 
 // The window retains the controller.
-window_add_titlebar_accessory :: proc "c" (w: ^NS.Window, vc: ^Titlebar_Accessory_View_Controller) {
+window_add_titlebar_accessory :: proc "c" (w: ^AK.Window, vc: ^Titlebar_Accessory_View_Controller) {
 	send(nil, w, "addTitlebarAccessoryViewController:", vc)
 }
 
 // Removes `vc` from the window's titlebarAccessoryViewControllers, releasing it.
-window_remove_titlebar_accessory :: proc "c" (w: ^NS.Window, vc: ^Titlebar_Accessory_View_Controller) {
+window_remove_titlebar_accessory :: proc "c" (w: ^AK.Window, vc: ^Titlebar_Accessory_View_Controller) {
 	all := send(^NS.Array, w, "titlebarAccessoryViewControllers")
 	index := send(NS.UInteger, all, "indexOfObject:", vc)
 	if index == NS.UInteger(NS.NotFound) do return
@@ -334,6 +339,6 @@ font_bold_system :: proc "c" (size: NS.Float) -> ^NS_Font {
 	return send(^NS_Font, NS_Font, "boldSystemFontOfSize:", size)
 }
 
-color_secondary_label :: proc "c" () -> ^NS.Color {
-	return send(^NS.Color, NS.Color, "secondaryLabelColor")
+color_secondary_label :: proc "c" () -> ^AK.Color {
+	return send(^AK.Color, AK.Color, "secondaryLabelColor")
 }

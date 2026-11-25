@@ -175,7 +175,7 @@ scaffold_create :: proc(s: Scaffold) -> ^Scaffold_Handle {
 	if s.fab.icon != .None || s.fab.label != "" {
 		h.fab = scope_new_in(Fab_Handle)
 		h.fab.fab = s.fab
-		h.fab.fab.label = strings.clone(s.fab.label, runtime.heap_allocator())
+		h.fab.fab.label = strings.clone(s.fab.label, nv_heap())
 		h.fab.ctx = context
 		scope_on_dispose(fab_dispose, h.fab)
 		g_backend.fab_init(h.fab)
@@ -200,7 +200,7 @@ scaffold_create :: proc(s: Scaffold) -> ^Scaffold_Handle {
 		h.tabbar.tabs = make([]Tab, len(s.tabs), scope_allocator(scope_current()))
 		for t, i in s.tabs {
 			h.tabbar.tabs[i] = t
-			h.tabbar.tabs[i].title = strings.clone(t.title, runtime.heap_allocator())
+			h.tabbar.tabs[i].title = strings.clone(t.title, nv_heap())
 		}
 		h.tabbar.selected = h.tab
 		h.tabbar.ctx = context
@@ -380,7 +380,7 @@ overlay_scrim_notify :: proc(h: ^Overlay_Handle) {
 
 @(private)
 fab_dispose :: proc(data: rawptr) {
-	delete((^Fab_Handle)(data).fab.label, runtime.heap_allocator())
+	delete((^Fab_Handle)(data).fab.label, nv_heap())
 }
 
 // Called by the backends when the FAB was clicked.
@@ -394,7 +394,7 @@ fab_notify :: proc(h: ^Fab_Handle) {
 
 @(private)
 tabbar_dispose :: proc(data: rawptr) {
-	for t in (^Tabbar_Handle)(data).tabs do delete(t.title, runtime.heap_allocator())
+	for t in (^Tabbar_Handle)(data).tabs do delete(t.title, nv_heap())
 }
 
 // Called by the backends when the user selected tab `index` (the native bar already shows it).
@@ -411,7 +411,7 @@ tabbar_notify :: proc(h: ^Tabbar_Handle, index: int) {
 
 @(private)
 timer_start :: proc(ms: int, fn: proc(data: rawptr), data: rawptr) -> ^Timer {
-	t := new(Timer, runtime.heap_allocator())
+	t := new(Timer, nv_heap())
 	t^ = {fn = fn, data = data, ctx = context}
 	g_backend.post_delayed(ms, t)
 	return t
@@ -426,5 +426,5 @@ timer_fire :: proc "contextless" (t: ^Timer) {
 		t.fn(t.data)
 		callback_exit()
 	}
-	free(t, runtime.heap_allocator())
+	free(t, nv_heap())
 }

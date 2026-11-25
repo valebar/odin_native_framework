@@ -7,13 +7,14 @@ package nv
 
 import "base:runtime"
 import NS "core:sys/darwin/Foundation"
+import AK "vendor:darwin/AppKit"
 
 @(private) nav_target_class: NS.Class // NVNavTarget, the back button's and the actions' target
 
 @(private) g_macos: struct {
 	ctx:    runtime.Context,
-	window: ^NS.Window,
-	content: ^NS.View, // the window's content view: pages and dialogs are its subviews
+	window: ^AK.Window,
+	content: ^AK.View, // the window's content view: pages and dialogs are its subviews
 	back:   ^Titlebar_Accessory_View_Controller, // owned for the run; detached on the root page
 	back_attached: bool,
 	menu:   ^Titlebar_Accessory_View_Controller, // owned for the run; attached on a root page with a drawer (nav_shows_menu)
@@ -25,15 +26,15 @@ import NS "core:sys/darwin/Foundation"
 @(private)
 _run :: proc() {
 	g_macos.ctx = context
-	app := NS.Application.sharedApplication()
+	app := AK.Application.sharedApplication()
 	app->setActivationPolicy(.Regular)
-	delegate := NS.application_delegate_register_and_alloc({
-		applicationShouldTerminateAfterLastWindowClosed = proc(_: ^NS.Application) -> NS.BOOL { return true },
+	delegate := AK.application_delegate_register_and_alloc({
+		applicationShouldTerminateAfterLastWindowClosed = proc(_: ^AK.Application) -> bool { return true },
 	}, "NVAppDelegate", context)
 	app->setDelegate(delegate)
 	theme_start()
 
-	wnd := NS.Window.alloc()->initWithContentRect(
+	wnd := AK.Window.alloc()->initWithContentRect(
 		{{0, 0}, {400, 600}},
 		{.Resizable, .Closable, .Titled, .Miniaturizable},
 		.Buffered,

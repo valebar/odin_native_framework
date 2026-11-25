@@ -2,7 +2,6 @@ package nv
 
 import "base:runtime"
 import "core:mem"
-import "core:mem/virtual"
 
 // What a page (or a dialog's body) owns: an arena for the handles its widgets allocate, and the
 // disposers that release what the handles hold outside it (native references, retained fonts and
@@ -15,7 +14,7 @@ import "core:mem/virtual"
 // retirement inside a callback waits until the outermost one returned, so a pop from a widget's own
 // callback never frees the handle it is running on.
 @(private) Scope :: struct {
-	arena:     virtual.Arena,
+	arena:     Scope_Arena, // scope_arena.odin / scope_arena_web.odin
 	disposers: ^Disposer, // most recent first: disposers run in reverse order, like `defer`
 }
 
@@ -23,6 +22,15 @@ import "core:mem/virtual"
 	next: ^Disposer,
 	fn:   proc(data: rawptr),
 	data: rawptr,
+}
+
+// The allocator the core keeps what outlives a callback in (handles' strings, downloads, timers,
+// the scopes themselves), whatever the app's context.allocator is: the heap, except on the web,
+// where base:runtime has no heap_alloc and the wasm allocator is the heap.
+@(private)
+nv_heap :: proc() -> runtime.Allocator {
+	when ODIN_OS == .JS do return runtime.default_wasm_allocator()
+	else do return runtime.heap_allocator()
 }
 
 // Set while `dialog_present` builds a dialog's body, which belongs to the dialog, not the page.
@@ -33,14 +41,14 @@ import "core:mem/virtual"
 
 @(private)
 scope_new :: proc() -> ^Scope {
-	s := new(Scope, runtime.heap_allocator()) // not the app's allocator: any context may destroy it
-	if err := virtual.arena_init_growing(&s.arena); err != nil do panic("nv: arena reservation failed")
+	s := new(Scope, nv_heap()) // not the app's allocator: any context may destroy it
+	scope_arena_init(&s.arena)
 	return s
 }
 
 @(private)
 scope_allocator :: proc(s: ^Scope) -> mem.Allocator {
-	return virtual.arena_allocator(&s.arena)
+	return scope_arena_allocator(&s.arena)
 }
 
 @(private)
@@ -70,7 +78,7 @@ scope_on_dispose :: proc(fn: proc(data: rawptr), data: rawptr) {
 scope_retire :: proc(s: ^Scope) {
 	if s == nil do return
 	if g_callback_depth > 0 {
-		if g_scopes_retired.allocator.procedure == nil do g_scopes_retired.allocator = runtime.heap_allocator()
+		if g_scopes_retired.allocator.procedure == nil do g_scopes_retired.allocator = nv_heap()
 		append(&g_scopes_retired, s)
 	} else {
 		scope_destroy(s)
@@ -81,8 +89,8 @@ scope_retire :: proc(s: ^Scope) {
 scope_destroy :: proc(s: ^Scope) {
 	for d := s.disposers; d != nil; d = d.next do d.fn(d.data)
 	s.disposers = nil
-	virtual.arena_destroy(&s.arena)
-	free(s, runtime.heap_allocator())
+	scope_arena_destroy(&s.arena)
+	free(s, nv_heap())
 }
 
 // Destroys the scopes retired while a callback was running; `callback_exit` calls it at depth 0.

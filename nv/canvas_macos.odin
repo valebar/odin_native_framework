@@ -5,6 +5,7 @@ package nv
 // (origin top-left), draws in drawRect: through cg.odin, and reports the left mouse button.
 
 import NS "core:sys/darwin/Foundation"
+import AK "vendor:darwin/AppKit"
 
 @(private) canvas_class: NS.Class
 
@@ -19,7 +20,7 @@ _canvas_init :: proc(h: ^Canvas_Handle) {
 		{"mouseUp:", auto_cast canvas_mouse_up, "v@:@"},
 	})
 	obj := objc_alloc_with_handle(cls, h)
-	view := objc_own(send(^NS.View, (^NS.View)(obj), "initWithFrame:", NS.Rect{{0, 0}, {400, 300}}))
+	view := objc_own(send(^AK.View, (^AK.View)(obj), "initWithFrame:", NS.Rect{{0, 0}, {400, 300}}))
 
 	h.root = View(view)
 	h.view = view
@@ -29,12 +30,12 @@ _canvas_init :: proc(h: ^Canvas_Handle) {
 @(private)
 _canvas_redraw :: proc(h: ^Canvas_Handle) {
 	if apple_canvas_park_redraw(h) do return
-	send(nil, (^NS.View)(h.view), "setNeedsDisplay:", NS.BOOL(true))
+	send(nil, (^AK.View)(h.view), "setNeedsDisplay:", NS.BOOL(true))
 }
 
 @(private)
 canvas_color :: proc "c" (c: Color) -> ^NS.Object {
-	return send(^NS.Color, NS.Color, "colorWithSRGBRed:green:blue:alpha:", NS.Float(c.r), NS.Float(c.g), NS.Float(c.b), NS.Float(c.a))
+	return send(^AK.Color, AK.Color, "colorWithSRGBRed:green:blue:alpha:", NS.Float(c.r), NS.Float(c.g), NS.Float(c.b), NS.Float(c.a))
 }
 
 @(private)

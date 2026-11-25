@@ -9,12 +9,14 @@ package nv
 
 import "base:intrinsics"
 import NS "core:sys/darwin/Foundation"
+import AK "vendor:darwin/AppKit"
+import OBJC "core:sys/darwin/ObjectiveC"
 
 @(private)
 _nav_push :: proc(e: ^Page_Handle) {
-	root := (^NS.View)(e.root)
+	root := (^AK.View)(e.root)
 	view_set_translates_autoresizing_mask(root, false)
-	if len(g_nav) > 1 do view_set_hidden((^NS.View)(g_nav[len(g_nav) - 2].root), true)
+	if len(g_nav) > 1 do view_set_hidden((^AK.View)(g_nav[len(g_nav) - 2].root), true)
 	g_macos.content->addSubview(root) // added last: above the lower pages and their dialogs
 	layout_pin_page(root, g_macos.content)
 	nav_update_chrome(e)
@@ -22,8 +24,8 @@ _nav_push :: proc(e: ^Page_Handle) {
 
 @(private)
 _nav_pop :: proc(top, below: ^Page_Handle) -> bool {
-	view_remove_from_superview((^NS.View)(top.root))
-	view_set_hidden((^NS.View)(below.root), false)
+	view_remove_from_superview((^AK.View)(top.root))
+	view_set_hidden((^AK.View)(below.root), false)
 	nav_update_chrome(below)
 	return true
 }
@@ -79,7 +81,7 @@ nav_update_chrome :: proc(e: ^Page_Handle) {
 @(private)
 nav_rebuild_actions :: proc(e: ^Page_Handle) {
 	if g_macos.actions != nil {
-		container := send(^NS.View, g_macos.actions, "view")
+		container := send(^AK.View, g_macos.actions, "view")
 		send(nil, container, "retain")
 		send(nil, container, "autorelease")
 		window_remove_titlebar_accessory(g_macos.window, g_macos.actions)
@@ -87,7 +89,7 @@ nav_rebuild_actions :: proc(e: ^Page_Handle) {
 	}
 	if len(e.actions) == 0 do return
 
-	container := NS.View.alloc()->initWithFrame({})
+	container := AK.View.alloc()->initWithFrame({})
 	x, height: NS.Float = 6, 0
 	for h in e.actions {
 		action := intrinsics.objc_find_selector("nvAction:")
@@ -129,7 +131,7 @@ nav_install_back_button :: proc() {
 		{"nvAction:", auto_cast nav_action_clicked, "v@:@"},
 		{"nvMenu:", auto_cast nav_menu_clicked, "v@:@"},
 	})
-	target := NS.class_createInstance(cls, 0) // lives for the whole run
+	target := OBJC.class_createInstance(cls, 0) // lives for the whole run
 	g_macos.nav_target = target
 	g_macos.back = nav_leading_accessory("chevron.backward", "Back", "nvBack:")
 	g_macos.menu = nav_leading_accessory(sf_symbol_names[.Menu], "Menu", "nvMenu:")
@@ -139,13 +141,13 @@ nav_install_back_button :: proc() {
 @(private)
 nav_leading_accessory :: proc(symbol, description: string, selector: cstring) -> ^Titlebar_Accessory_View_Controller {
 	image := image_system_symbol(ns_string(symbol), ns_string(description))
-	button := button_with_image(image, g_macos.nav_target, NS.sel_registerName(selector))
+	button := button_with_image(image, g_macos.nav_target, OBJC.sel_registerName(selector))
 	button_set_bezel_style(button, BEZEL_STYLE_TEXTURED_ROUNDED)
 	send(nil, button, "sizeToFit")
 	size := send(NS.Rect, button, "frame").size
 
 	// A plain container keeps the button centered in whatever height AppKit gives the accessory.
-	container := NS.View.alloc()->initWithFrame({{0, 0}, {size.width + 12, size.height + 4}})
+	container := AK.View.alloc()->initWithFrame({{0, 0}, {size.width + 12, size.height + 4}})
 	view_set_frame(button, {{6, 2}, size})
 	view_set_autoresizing(button, RESIZE_MIN_X_MARGIN | RESIZE_MAX_X_MARGIN | RESIZE_MIN_Y_MARGIN | RESIZE_MAX_Y_MARGIN)
 	container->addSubview(button)

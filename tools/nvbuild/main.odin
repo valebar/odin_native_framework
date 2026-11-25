@@ -2,15 +2,15 @@ package nvbuild
 
 // The build tool: one program for every platform, replacing per-OS shell scripts.
 //
-//   odin run tools/nvbuild -- [build|check|clean|test|ci] [--platform=windows|macos|ios|android|linux|all]
+//   odin run tools/nvbuild -- [build|check|clean|test|ci] [--platform=windows|macos|ios|android|linux|web|all]
 //                              [--release|--debug] [--no-run] [--sim="iPhone 17"] [--avd=Pixel_10] [--device=<serial>]
-//                              [--team=<id>] [--any-odin]
+//                              [--team=<id>] [--port=8000] [--no-open] [--any-odin]
 //
 // `build` (the default) compiles app/ for the platform (this host when none is given), packages
-// it (assets next to the executable, the iOS bundle, the APK) and runs it with the console
-// attached. `check` type-checks nv and app with -vet and -strict-style for one target, or every
-// target with `all` (plus this tool and android/jnigen): the cross-target checks work from any
-// host. `test` builds and runs the core's tests (nv/*_test.odin, against a mock backend) on this
+// it (assets next to the executable, the iOS bundle, the APK, the web page) and runs it with the
+// console attached (web: serves build/web and opens the browser, web.odin). `check` type-checks
+// nv and app with -vet and -strict-style for one target, or every target with `all` (plus this
+// tool and android/jnigen): the cross-target checks work from any host. `test` builds and runs the core's tests (nv/*_test.odin, against a mock backend) on this
 // host. `ci` is `check --platform=all`, then `test`: what has to pass before a push (there is no
 // hosted CI). `clean` removes build/<platform>, or all of build/.
 // Every command but `clean` first makes sure that odin is the pinned compiler (ODIN_PIN);
@@ -27,11 +27,11 @@ import "core:strings"
 import "core:time"
 
 Command  :: enum { build, check, clean, test, ci }
-Platform :: enum { host, windows, macos, ios, android, linux, all } // lowercase: flags matches the names
+Platform :: enum { host, windows, macos, ios, android, linux, web, all } // lowercase: flags matches the names
 
 Options :: struct {
 	command:  Command  `args:"pos=0" usage:"build (the default: build, package and run) | check | clean | test (the core's tests, on this host) | ci (check all, then test)"`,
-	platform: Platform `usage:"windows | macos | ios | android | linux (default: this host); all for check and clean"`,
+	platform: Platform `usage:"windows | macos | ios | android | linux | web (default: this host); all for check and clean"`,
 	release:  bool     `usage:"optimized build (-o:speed)"`,
 	debug:    bool     `usage:"debug build (-debug), the default"`,
 	no_run:   bool     `usage:"build and package only, do not launch the app"`,
@@ -39,6 +39,8 @@ Options :: struct {
 	avd:      string   `usage:"Android AVD to start when no device is attached (default: Pixel_10)"`,
 	device:   string   `usage:"Android: device serial from adb devices (default: the only attached device, else the emulator started from --avd). iOS: a physical device, by name or UDID from xcrun devicectl list devices (default: the simulator)"`,
 	team:     string   `usage:"Apple team id whose provisioning profile signs an iOS device build (default: the first profile that fits)"`,
+	no_open:  bool     `usage:"web: serve without opening the browser (reload the tab that is already open)"`,
+	port:     int      `usage:"web: the port the dev server listens on, on 127.0.0.1 (default: 8000)"`,
 	any_odin: bool     `usage:"do not require the pinned Odin (ODIN_PIN): try another compiler before moving the pin"`,
 }
 
@@ -48,7 +50,7 @@ AVD_DEFAULT :: "Pixel_10"
 // The Odin this repo is built with, as `odin version` prints it; only the hash is compared. How the
 // compiler links a shared library decides how libapp.so starts (nv/app_android.odin), so the pin
 // moves only through the upgrade steps in CLAUDE.md (Commands, compiler pin).
-ODIN_PIN :: "dev-2026-10-nightly:84bc3fc"
+ODIN_PIN :: "dev-2026-11-nightly:9a69916"
 
 ROOT :: #directory + "/../.." // the repo, whatever the cwd `odin run` was given
 
@@ -73,6 +75,7 @@ main :: proc() {
 		case .ios:     build_ios(opt)
 		case .android: build_android(opt)
 		case .linux:   build_linux(opt)
+		case .web:     build_web(opt)
 		case:          fail("build needs one platform, not %v", opt.platform)
 		}
 	case .check: check(opt)
@@ -256,6 +259,7 @@ target_flags := [Platform][][]string{
 	.ios     = {{"-target:darwin_arm64", "-subtarget:iphonesimulator"}, {"-target:darwin_arm64", "-subtarget:iphone"}},
 	.android = {{"-target:linux_arm64", "-subtarget:android"}},
 	.linux   = {{"-target:linux_amd64"}},
+	.web     = {{"-target:js_wasm32"}},
 	.all     = {},
 }
 
@@ -264,7 +268,7 @@ target_flags := [Platform][][]string{
 // needs the ODIN_ANDROID_* variables to be set, not a real SDK.
 check :: proc(opt: Options) {
 	platforms: []Platform = {opt.platform}
-	if opt.platform == .all do platforms = {.windows, .macos, .ios, .android, .linux}
+	if opt.platform == .all do platforms = {.windows, .macos, .ios, .android, .linux, .web}
 	failed := make([dynamic]string)
 	for p in platforms {
 		if p == .android {

@@ -8,6 +8,8 @@ package nv
 // padding plus the border width. NSBox does not clip its subviews to the corners.
 
 import NS "core:sys/darwin/Foundation"
+import AK "vendor:darwin/AppKit"
+import OBJC "core:sys/darwin/ObjectiveC"
 
 @(private) container_class: NS.Class
 
@@ -17,13 +19,13 @@ _container_init :: proc(h: ^Container_Handle) {
 		{"intrinsicContentSize", auto_cast container_intrinsic_size, "{CGSize=dd}@:"},
 	})
 	obj := objc_alloc_with_handle(cls, h)
-	root := objc_own(send(^NS.View, (^NS.View)(obj), "initWithFrame:", NS.Rect{}))
+	root := objc_own(send(^AK.View, (^AK.View)(obj), "initWithFrame:", NS.Rect{}))
 	c := &h.container
 
 	box := box_new({})
-	if c.color.a > 0 do box_set_fill_color(box, (^NS.Color)(canvas_color(c.color)))
+	if c.color.a > 0 do box_set_fill_color(box, (^AK.Color)(canvas_color(c.color)))
 	box_set_corner_radius(box, NS.Float(c.radius))
-	if c.border_width > 0 do box_set_border(box, (^NS.Color)(canvas_color(c.border_color)), NS.Float(c.border_width))
+	if c.border_width > 0 do box_set_border(box, (^AK.Color)(canvas_color(c.border_color)), NS.Float(c.border_width))
 	view_set_translates_autoresizing_mask(box, false)
 	root->addSubview(box)
 	box->release() // the root owns it
@@ -31,7 +33,7 @@ _container_init :: proc(h: ^Container_Handle) {
 	layout_pin_insets(box, root, NS.Float(c.margin.top), NS.Float(c.margin.left), NS.Float(c.margin.bottom), NS.Float(c.margin.right))
 
 	if c.child != nil {
-		child := (^NS.View)(c.child)
+		child := (^AK.View)(c.child)
 		view_set_translates_autoresizing_mask(child, false)
 		box_content_view(box)->addSubview(child) // retains it; the child's +1 belongs to its creator's scope
 		b := c.border_width
@@ -48,7 +50,7 @@ _container_init :: proc(h: ^Container_Handle) {
 _container_set_color :: proc(h: ^Container_Handle) {
 	box := (^Box)(h.box)
 	c := h.container.color
-	box_set_fill_color(box, (^NS.Color)(canvas_color(c.a > 0 ? c : {0, 0, 0, 0})))
+	box_set_fill_color(box, (^AK.Color)(canvas_color(c.a > 0 ? c : {0, 0, 0, 0})))
 	send(nil, box, "setNeedsDisplay:", NS.BOOL(true))
 }
 
@@ -57,12 +59,12 @@ _container_set_color :: proc(h: ^Container_Handle) {
 // space. The priority is passed down to the child, except on an axis with a fixed size, where the
 // root's intrinsic size decides and a required hugging on the child would conflict with it.
 @(private)
-container_forward_hugging :: proc "c" (v: ^NS.View, priority: f32, axis: Axis) {
-	if container_class == nil || NS.object_getClass(NS.id(v)) != container_class do return
+container_forward_hugging :: proc "c" (v: ^AK.View, priority: f32, axis: Axis) {
+	if container_class == nil || OBJC.object_getClass(NS.id(v)) != container_class do return
 	h := objc_handle(NS.id(v), Container_Handle)
 	if h.container.child == nil do return
 	if (axis == .Horizontal ? h.container.width : h.container.height) > 0 do return
-	child := (^NS.View)(h.container.child)
+	child := (^AK.View)(h.container.child)
 	view_set_content_hugging_priority(child, priority, NS.Integer(axis))
 	container_forward_hugging(child, priority, axis)
 }
