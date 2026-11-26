@@ -179,7 +179,7 @@ _http_get :: proc(url: string) -> []u8 {
 	data := send(^NS.Data, NS.Data, "dataWithContentsOfURL:", ns_url)
 	if data == nil do return nil
 	n := int(send(NS.UInteger, data, "length"))
-	out := make([]u8, n, runtime.heap_allocator())
+	out := make([]u8, n, nv_heap())
 	send(nil, data, "getBytes:length:", raw_data(out), NS.UInteger(n))
 	return out
 }
@@ -327,7 +327,7 @@ apple_canvas_flush_redraw :: proc(h: ^Canvas_Handle) {
 	} else {
 		c.redraw_queued = false
 		if c.pending != nil do return
-		t := new(Apple_Canvas_Redraw, runtime.heap_allocator())
+		t := new(Apple_Canvas_Redraw, nv_heap())
 		t.h = h
 		c.pending = t
 		dispatch_async_f(&_dispatch_main_q, t, apple_canvas_redraw_main)
@@ -339,7 +339,7 @@ apple_canvas_redraw_main :: proc "c" (data: rawptr) {
 	t := (^Apple_Canvas_Redraw)(data)
 	h := t.h
 	context = h != nil ? h.ctx : runtime.default_context()
-	free(t, runtime.heap_allocator())
+	free(t, nv_heap())
 	if h == nil do return // the page was popped meanwhile
 	(^Apple_Canvas)(h.extra).pending = nil
 	_canvas_redraw(h) // not drawing now, so setNeedsDisplay sticks

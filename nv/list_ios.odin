@@ -44,7 +44,7 @@ list_data_source_alloc :: proc(h: ^List_Handle) -> NS.id {
 number_of_rows :: proc "c" (self: NS.id, _: NS.SEL, _: ^UI_Table_View, _: NS.Integer) -> NS.Integer {
 	h := objc_handle(self, List_Handle)
 	context = h.ctx
-	return NS.Integer(h.list.count(h.list.user))
+	return NS.Integer(list_count(h))
 }
 
 @(private)
@@ -60,7 +60,7 @@ cell_for_row :: proc "c" (self: NS.id, _: NS.SEL, tv: ^UI_Table_View, ip: ^Index
 		cell = ui_table_view_cell_new(UI_TABLE_VIEW_CELL_STYLE_DEFAULT, NS.AT(ROW_ID))
 	}
 
-	r := h.list.item(h.list.user, int(index_path_row(ip)))
+	r := list_item(h, int(index_path_row(ip)))
 	cfg := ui_list_content_subtitle()
 	ui_list_content_set_text(cfg, ns_string(r.title))
 	ui_list_content_set_secondary_text(cfg, ns_string(r.subtitle))
@@ -85,6 +85,6 @@ did_select_row :: proc "c" (self: NS.id, _: NS.SEL, tv: ^UI_Table_View, ip: ^Ind
 	defer callback_exit()
 	ui_table_view_deselect_row(tv, ip, true)
 	if h.list.on_select != nil {
-		h.list.on_select(h.list.user, int(index_path_row(ip)))
+		list_select(h, int(index_path_row(ip)))
 	}
 }

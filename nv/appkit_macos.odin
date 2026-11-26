@@ -291,7 +291,7 @@ button_set_title_ns :: proc "c" (b: ^Button_View, title: ^NS.String) {
 }
 
 // Autoreleased image-only bezel button; `target` is weak.
-button_with_image :: proc "c" (image: ^NS.Image, target: NS.id, action: NS.SEL) -> ^Button_View {
+button_with_image :: proc "c" (image: ^AK.Image, target: NS.id, action: NS.SEL) -> ^Button_View {
 	return send(^Button_View, Button_View, "buttonWithImage:target:action:", image, target, action)
 }
 
@@ -299,9 +299,9 @@ button_set_bezel_style :: proc "c" (b: ^Button_View, style: NS.Integer) {
 	send(nil, b, "setBezelStyle:", style)
 }
 
-// Autoreleased SF Symbol (macOS 11+).
-image_system_symbol :: proc "c" (name: ^NS.String, description: ^NS.String) -> ^NS.Image {
-	return send(^NS.Image, NS.Image, "imageWithSystemSymbolName:accessibilityDescription:", name, description)
+// Autoreleased SF Symbol (macOS 11+). AK.Image: Foundation's NS.Image is only an alias of NSObject.
+image_system_symbol :: proc "c" (name: ^NS.String, description: ^NS.String) -> ^AK.Image {
+	return send(^AK.Image, AK.Image, "imageWithSystemSymbolName:accessibilityDescription:", name, description)
 }
 
 // Returns an owned (+1) controller.

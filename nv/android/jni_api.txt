@@ -13,6 +13,8 @@ android.app.Activity              invalidateOptionsMenu()
 android.content.Context           getResources()
 android.content.Context           getTheme()
 android.content.Context           getCacheDir()
+android.content.Context           getClassLoader()
+java.lang.ClassLoader             loadClass(java.lang.String name)
 android.content.Context           getSystemService(java.lang.String name)
 android.content.res.Resources     getSystem()
 android.content.res.Resources     getConfiguration()
@@ -26,15 +28,39 @@ android.util.TypedValue           <init>()
 android.util.TypedValue           .data
 android.view.Window               getDecorView()
 android.app.ActionBar             setDisplayHomeAsUpEnabled(boolean enabled)
-android.app.ActionBar             setBackgroundDrawable(android.graphics.drawable.Drawable d)
 android.app.ActionBar             setHomeAsUpIndicator(int res)
+android.app.ActionBar             setHomeAsUpIndicator(android.graphics.drawable.Drawable indicator) = action_bar_set_home_as_up_indicator_drawable
+android.app.ActionBar             getThemedContext()
+android.app.ActionBar             setDisplayShowTitleEnabled(boolean show)
+android.app.ActionBar             setDisplayShowCustomEnabled(boolean show)
+android.app.ActionBar             setCustomView(android.view.View view, android.app.ActionBar$LayoutParams params)
+android.app.ActionBar$LayoutParams <init>(int width, int height)
+nv.NvTitleView                    <init>(android.content.Context ctx)
 java.io.File                      getAbsolutePath()
 java.lang.Object                  toString()
 
 # ---- Options menu ----
 android.view.Menu                 add(int group, int id, int order, java.lang.CharSequence title)
 android.view.MenuItem             setIcon(int res)
+android.view.MenuItem             setIcon(android.graphics.drawable.Drawable icon) = menu_item_set_icon_drawable
 android.view.MenuItem             setShowAsAction(int mode)
+
+# ---- Icons drawn from Material's SVG paths (icon_android.odin) ----
+android.graphics.Path             <init>()
+android.graphics.Path             moveTo(float x, float y)
+android.graphics.Path             lineTo(float x, float y)
+android.graphics.Path             cubicTo(float x1, float y1, float x2, float y2, float x3, float y3)
+android.graphics.Path             close()
+android.graphics.drawable.shapes.PathShape <init>(android.graphics.Path path, float std_width, float std_height)
+android.graphics.drawable.ShapeDrawable <init>(android.graphics.drawable.shapes.Shape shape)
+android.graphics.drawable.ShapeDrawable getPaint()
+android.graphics.drawable.ShapeDrawable setIntrinsicWidth(int width)
+android.graphics.drawable.ShapeDrawable setIntrinsicHeight(int height)
+
+# ---- Styled text (the bar's text actions in the theme's body font) ----
+android.text.SpannableString      <init>(java.lang.CharSequence source)
+android.text.Spannable            setSpan(java.lang.Object what, int start, int end, int flags)
+android.text.style.TypefaceSpan   <init>(android.graphics.Typeface typeface)
 
 # ---- Views and layouts ----
 android.view.View                 <init>(android.content.Context ctx)
@@ -118,7 +144,6 @@ android.graphics.drawable.GradientDrawable setCornerRadius(float radius)
 android.graphics.drawable.GradientDrawable setStroke(int width, int argb)
 android.graphics.drawable.GradientDrawable setShape(int shape)
 android.graphics.drawable.InsetDrawable <init>(android.graphics.drawable.Drawable drawable, int left, int top, int right, int bottom)
-android.graphics.drawable.ColorDrawable <init>(int argb)
 
 # ---- Images and fonts ----
 android.graphics.Bitmap           getWidth()

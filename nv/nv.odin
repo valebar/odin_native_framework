@@ -56,6 +56,8 @@ List :: struct {
 
 List_Handle :: struct {
 	list:          List,
+	scope:         ^Scope,
+	count:         int, // what list.count said last: a detached list keeps showing that many rows
 	ctx:           runtime.Context,
 	root:          View,   // view embedded by the app
 	table:         rawptr, // NSTableView* / UITableView* / ListView / GtkListView* / SysListView32 HWND
@@ -106,8 +108,15 @@ Build_Proc :: proc(page: ^Page_Handle, user: rawptr) -> View
 // Assets). A platform without a given icon shows the action's title as text instead.
 Icon :: enum { None, Add, Edit, Delete, Search, Share, Settings, Refresh, Done, Info, More, Close, Menu, Home, Star, Person, Hub }
 
+// Material's menu icon (Apache 2.0) on a 24-unit grid: Android draws it, having no hamburger
+// drawable (nv.js has the same path).
+@(private) MATERIAL_MENU_PATH :: "M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"
+
+// Material's search icon (Apache 2.0): Android draws it, its system magnifier being Holo's.
+@(private) MATERIAL_SEARCH_PATH :: "M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"
+
 // Material's hub icon (Apache 2.0) on a 24-unit grid, for the backends that draw it themselves
-// (GTK bundles it; nv.js has the same path).
+// (GTK bundles it, Android draws it; nv.js has the same path).
 @(private) MATERIAL_HUB_PATH :: "M8.4 18.2c.38.5.6 1.12.6 1.8 0 1.66-1.34 3-3 3s-3-1.34-3-3 1.34-3 3-3c.44 0 .85.09 1.23.26l1.41-1.77c-.92-1.03-1.29-2.39-1.09-3.69l-2.03-.68C4.98 11.95 4.06 12.5 3 12.5c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3c0 .07 0 .14-.01.21l2.03.68c.64-1.21 1.82-2.09 3.22-2.32V5.91C9.96 5.57 9 4.4 9 3c0-1.66 1.34-3 3-3s3 1.34 3 3c0 1.4-.96 2.57-2.25 2.91v2.16c1.4.23 2.58 1.11 3.22 2.32l2.03-.68c-.01-.07-.01-.14-.01-.21 0-1.66 1.34-3 3-3s3 1.34 3 3-1.34 3-3 3c-1.06 0-1.98-.55-2.52-1.37l-2.03.68c.2 1.29-.16 2.65-1.09 3.69l1.41 1.77c.38-.17.79-.26 1.23-.26 1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3c0-.68.22-1.3.6-1.8l-1.41-1.77c-1.35.75-3.01.76-4.37 0L8.4 18.2z"
 
 // One button in the page's bar, shown trailing in declared order. `title` is the button text when
@@ -162,8 +171,8 @@ Page_Handle :: struct {
 // Opens a window showing the root page and blocks in the platform event loop; on Android it
 // returns at once and the app keeps running (the first Activity builds the page). `build` runs
 // once the platform is ready to create views: before `run` the app calls only `theme_set` /
-// `theme_set_mode` and, except on Android, the font loaders for the theme's fonts (Android has no
-// JNIEnv until the first onCreate; Windows starts GDI+, which decodes bitmaps, in `_run`).
+// `theme_set_mode` and the font loaders for the theme's fonts (Windows starts GDI+, which decodes
+// bitmaps, in `_run`).
 run :: proc(p: Page) {
 	assert(len(g_nav) == 0, "nv.run twice")
 	g_main_ctx = context
@@ -191,22 +200,40 @@ push :: proc(p: Page) -> ^Page_Handle {
 
 // Removes the top page and returns to the one below. Does nothing on the root page, or inside a
 // `build` (the top page is the one being built then; a page decides against itself by pushing
-// nothing and popping from a later callback).
+// nothing and popping from a later callback). While the platform is in the middle of a transition
+// and refuses (UIKit), the page goes once it finished, if it is still the top then.
 pop :: proc() {
 	if len(g_nav) <= 1 || g_nav_building > 0 do return
 	top := builtin.pop(&g_nav)
 	if !g_backend.nav_pop(top, g_nav[len(g_nav) - 1]) {
-		append(&g_nav, top) // the platform is mid-transition; the page stays
+		append(&g_nav, top) // the platform is mid-transition; the page stays for now
+		g_nav_pop_waiting = top
 		return
 	}
 	nav_finish_pop(top)
+}
+
+// The top page a refused pop is for (nil for none); nav_finish_pop clears it when the page goes
+// otherwise, so a freed handle is never compared.
+@(private) g_nav_pop_waiting: ^Page_Handle
+
+// Called by the backends when a push or pop transition finished: a pop the platform refused
+// meanwhile runs now.
+@(private)
+nav_transition_done :: proc() {
+	e := g_nav_pop_waiting
+	g_nav_pop_waiting = nil
+	if e == nil || len(g_nav) <= 1 || g_nav[len(g_nav) - 1] != e do return
+	callback_enter()
+	defer callback_exit()
+	pop()
 }
 
 // Runs `fn(data)` on the main thread from the event loop, soon, in post order; callable from any
 // thread, so a worker hands its result back this way. `fn` runs inside a callback bracket like
 // every other callback (its temp memory is freed after it), with the context `run` was called
 // with: the poster's temp allocator belongs to its own thread. `data` stays the app's: nv neither
-// copies nor frees it. Called after `run` only. Not on Android yet (the backend panics).
+// copies nor frees it. Called after `run` only.
 post_main :: proc(fn: proc(data: rawptr), data: rawptr) {
 	assert(g_main_ctx.allocator.procedure != nil, "nv.post_main before nv.run")
 	t := new(Timer, nv_heap())
@@ -307,6 +334,8 @@ nav_system_pop_page :: proc(e: ^Page_Handle) {
 @(private)
 nav_finish_pop :: proc(top: ^Page_Handle) {
 	dialog_close_page(top)
+	if top.scope != nil do top.scope.detached = true // the app frees in on_pop; the views may still show
+	if g_nav_pop_waiting == top do g_nav_pop_waiting = nil
 	g_backend.nav_release(top) // retires top.scope now or later: the widget handles stay valid through on_pop
 	top.root, top.native, top.scope = nil, nil, nil // a page_set_* from on_pop has nothing to show
 	nav_detach_scaffold(top)
@@ -373,6 +402,25 @@ action_notify :: proc(h: ^Action_Handle) {
 	callback_enter()
 	defer callback_exit()
 	cb(user)
+}
+
+// What the backends ask of a list's owner, always through these: a detached list (see Scope)
+// keeps its last count, shows empty rows and reports no selection.
+@(private)
+list_count :: proc(h: ^List_Handle) -> int {
+	if scope_live(h.scope) do h.count = h.list.count(h.list.user)
+	return h.count
+}
+
+@(private)
+list_item :: proc(h: ^List_Handle, row: int) -> Item {
+	if !scope_live(h.scope) do return {}
+	return h.list.item(h.list.user, row)
+}
+
+@(private)
+list_select :: proc(h: ^List_Handle, row: int) {
+	if h.list.on_select != nil && scope_live(h.scope) do h.list.on_select(h.list.user, row)
 }
 
 list_create :: proc(l: List) -> ^List_Handle {
@@ -587,6 +635,7 @@ Input :: struct {
 
 Input_Handle :: struct {
 	input:    Input,
+	scope:    ^Scope,
 	ctx:      runtime.Context,
 	root:     View,   // view embedded by the app
 	field:    rawptr, // NSTextField* / UITextField* / EditText / GtkEntry* / Edit HWND
@@ -629,7 +678,7 @@ input_set_text :: proc(h: ^Input_Handle, text: string) {
 // Called by the backends when the text changed or was submitted; `cb` is on_change or on_submit.
 @(private)
 input_notify :: proc(h: ^Input_Handle, cb: proc(user: rawptr, text: string)) {
-	if h.silent || cb == nil do return
+	if h.silent || cb == nil || !scope_live(h.scope) do return
 	callback_enter()
 	defer callback_exit()
 	cb(h.input.user, g_backend.input_text(h, context.temp_allocator))
@@ -645,6 +694,7 @@ Button :: struct {
 
 Button_Handle :: struct {
 	button:  Button, // button.title is an owned copy, kept current by button_set_title
+	scope:   ^Scope,
 	ctx:     runtime.Context,
 	root:    View,   // view embedded by the app
 	control: rawptr, // NSButton* / UIButton* / Button / GtkButton* / Button HWND
@@ -685,7 +735,7 @@ button_set_title :: proc(h: ^Button_Handle, title: string) {
 // Called by the backends when the button was clicked.
 @(private)
 button_notify :: proc(h: ^Button_Handle) {
-	if h.button.on_click == nil do return
+	if h.button.on_click == nil || !scope_live(h.scope) do return
 	callback_enter()
 	defer callback_exit()
 	h.button.on_click(h.button.user)
@@ -722,6 +772,7 @@ SCROLL_LINE :: 40
 
 Canvas_Handle :: struct {
 	canvas: Canvas,
+	scope:  ^Scope,
 	ctx:    runtime.Context,
 	root:   View,   // view embedded by the app
 	view:   rawptr, // NVCanvasView* / NvCanvasView / GtkDrawingArea* / NVCanvas HWND
@@ -803,7 +854,7 @@ measure_text :: proc(p: ^Painter, text: string, style: Text_Style = {}) -> (widt
 // Called by the backends for the wheel / touchpad (see Canvas.on_scroll).
 @(private)
 canvas_scroll_notify :: proc(h: ^Canvas_Handle, dx, dy: f64) {
-	if h.canvas.on_scroll == nil || (dx == 0 && dy == 0) do return
+	if h.canvas.on_scroll == nil || (dx == 0 && dy == 0) || !scope_live(h.scope) do return
 	callback_enter()
 	defer callback_exit()
 	h.canvas.on_scroll(h.canvas.user, dx, dy)
@@ -812,7 +863,7 @@ canvas_scroll_notify :: proc(h: ^Canvas_Handle, dx, dy: f64) {
 // Called by the backends on repaint; `native` / `dc` as in Painter.
 @(private)
 canvas_draw_notify :: proc(h: ^Canvas_Handle, native: rawptr, width, height: f64, dc: rawptr = nil) {
-	if h.canvas.on_draw == nil do return
+	if h.canvas.on_draw == nil || !scope_live(h.scope) do return // a sliding page's canvas stays as it was drawn
 	callback_enter()
 	defer callback_exit()
 	p := Painter{h, native, dc}
@@ -821,7 +872,7 @@ canvas_draw_notify :: proc(h: ^Canvas_Handle, native: rawptr, width, height: f64
 
 @(private)
 canvas_pointer_notify :: proc(h: ^Canvas_Handle, kind: Pointer, x, y: f64) {
-	if h.canvas.on_pointer == nil do return
+	if h.canvas.on_pointer == nil || !scope_live(h.scope) do return
 	callback_enter()
 	defer callback_exit()
 	h.canvas.on_pointer(h.canvas.user, kind, x, y)
@@ -885,8 +936,7 @@ bitmap_retain :: proc(b: ^Bitmap) -> ^Bitmap {
 	return b
 }
 
-// A loaded font face, for `Text_Style.font` (widgets, the theme and `draw_text`; not the theme on
-// Android, where nothing can be loaded before `run`, see run). Reference counted like
+// A loaded font face, for `Text_Style.font` (widgets, the theme and `draw_text`). Reference counted like
 // Bitmap: `font_free` drops the caller's reference and every widget using the font holds its own,
 // so the app can free a font right after handing it over. Each Font is one face: load a bold file
 // for bold text.
@@ -1261,6 +1311,7 @@ dialog_close :: proc(h: ^Dialog_Handle) {
 		j, shown := slice.linear_search(g_dialogs[:], h)
 		if !shown do return
 		ordered_remove(&g_dialogs, j) // before _dialog_close: the backend reads dialog_top_modal for the state after
+		if h.scope != nil do h.scope.detached = true // its buttons call the app no more (on_close frees)
 		g_backend.dialog_close(h) // retires h.scope now or later
 		h.card, h.scrim, h.body, h.scope = nil, nil, nil, nil
 	}
@@ -1389,6 +1440,7 @@ Theme :: struct {
 	accent:    Color,      // alpha 0 = the platform's accent: buttons, the caret, list selection, the bar
 	body:      Text_Style, // labels, inputs, buttons and canvas text
 	heading:   Text_Style, // heading labels and dialog titles
+	bar_title: Text_Style, // the page title in the bar on iOS and Android (centred); zero: `heading`
 	on_change: proc(user: rawptr), // optional
 	user:      rawptr,
 }
@@ -1444,6 +1496,12 @@ theme_set_mode :: proc(m: Mode) {
 
 theme_mode :: proc() -> Mode {
 	return g_theme.mode
+}
+
+// The bar's title style: the theme's `bar_title`, else its `heading`.
+@(private)
+theme_bar_title :: proc "contextless" () -> Text_Style {
+	return g_theme.bar_title != {} ? g_theme.bar_title : g_theme.heading
 }
 
 // The resolved appearance: true for dark.

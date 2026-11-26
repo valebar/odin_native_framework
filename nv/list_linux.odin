@@ -49,7 +49,7 @@ _list_init :: proc(h: ^List_Handle) {
 @(private)
 _list_reload :: proc(h: ^List_Handle) {
 	d := model_data(h.data_source)
-	n := guint(h.list.count(h.list.user))
+	n := guint(list_count(h))
 	old := d.known
 	d.known = n
 	g_list_model_items_changed(h.data_source, 0, old, n)
@@ -83,13 +83,13 @@ model_iface_init :: proc "c" (iface: gpointer, _: gpointer) {
 	i.get_n_items = proc "c" (list: gpointer) -> guint {
 		d := model_data(list)
 		context = d.h.ctx
-		d.known = guint(d.h.list.count(d.h.list.user))
+		d.known = guint(list_count(d.h))
 		return d.known
 	}
 	i.get_item = proc "c" (list: gpointer, position: guint) -> gpointer {
 		d := model_data(list)
 		context = d.h.ctx
-		if int(position) >= d.h.list.count(d.h.list.user) do return nil
+		if int(position) >= list_count(d.h) do return nil
 		return g_object_new(g_object_get_type(), nil) // caller owns the reference
 	}
 }
@@ -102,7 +102,7 @@ on_selection_changed :: proc "c" (sel: ^GtkSingleSelection, _, _: guint, user: g
 	defer callback_exit()
 	if h.list.on_select == nil do return
 	row := gtk_single_selection_get_selected(sel)
-	if row != GTK_INVALID_LIST_POSITION do h.list.on_select(h.list.user, int(row))
+	if row != GTK_INVALID_LIST_POSITION do list_select(h, int(row))
 }
 
 // Cell: vertical box with title above subtitle. Each label expands into half the row and
@@ -151,7 +151,7 @@ on_bind :: proc "c" (_: ^GtkListItemFactory, item: ^GtkListItem, user: gpointer)
 	title := gtk_widget_get_first_child(cell)
 	subtitle := gtk_widget_get_next_sibling(title)
 
-	r := h.list.item(h.list.user, int(gtk_list_item_get_position(item)))
+	r := list_item(h, int(gtk_list_item_get_position(item)))
 	gtk_label_set_text(title, strings.clone_to_cstring(r.title, context.temp_allocator))
 	gtk_label_set_text(subtitle, strings.clone_to_cstring(r.subtitle, context.temp_allocator))
 }

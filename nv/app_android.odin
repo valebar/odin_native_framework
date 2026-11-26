@@ -11,9 +11,9 @@ package nv
 // and the first jni_on_create that finds no mark runs the entry through dlsym. Since dev-2026-11 the
 // Android entry point no longer calls `main` (core:sys/android/native_app_glue does, for a
 // NativeActivity, on a thread of its own); here the first jni_on_create runs it on the UI thread
-// (intrinsics.__entry_point, as the glue does), before it stores the env and the Activity. So the
-// app's main never has a JNIEnv or an Activity: nv.run's _run only keeps the context, and the first
-// onCreate starts the theme and builds the root page.
+// (intrinsics.__entry_point, as the glue does), after it stored the env and the Activity, so main
+// can load the theme's fonts. nv.run's _run only keeps the context, and the first onCreate starts
+// the theme and builds the root page.
 //
 // The entry point runs once per process. A later Activity in the same process (a night-mode
 // recreation, or a launch after Back on the root finished the Activity, which it does unless the
@@ -37,6 +37,8 @@ foreign liblog {
 @(private) g_android: struct {
 	env:      JNI_Env,  // UI-thread env, refreshed on every JNI callback; nil until the first onCreate
 	activity: jobject,  // global ref
+	loader:   jobject,  // the app's ClassLoader (global ref), for the nv shims (jni_class_ref)
+	title_view: jobject, // the Activity's ActionBar title (global ref; android_title_install)
 	ctx:      runtime.Context, // the app's, kept by _run; every JNI callback restores it
 	density:  f32,      // DisplayMetrics.density, read lazily by android_dp
 	cache_dir: string,  // Context.getCacheDir(), read lazily by _font_load
@@ -68,8 +70,22 @@ jni_on_create :: proc "c" (env: JNI_Env, _: jclass, activity: jobject) {
 		}
 		entry()
 	}
+	// Before main, so it can load the theme's fonts (an APK asset, a Typeface) as elsewhere.
+	g_android.env = env
+	if g_android.activity != nil do jni_delete_global_ref(env, g_android.activity)
+	g_android.activity = jni_new_global_ref(env, activity)
+	if g_android.title_view != nil { // the old Activity's
+		jni_delete_global_ref(env, g_android.title_view)
+		g_android.title_view = nil
+	}
+	if g_android.loader == nil {
+		loader := context_get_class_loader(env, activity)
+		g_android.loader = jni_new_global_ref(env, loader)
+		jni_delete_local_ref(env, loader)
+	}
 	if !g_android.main_ran {
 		g_android.main_ran = true
+		stdout_to_logcat() // before main, so its prints reach logcat too
 		intrinsics.__entry_point() // the app's main, which calls nv.run and returns
 	}
 	if len(g_nav) == 0 {
@@ -77,9 +93,6 @@ jni_on_create :: proc "c" (env: JNI_Env, _: jclass, activity: jobject) {
 		return
 	}
 	context = g_android.ctx
-	g_android.env = env
-	if g_android.activity != nil do jni_delete_global_ref(env, g_android.activity)
-	g_android.activity = jni_new_global_ref(env, activity)
 
 	callback_enter()
 	defer callback_exit()
@@ -103,12 +116,12 @@ jni_on_create :: proc "c" (env: JNI_Env, _: jclass, activity: jobject) {
 @(export)
 android_main :: proc "c" (app: rawptr) {}
 
-// nv.run, from the app's main, before any env or Activity is stored (see the top of the file): no
-// JNI here. jni_on_create builds the root page; nv.run returns and the app keeps running.
+// nv.run, from the app's main, inside the first jni_on_create, which builds the root page once
+// main returned; nv.run returns and the app keeps running.
 @(private)
 _run :: proc() {
 	g_android.ctx = context
-	stdout_to_logcat() // no JNI: a pipe and a raw pthread
+	post_start() // no JNI: a pipe on this thread's ALooper
 }
 
 // Builds the root page's view tree and shows it in the current Activity.
@@ -138,7 +151,7 @@ android_argb :: proc "contextless" (c: Color) -> int {
 
 // stdout/stderr go nowhere on Android; pipe them into logcat (tag "nv").
 @(private)
-stdout_to_logcat :: proc() {
+stdout_to_logcat :: proc "contextless" () {
 	fds: [2]posix.FD
 	if posix.pipe(&fds) != .OK do return
 	posix.dup2(fds[1], 1)

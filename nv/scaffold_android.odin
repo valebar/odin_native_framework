@@ -10,6 +10,8 @@ package nv
 // ViewGroup offers a touch to lower siblings when the top child ignores it). nv.NvTapListener
 // forwards the clicks; its `kind` says which handle it carries.
 
+import "core:sys/posix"
+
 @(private) ANDROID_GRAVITY_START  :: 0x00800003
 @(private) ANDROID_GRAVITY_END    :: 0x00800005
 @(private) ANDROID_GRAVITY_CENTER_HORIZONTAL :: 0x01
@@ -214,11 +216,54 @@ tabbar_paint :: proc(h: ^Tabbar_Handle, selected: int) {
 	}
 }
 
-// Not supported yet: the event loop is Java's, and NvTimer needs the main thread's JNIEnv (a
-// worker would have to attach to the VM and post through a Handler).
+// post_main: any thread writes the ^Timer into a pipe that the UI thread's ALooper watches, so
+// no JNI (a worker has no JNIEnv). A write of at most PIPE_BUF bytes is atomic, so posts from
+// several threads keep their order. A full pipe (8192 pending posts) blocks the poster.
+foreign import libandroid "system:android"
+
+@(private) ALOOPER_POLL_CALLBACK :: -2
+@(private) ALOOPER_EVENT_INPUT   :: 1
+
+@(private)
+ALooper_Callback :: #type proc "c" (fd: i32, events: i32, data: rawptr) -> i32
+
+@(default_calling_convention = "c", private)
+foreign libandroid {
+	ALooper_forThread :: proc() -> rawptr ---
+	ALooper_addFd     :: proc(looper: rawptr, fd: i32, ident: i32, events: i32, callback: ALooper_Callback, data: rawptr) -> i32 ---
+}
+
+@(private) g_post_fd: posix.FD = -1 // the pipe's write end
+
+// From _run, on the UI thread.
+@(private)
+post_start :: proc() {
+	fds: [2]posix.FD
+	if posix.pipe(&fds) != .OK do panic("nv: no pipe for post_main")
+	if ALooper_addFd(ALooper_forThread(), i32(fds[0]), ALOOPER_POLL_CALLBACK, ALOOPER_EVENT_INPUT, post_on_input, nil) != 1 {
+		panic("nv: cannot watch the post_main pipe")
+	}
+	g_post_fd = fds[1]
+}
+
 @(private)
 _post_timer :: proc(t: ^Timer) {
-	panic("nv.post_main is not supported on Android yet")
+	t := t
+	for {
+		n := posix.write(g_post_fd, ([^]u8)(&t), size_of(t))
+		if n == size_of(t) do return
+		if n < 0 && posix.errno() == .EINTR do continue
+		panic("nv: post_main write failed")
+	}
+}
+
+@(private)
+post_on_input :: proc "c" (fd: i32, events: i32, data: rawptr) -> i32 {
+	buf: [64]^Timer
+	n := posix.read(posix.FD(fd), ([^]u8)(&buf[0]), size_of(buf)) // whole pointers: the writes are atomic
+	if n <= 0 do return 0 // stop watching; never happens while the write end is open
+	for t in buf[:n / size_of(^Timer)] do timer_fire(t)
+	return 1
 }
 
 @(private)

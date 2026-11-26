@@ -2,13 +2,13 @@
 package nv
 
 // Android navigation backend: the top page is the Activity's content view and its title goes to
-// the ActionBar (Theme.Material.Light.DarkActionBar in the manifest), which shows an up arrow on
-// pushed pages and the page's actions as its options menu (nativeOnCreateMenu adds the items, item
-// id = index + 1; invalidateOptionsMenu asks for a rebuild). Popped-under pages stay alive as
-// global refs and are set as content again on pop: setContentView removes the previous content
-// first, so a page never has a stale parent.
+// the ActionBar (its custom view, nv.NvTitleView), which shows an up arrow on pushed pages and the
+// page's actions as its options menu (nativeOnCreateMenu adds the items, item id = index + 1;
+// invalidateOptionsMenu asks for a rebuild). Popped-under pages stay alive as global refs and are
+// set as content again on pop: setContentView removes the previous content first, so a page never
+// has a stale parent.
 
-// android.R.drawable names by Icon; "" shows the title as text.
+// android.R.drawable names by Icon (after icon_android.odin's drawn ones); "" shows the title as text.
 @(private) android_icon_names := [Icon]cstring{
 	.None     = "",
 	.Add      = "ic_menu_add",
@@ -59,25 +59,69 @@ android_show :: proc(e: ^Page_Handle) {
 android_chrome :: proc(e: ^Page_Handle) {
 	env := g_android.env
 	activity := g_android.activity
-	activity_set_title(env, activity, e.page.title)
 	if bar := activity_get_action_bar(env, activity); bar != nil {
+		if g_android.title_view == nil do android_title_install(env, bar)
 		menu := nav_shows_menu(e) // the up arrow becomes the drawer's menu button (nativeOnMenu)
 		action_bar_set_display_home_as_up_enabled(env, bar, len(g_nav) > 1 || menu)
-		action_bar_set_home_as_up_indicator(env, bar, menu ? android_icon_res(env, .Menu) : 0) // 0: the theme's arrow
-		if g_theme.accent.a > 0 {
-			cd := color_drawable_new(env, android_argb(g_theme.accent))
-			action_bar_set_background_drawable(env, bar, cd)
-			jni_delete_local_ref(env, cd)
+		if menu {
+			icon := android_icon_drawable(env, .Menu, theme_palette().text)
+			action_bar_set_home_as_up_indicator_drawable(env, bar, icon)
+			jni_delete_local_ref(env, icon)
+		} else {
+			action_bar_set_home_as_up_indicator(env, bar, 0) // the theme's arrow
 		}
+		// The bar's color is the Activity theme's (colorPrimary), as the other platforms' bars are theirs.
 		jni_delete_local_ref(env, bar)
 	}
+	android_set_title(env, e.page.title)
 	activity_invalidate_options_menu(env, activity)
 }
 
 // The ActionBar shows the top page only; a lower page's changes are picked up when it is shown again.
 @(private)
 _nav_title_changed :: proc(e: ^Page_Handle) {
-	if e == g_nav[len(g_nav) - 1] do activity_set_title(g_android.env, g_android.activity, e.page.title)
+	if e == g_nav[len(g_nav) - 1] do android_set_title(g_android.env, e.page.title)
+}
+
+// The title as the bar's custom view (nv.NvTitleView: centred, as on iOS) in the bar title style,
+// once per Activity. Its context is the bar's themed one, for the bar's text color.
+@(private)
+android_title_install :: proc(env: JNI_Env, bar: jobject) {
+	ctx := action_bar_get_themed_context(env, bar)
+	tv := nv_title_view_new(env, ctx)
+	jni_delete_local_ref(env, ctx)
+	android_style_text(env, tv, theme_bar_title()) // over the ActionBar title's own look (NvTitleView)
+	lp := action_bar_layout_params_new(env, LAYOUT_MATCH_PARENT, LAYOUT_MATCH_PARENT)
+	action_bar_set_custom_view(env, bar, tv, lp)
+	jni_delete_local_ref(env, lp)
+	action_bar_set_display_show_title_enabled(env, bar, false)
+	action_bar_set_display_show_custom_enabled(env, bar, true)
+	g_android.title_view = jni_new_global_ref(env, tv)
+	jni_delete_local_ref(env, tv)
+}
+
+// The page title: the bar's title view, and the Activity's title (accessibility, recents).
+@(private)
+android_set_title :: proc(env: JNI_Env, title: string) {
+	activity_set_title(env, g_android.activity, title)
+	if g_android.title_view != nil do text_view_set_text(env, g_android.title_view, title)
+}
+
+// `text` as a SpannableString in `s`'s typeface (none when the style sets no font: the view's
+// own); a local ref.
+@(private)
+android_styled_text :: proc(env: JNI_Env, text: string, s: Text_Style, bold: bool) -> jobject {
+	SPAN_EXCLUSIVE_EXCLUSIVE :: 33
+	str := spannable_string_new(env, text)
+	if s.font == nil do return str
+	if tf := android_style_typeface(env, s, bold); tf != nil {
+		n := 0 // UTF-16 units
+		for r in text do n += r >= 0x10000 ? 2 : 1
+		span := typeface_span_new(env, tf)
+		spannable_set_span(env, str, span, 0, n, SPAN_EXCLUSIVE_EXCLUSIVE)
+		jni_delete_local_ref(env, span)
+	}
+	return str
 }
 
 @(private)
@@ -95,9 +139,14 @@ jni_on_create_menu :: proc "c" (env: JNI_Env, _: jclass, menu: jobject) {
 	defer callback_exit()
 	e := g_nav[len(g_nav) - 1]
 	for h, i in e.actions {
-		item := menu_add(env, menu, 0, i + 1, i, h.action.title)
+		title := android_styled_text(env, h.action.title, g_theme.body, false) // a text action in the body font
+		item := jni_call_object(env, menu, &jm_menu_add, jv_int(0), jv_int(i + 1), jv_int(i), jv_obj(title))
+		jni_delete_local_ref(env, title)
 		if item == nil do continue
-		if id := android_icon_res(env, h.action.icon); id != 0 {
+		if icon := android_icon_drawable(env, h.action.icon, theme_palette().text); icon != nil {
+			jni_delete_local_ref(env, menu_item_set_icon_drawable(env, item, icon))
+			jni_delete_local_ref(env, icon)
+		} else if id := android_icon_res(env, h.action.icon); id != 0 {
 			jni_delete_local_ref(env, menu_item_set_icon(env, item, id))
 		}
 		menu_item_set_show_as_action(env, item, MENU_SHOW_AS_ACTION_IF_ROOM)

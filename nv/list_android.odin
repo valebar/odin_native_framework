@@ -34,7 +34,7 @@ jni_list_count :: proc "c" (env: JNI_Env, _: jclass, handle: jlong) -> jint {
 	h := (^List_Handle)(uintptr(handle))
 	context = h.ctx
 	g_android.env = env
-	return jint(h.list.count(h.list.user))
+	return jint(list_count(h))
 }
 
 @(export, link_name="Java_nv_NvListAdapter_nativeOnSelect")
@@ -44,7 +44,7 @@ jni_list_on_select :: proc "c" (env: JNI_Env, _: jclass, handle: jlong, position
 	callback_enter()
 	defer callback_exit()
 	g_android.env = env
-	if h.list.on_select != nil do h.list.on_select(h.list.user, int(position))
+	if h.list.on_select != nil do list_select(h, int(position))
 }
 
 @(export, link_name="Java_nv_NvListAdapter_nativeGetView")
@@ -67,7 +67,7 @@ jni_list_get_view :: proc "c" (env: JNI_Env, _: jclass, handle: jlong, position:
 		style_row_text(env, cell, ANDROID_ID_TEXT2, h.list.subtitle_style)
 	}
 
-	r := h.list.item(h.list.user, int(position))
+	r := list_item(h, int(position))
 	set_row_text(env, cell, ANDROID_ID_TEXT1, r.title)
 	set_row_text(env, cell, ANDROID_ID_TEXT2, r.subtitle)
 	return cell

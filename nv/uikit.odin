@@ -125,6 +125,11 @@ ui_color_system_background :: proc "c" () -> ^UI_Color {
 	return send(^UI_Color, UI_Color, "systemBackgroundColor")
 }
 
+// White in light mode, dark grey in dark mode (where systemBackgroundColor is black).
+ui_color_tertiary_system_background :: proc "c" () -> ^UI_Color {
+	return send(^UI_Color, UI_Color, "tertiarySystemBackgroundColor")
+}
+
 // Grayscale with alpha (0..1 each).
 ui_color_with_white_alpha :: proc "c" (white, alpha: NS.Float) -> ^UI_Color {
 	return send(^UI_Color, UI_Color, "colorWithWhite:alpha:", white, alpha)

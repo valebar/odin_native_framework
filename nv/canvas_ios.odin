@@ -23,6 +23,9 @@ _canvas_init :: proc(h: ^Canvas_Handle) {
 	obj := objc_alloc_with_handle(cls, h)
 	view := objc_own(send(^UI_View, (^UI_View)(obj), "initWithFrame:", NS.Rect{}))
 	send(nil, view, "setContentMode:", UI_VIEW_CONTENT_MODE_REDRAW) // redraw on resize instead of stretching
+	// Transparent like the other backends: an opaque UIView is not cleared before drawRect:, so
+	// undrawn pixels show black or the previous frame instead of what is behind it.
+	send(nil, view, "setOpaque:", NS.BOOL(false))
 	// CG queues the draw calls and rasterizes them off the main thread, instead of on it after drawRect:.
 	send(nil, send(^NS.Object, view, "layer"), "setDrawsAsynchronously:", NS.BOOL(true))
 

@@ -6,7 +6,6 @@ package nv
 // draws. The widget is an "NVImage" window painted like the canvas. Downloads use WinINet on the
 // worker thread (fetch_thread.odin) and come back as WM_NV_FETCHED to the main window.
 
-import "base:runtime"
 import win "core:sys/windows"
 
 foreign import shlwapi "system:Shlwapi.lib"
@@ -144,10 +143,10 @@ image_proc :: proc "system" (hwnd: win.HWND, msg: win.UINT, wparam: win.WPARAM, 
 	return win.DefWindowProcW(hwnd, msg, wparam, lparam)
 }
 
-// Runs on the worker thread, with its own context: allocates on the heap only.
+// Runs on the worker thread, with its own context: allocates with nv_heap only.
 @(private)
 _http_get :: proc(url: string) -> []u8 {
-	heap := runtime.heap_allocator()
+	heap := nv_heap()
 	agent := win.utf8_to_wstring("nv", heap)
 	defer free(rawptr(agent), heap)
 	wurl := win.utf8_to_wstring(url, heap)

@@ -62,7 +62,7 @@ list_data_source_alloc :: proc(h: ^List_Handle) -> NS.id {
 number_of_rows :: proc "c" (self: NS.id, _: NS.SEL, _: ^Table_View) -> NS.Integer {
 	h := objc_handle(self, List_Handle)
 	context = h.ctx
-	return NS.Integer(h.list.count(h.list.user))
+	return NS.Integer(list_count(h))
 }
 
 @(private)
@@ -78,7 +78,7 @@ selection_did_change :: proc "c" (self: NS.id, _: NS.SEL, _: ^NS.Notification) {
 	defer callback_exit()
 	if h.list.on_select == nil do return
 	row := table_view_selected_row((^Table_View)(h.table))
-	if row >= 0 do h.list.on_select(h.list.user, int(row))
+	if row >= 0 do list_select(h, int(row))
 }
 
 @(private)
@@ -93,7 +93,7 @@ view_for_row :: proc "c" (self: NS.id, _: NS.SEL, tv: ^Table_View, _: ^Table_Col
 		cell = make_row_cell(h)
 	}
 
-	r := h.list.item(h.list.user, int(row))
+	r := list_item(h, int(row))
 	text_field_set_string(cast(^Text_Field)view_with_tag(cell, TAG_TITLE), ns_string(r.title))
 	text_field_set_string(cast(^Text_Field)view_with_tag(cell, TAG_SUBTITLE), ns_string(r.subtitle))
 	return cell

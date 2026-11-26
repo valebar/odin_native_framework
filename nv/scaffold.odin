@@ -111,6 +111,7 @@ Scaffold_Handle :: struct {
 
 @(private) Fab_Handle :: struct {
 	fab:     Fab, // fab.label is an owned copy (heap)
+	scope:   ^Scope,
 	ctx:     runtime.Context,
 	root:    View,
 	control: rawptr, // NSButton* / UIButton* / ImageButton or Button / GtkButton* / NVFab HWND
@@ -119,6 +120,7 @@ Scaffold_Handle :: struct {
 
 @(private) Tabbar_Handle :: struct {
 	tabs:     []Tab, // titles are owned copies (heap); bodies are not used by the backends
+	scope:    ^Scope,
 	selected: int,
 	ctx:      runtime.Context,
 	root:     View,
@@ -386,7 +388,7 @@ fab_dispose :: proc(data: rawptr) {
 // Called by the backends when the FAB was clicked.
 @(private)
 fab_notify :: proc(h: ^Fab_Handle) {
-	if h.fab.on_click == nil do return
+	if h.fab.on_click == nil || !scope_live(h.scope) do return
 	callback_enter()
 	defer callback_exit()
 	h.fab.on_click(h.fab.user)
@@ -401,7 +403,7 @@ tabbar_dispose :: proc(data: rawptr) {
 @(private)
 tabbar_notify :: proc(h: ^Tabbar_Handle, index: int) {
 	s := h.scaffold
-	if index < 0 || index >= len(s.bodies) || index == s.tab do return
+	if index < 0 || index >= len(s.bodies) || index == s.tab || !scope_live(h.scope) do return
 	callback_enter()
 	defer callback_exit()
 	h.selected = index

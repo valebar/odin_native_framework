@@ -1,7 +1,7 @@
 #+build darwin:ios
 package nv
 
-// iOS dialog backend: the card is a UIView (system background, rounded layer) added to the
+// iOS dialog backend: the card is a UIView (tertiary system background, rounded layer) added to the
 // navigation controller's view, which puts it over the navigation bar too, and placed by Auto
 // Layout (layout_dialog_card in appkit.odin); a modal dialog first adds a translucent black view
 // pinned to the host's edges. A UIView takes the touches that land on it, so the scrim blocks
@@ -25,7 +25,7 @@ _dialog_show :: proc(h: ^Dialog_Handle) {
 	}
 
 	card := ui_view_new()
-	ui_view_set_background_color(card, ui_color_system_background())
+	ui_view_set_background_color(card, ui_color_tertiary_system_background())
 	ui_view_set_corner_radius(card, 14)
 	ui_view_set_translates_autoresizing_mask(card, false)
 	ui_view_add_subview(host, card) // after the scrim: above it

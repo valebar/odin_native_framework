@@ -92,12 +92,11 @@ jni_fn :: #force_inline proc "contextless" (env: JNI_Env, $T: typeid, index: int
 	return cast(T)env^[index]
 }
 
-// g_android.env is nil until an onCreate stored it. A JNI call before that (from the app's main,
-// say: a bitmap, a font or an asset read before nv.run) stops here with a log line instead of
-// crashing at address 0.
+// g_android.env is nil until the first onCreate stored it (before the app's main). A JNI call
+// before that (an @init proc's, say) stops here with a log line instead of crashing at address 0.
 @(private, cold)
 jni_no_env :: proc "contextless" () -> ! {
-	__android_log_write(ANDROID_LOG_ERROR, "nv", "JNI call before the first onCreate: on Android the app's main runs before any Activity, so load assets, bitmaps and fonts in build")
+	__android_log_write(ANDROID_LOG_ERROR, "nv", "JNI call before the first onCreate")
 	intrinsics.trap()
 }
 
@@ -118,10 +117,22 @@ jni_delete_local_ref :: proc "contextless" (env: JNI_Env, obj: jobject) {
 }
 
 // The class's global ref, found on the first call. nil (after logging the exception) when the
-// class is missing, which the build-time check against android.jar rules out for the spec.
+// class is missing, which the build-time check against android.jar rules out for the spec. The nv
+// shims come from the app's ClassLoader: FindClass outside a Java frame (a post_main callback from
+// the looper) only sees the boot class path.
 jni_class_ref :: proc "contextless" (env: JNI_Env, c: ^Jni_Class) -> jclass {
 	if c.ref == nil {
-		local := jni_find_class(env, c.name)
+		name := string(c.name)
+		local: jclass
+		if len(name) > 3 && name[:3] == "nv/" && len(name) < 128 && g_android.loader != nil {
+			buf: [128]u8 // the binary name: dots for slashes
+			for i in 0 ..< len(name) do buf[i] = name[i] == '/' ? '.' : name[i]
+			jname := jni_string(env, cstring(&buf[0]))
+			local = jni_call_object(env, g_android.loader, &jm_class_loader_load_class, jv_obj(jname))
+			jni_delete_local_ref(env, jname)
+		} else {
+			local = jni_find_class(env, c.name)
+		}
 		if local == nil {
 			jni_check(env)
 			return nil

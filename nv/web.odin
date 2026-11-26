@@ -215,7 +215,7 @@ nv_web_event :: proc "c" (kind: Web_Event, h: rawptr, arg: i32) {
 	case .List_Select:
 		l := (^List_Handle)(h)
 		context = l.ctx
-		if l.list.on_select != nil do l.list.on_select(l.list.user, int(arg))
+		if l.list.on_select != nil do list_select(l, int(arg))
 	case .Theme:
 		if g_theme.mode == .System {
 			_theme_apply_mode()
@@ -235,7 +235,7 @@ nv_web_list_bind :: proc "c" (h: ^List_Handle, index: i32, title, subtitle: Web_
 		web_style_text(title, h.list.title_style)
 		web_style_text(subtitle, h.list.subtitle_style)
 	}
-	item := h.list.item(h.list.user, int(index))
+	item := list_item(h, int(index))
 	js_text(title, item.title)
 	js_text(subtitle, item.subtitle)
 }

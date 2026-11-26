@@ -10,7 +10,7 @@ import "core:mem"
 
 @(private) Scope_Arena :: runtime.Arena
 
-@(private) SCOPE_BLOCK :: 16 * 1024
+@(private) SCOPE_BLOCK :: 16 * 1024 - 48 // with runtime.Arena's block header, 16 KiB
 
 @(private)
 scope_arena_init :: proc(a: ^Scope_Arena) {

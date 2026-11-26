@@ -101,10 +101,10 @@ on_image_draw :: proc "c" (_: ^GtkWidget, cr: ^cairo_t, width, height: i32, user
 	_draw_image(&p, h.bitmap, r[0], r[1], r[2], r[3])
 }
 
-// Runs on the worker thread, with its own context: allocates on the heap only.
+// Runs on the worker thread, with its own context: allocates with nv_heap only.
 @(private)
 _http_get :: proc(url: string) -> []u8 {
-	heap := runtime.heap_allocator()
+	heap := nv_heap()
 	curl_url := strings.clone_to_cstring(url, heap)
 	defer delete(curl_url, heap)
 	c := curl_easy_init()

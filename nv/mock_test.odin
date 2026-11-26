@@ -266,7 +266,7 @@ mock_type :: proc(h: ^Input_Handle, text: string, submit := false) {
 mock_fetch_finish :: proc(i: int, data: []u8) {
 	f := mock.fetches[i]
 	mock.fetches[i] = nil
-	f.data = slice.clone(data, runtime.heap_allocator()) // fetch_notify frees it from the heap
+	f.data = slice.clone(data, nv_heap()) // fetch_notify frees it with nv_heap
 	fetch_notify(f)
 }
 

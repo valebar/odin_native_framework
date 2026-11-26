@@ -8,6 +8,7 @@ import "core:strings"
 
 @(private) jc_activity := Jni_Class{name = "android/app/Activity"}
 @(private) jc_context := Jni_Class{name = "android/content/Context"}
+@(private) jc_class_loader := Jni_Class{name = "java/lang/ClassLoader"}
 @(private) jc_resources := Jni_Class{name = "android/content/res/Resources"}
 @(private) jc_configuration := Jni_Class{name = "android/content/res/Configuration"}
 @(private) jc_ui_mode_manager := Jni_Class{name = "android/app/UiModeManager"}
@@ -16,10 +17,18 @@ import "core:strings"
 @(private) jc_typed_value := Jni_Class{name = "android/util/TypedValue"}
 @(private) jc_window := Jni_Class{name = "android/view/Window"}
 @(private) jc_action_bar := Jni_Class{name = "android/app/ActionBar"}
+@(private) jc_action_bar_layout_params := Jni_Class{name = "android/app/ActionBar$LayoutParams"}
+@(private) jc_nv_title_view := Jni_Class{name = "nv/NvTitleView"}
 @(private) jc_file := Jni_Class{name = "java/io/File"}
 @(private) jc_object := Jni_Class{name = "java/lang/Object"}
 @(private) jc_menu := Jni_Class{name = "android/view/Menu"}
 @(private) jc_menu_item := Jni_Class{name = "android/view/MenuItem"}
+@(private) jc_path := Jni_Class{name = "android/graphics/Path"}
+@(private) jc_path_shape := Jni_Class{name = "android/graphics/drawable/shapes/PathShape"}
+@(private) jc_shape_drawable := Jni_Class{name = "android/graphics/drawable/ShapeDrawable"}
+@(private) jc_spannable_string := Jni_Class{name = "android/text/SpannableString"}
+@(private) jc_spannable := Jni_Class{name = "android/text/Spannable"}
+@(private) jc_typeface_span := Jni_Class{name = "android/text/style/TypefaceSpan"}
 @(private) jc_view := Jni_Class{name = "android/view/View"}
 @(private) jc_color_state_list := Jni_Class{name = "android/content/res/ColorStateList"}
 @(private) jc_view_group := Jni_Class{name = "android/view/ViewGroup"}
@@ -41,7 +50,6 @@ import "core:strings"
 @(private) jc_rect_f := Jni_Class{name = "android/graphics/RectF"}
 @(private) jc_gradient_drawable := Jni_Class{name = "android/graphics/drawable/GradientDrawable"}
 @(private) jc_inset_drawable := Jni_Class{name = "android/graphics/drawable/InsetDrawable"}
-@(private) jc_color_drawable := Jni_Class{name = "android/graphics/drawable/ColorDrawable"}
 @(private) jc_bitmap := Jni_Class{name = "android/graphics/Bitmap"}
 @(private) jc_bitmap_factory := Jni_Class{name = "android/graphics/BitmapFactory"}
 @(private) jc_image_view := Jni_Class{name = "android/widget/ImageView"}
@@ -106,6 +114,20 @@ context_get_theme :: proc "contextless" (env: JNI_Env, self: jobject) -> jobject
 @(private) jm_context_get_cache_dir := Jni_Method{cls = &jc_context, name = "getCacheDir", sig = "()Ljava/io/File;"}
 context_get_cache_dir :: proc "contextless" (env: JNI_Env, self: jobject) -> jobject {
 	return jni_call_object(env, self, &jm_context_get_cache_dir)
+}
+
+// android.content.Context.getClassLoader()
+@(private) jm_context_get_class_loader := Jni_Method{cls = &jc_context, name = "getClassLoader", sig = "()Ljava/lang/ClassLoader;"}
+context_get_class_loader :: proc "contextless" (env: JNI_Env, self: jobject) -> jobject {
+	return jni_call_object(env, self, &jm_context_get_class_loader)
+}
+
+// java.lang.ClassLoader.loadClass(java.lang.String)
+@(private) jm_class_loader_load_class := Jni_Method{cls = &jc_class_loader, name = "loadClass", sig = "(Ljava/lang/String;)Ljava/lang/Class;"}
+class_loader_load_class :: proc (env: JNI_Env, self: jobject, name: string) -> jobject {
+	name_ := jni_string(env, strings.clone_to_cstring(name, context.temp_allocator))
+	defer jni_delete_local_ref(env, name_)
+	return jni_call_object(env, self, &jm_class_loader_load_class, jv_obj(name_))
 }
 
 // android.content.Context.getSystemService(java.lang.String)
@@ -188,16 +210,52 @@ action_bar_set_display_home_as_up_enabled :: proc "contextless" (env: JNI_Env, s
 	jni_call_void(env, self, &jm_action_bar_set_display_home_as_up_enabled, jv_bool(enabled))
 }
 
-// android.app.ActionBar.setBackgroundDrawable(android.graphics.drawable.Drawable)
-@(private) jm_action_bar_set_background_drawable := Jni_Method{cls = &jc_action_bar, name = "setBackgroundDrawable", sig = "(Landroid/graphics/drawable/Drawable;)V"}
-action_bar_set_background_drawable :: proc "contextless" (env: JNI_Env, self: jobject, d: jobject) {
-	jni_call_void(env, self, &jm_action_bar_set_background_drawable, jv_obj(d))
-}
-
 // android.app.ActionBar.setHomeAsUpIndicator(int)
 @(private) jm_action_bar_set_home_as_up_indicator := Jni_Method{cls = &jc_action_bar, name = "setHomeAsUpIndicator", sig = "(I)V"}
 action_bar_set_home_as_up_indicator :: proc "contextless" (env: JNI_Env, self: jobject, res: int) {
 	jni_call_void(env, self, &jm_action_bar_set_home_as_up_indicator, jv_int(res))
+}
+
+// android.app.ActionBar.setHomeAsUpIndicator(android.graphics.drawable.Drawable)
+@(private) jm_action_bar_set_home_as_up_indicator_drawable := Jni_Method{cls = &jc_action_bar, name = "setHomeAsUpIndicator", sig = "(Landroid/graphics/drawable/Drawable;)V"}
+action_bar_set_home_as_up_indicator_drawable :: proc "contextless" (env: JNI_Env, self: jobject, indicator: jobject) {
+	jni_call_void(env, self, &jm_action_bar_set_home_as_up_indicator_drawable, jv_obj(indicator))
+}
+
+// android.app.ActionBar.getThemedContext()
+@(private) jm_action_bar_get_themed_context := Jni_Method{cls = &jc_action_bar, name = "getThemedContext", sig = "()Landroid/content/Context;"}
+action_bar_get_themed_context :: proc "contextless" (env: JNI_Env, self: jobject) -> jobject {
+	return jni_call_object(env, self, &jm_action_bar_get_themed_context)
+}
+
+// android.app.ActionBar.setDisplayShowTitleEnabled(boolean)
+@(private) jm_action_bar_set_display_show_title_enabled := Jni_Method{cls = &jc_action_bar, name = "setDisplayShowTitleEnabled", sig = "(Z)V"}
+action_bar_set_display_show_title_enabled :: proc "contextless" (env: JNI_Env, self: jobject, show: bool) {
+	jni_call_void(env, self, &jm_action_bar_set_display_show_title_enabled, jv_bool(show))
+}
+
+// android.app.ActionBar.setDisplayShowCustomEnabled(boolean)
+@(private) jm_action_bar_set_display_show_custom_enabled := Jni_Method{cls = &jc_action_bar, name = "setDisplayShowCustomEnabled", sig = "(Z)V"}
+action_bar_set_display_show_custom_enabled :: proc "contextless" (env: JNI_Env, self: jobject, show: bool) {
+	jni_call_void(env, self, &jm_action_bar_set_display_show_custom_enabled, jv_bool(show))
+}
+
+// android.app.ActionBar.setCustomView(android.view.View, android.app.ActionBar$LayoutParams)
+@(private) jm_action_bar_set_custom_view := Jni_Method{cls = &jc_action_bar, name = "setCustomView", sig = "(Landroid/view/View;Landroid/app/ActionBar$LayoutParams;)V"}
+action_bar_set_custom_view :: proc "contextless" (env: JNI_Env, self: jobject, view: jobject, params: jobject) {
+	jni_call_void(env, self, &jm_action_bar_set_custom_view, jv_obj(view), jv_obj(params))
+}
+
+// android.app.ActionBar$LayoutParams.<init>(int, int)
+@(private) jm_action_bar_layout_params_new := Jni_Method{cls = &jc_action_bar_layout_params, name = "<init>", sig = "(II)V"}
+action_bar_layout_params_new :: proc "contextless" (env: JNI_Env, width: int, height: int) -> jobject {
+	return jni_new_object(env, &jm_action_bar_layout_params_new, jv_int(width), jv_int(height))
+}
+
+// nv.NvTitleView.<init>(android.content.Context)
+@(private) jm_nv_title_view_new := Jni_Method{cls = &jc_nv_title_view, name = "<init>", sig = "(Landroid/content/Context;)V"}
+nv_title_view_new :: proc "contextless" (env: JNI_Env, ctx: jobject) -> jobject {
+	return jni_new_object(env, &jm_nv_title_view_new, jv_obj(ctx))
 }
 
 // java.io.File.getAbsolutePath()
@@ -226,10 +284,96 @@ menu_item_set_icon :: proc "contextless" (env: JNI_Env, self: jobject, res: int)
 	return jni_call_object(env, self, &jm_menu_item_set_icon, jv_int(res))
 }
 
+// android.view.MenuItem.setIcon(android.graphics.drawable.Drawable)
+@(private) jm_menu_item_set_icon_drawable := Jni_Method{cls = &jc_menu_item, name = "setIcon", sig = "(Landroid/graphics/drawable/Drawable;)Landroid/view/MenuItem;"}
+menu_item_set_icon_drawable :: proc "contextless" (env: JNI_Env, self: jobject, icon: jobject) -> jobject {
+	return jni_call_object(env, self, &jm_menu_item_set_icon_drawable, jv_obj(icon))
+}
+
 // android.view.MenuItem.setShowAsAction(int)
 @(private) jm_menu_item_set_show_as_action := Jni_Method{cls = &jc_menu_item, name = "setShowAsAction", sig = "(I)V"}
 menu_item_set_show_as_action :: proc "contextless" (env: JNI_Env, self: jobject, mode: int) {
 	jni_call_void(env, self, &jm_menu_item_set_show_as_action, jv_int(mode))
+}
+
+// android.graphics.Path.<init>()
+@(private) jm_path_new := Jni_Method{cls = &jc_path, name = "<init>", sig = "()V"}
+path_new :: proc "contextless" (env: JNI_Env) -> jobject {
+	return jni_new_object(env, &jm_path_new)
+}
+
+// android.graphics.Path.moveTo(float, float)
+@(private) jm_path_move_to := Jni_Method{cls = &jc_path, name = "moveTo", sig = "(FF)V"}
+path_move_to :: proc "contextless" (env: JNI_Env, self: jobject, x: f32, y: f32) {
+	jni_call_void(env, self, &jm_path_move_to, jv_float(x), jv_float(y))
+}
+
+// android.graphics.Path.lineTo(float, float)
+@(private) jm_path_line_to := Jni_Method{cls = &jc_path, name = "lineTo", sig = "(FF)V"}
+path_line_to :: proc "contextless" (env: JNI_Env, self: jobject, x: f32, y: f32) {
+	jni_call_void(env, self, &jm_path_line_to, jv_float(x), jv_float(y))
+}
+
+// android.graphics.Path.cubicTo(float, float, float, float, float, float)
+@(private) jm_path_cubic_to := Jni_Method{cls = &jc_path, name = "cubicTo", sig = "(FFFFFF)V"}
+path_cubic_to :: proc "contextless" (env: JNI_Env, self: jobject, x1: f32, y1: f32, x2: f32, y2: f32, x3: f32, y3: f32) {
+	jni_call_void(env, self, &jm_path_cubic_to, jv_float(x1), jv_float(y1), jv_float(x2), jv_float(y2), jv_float(x3), jv_float(y3))
+}
+
+// android.graphics.Path.close()
+@(private) jm_path_close := Jni_Method{cls = &jc_path, name = "close", sig = "()V"}
+path_close :: proc "contextless" (env: JNI_Env, self: jobject) {
+	jni_call_void(env, self, &jm_path_close)
+}
+
+// android.graphics.drawable.shapes.PathShape.<init>(android.graphics.Path, float, float)
+@(private) jm_path_shape_new := Jni_Method{cls = &jc_path_shape, name = "<init>", sig = "(Landroid/graphics/Path;FF)V"}
+path_shape_new :: proc "contextless" (env: JNI_Env, path: jobject, std_width: f32, std_height: f32) -> jobject {
+	return jni_new_object(env, &jm_path_shape_new, jv_obj(path), jv_float(std_width), jv_float(std_height))
+}
+
+// android.graphics.drawable.ShapeDrawable.<init>(android.graphics.drawable.shapes.Shape)
+@(private) jm_shape_drawable_new := Jni_Method{cls = &jc_shape_drawable, name = "<init>", sig = "(Landroid/graphics/drawable/shapes/Shape;)V"}
+shape_drawable_new :: proc "contextless" (env: JNI_Env, shape: jobject) -> jobject {
+	return jni_new_object(env, &jm_shape_drawable_new, jv_obj(shape))
+}
+
+// android.graphics.drawable.ShapeDrawable.getPaint()
+@(private) jm_shape_drawable_get_paint := Jni_Method{cls = &jc_shape_drawable, name = "getPaint", sig = "()Landroid/graphics/Paint;"}
+shape_drawable_get_paint :: proc "contextless" (env: JNI_Env, self: jobject) -> jobject {
+	return jni_call_object(env, self, &jm_shape_drawable_get_paint)
+}
+
+// android.graphics.drawable.ShapeDrawable.setIntrinsicWidth(int)
+@(private) jm_shape_drawable_set_intrinsic_width := Jni_Method{cls = &jc_shape_drawable, name = "setIntrinsicWidth", sig = "(I)V"}
+shape_drawable_set_intrinsic_width :: proc "contextless" (env: JNI_Env, self: jobject, width: int) {
+	jni_call_void(env, self, &jm_shape_drawable_set_intrinsic_width, jv_int(width))
+}
+
+// android.graphics.drawable.ShapeDrawable.setIntrinsicHeight(int)
+@(private) jm_shape_drawable_set_intrinsic_height := Jni_Method{cls = &jc_shape_drawable, name = "setIntrinsicHeight", sig = "(I)V"}
+shape_drawable_set_intrinsic_height :: proc "contextless" (env: JNI_Env, self: jobject, height: int) {
+	jni_call_void(env, self, &jm_shape_drawable_set_intrinsic_height, jv_int(height))
+}
+
+// android.text.SpannableString.<init>(java.lang.CharSequence)
+@(private) jm_spannable_string_new := Jni_Method{cls = &jc_spannable_string, name = "<init>", sig = "(Ljava/lang/CharSequence;)V"}
+spannable_string_new :: proc (env: JNI_Env, source: string) -> jobject {
+	source_ := jni_string(env, strings.clone_to_cstring(source, context.temp_allocator))
+	defer jni_delete_local_ref(env, source_)
+	return jni_new_object(env, &jm_spannable_string_new, jv_obj(source_))
+}
+
+// android.text.Spannable.setSpan(java.lang.Object, int, int, int)
+@(private) jm_spannable_set_span := Jni_Method{cls = &jc_spannable, name = "setSpan", sig = "(Ljava/lang/Object;III)V"}
+spannable_set_span :: proc "contextless" (env: JNI_Env, self: jobject, what: jobject, start: int, end: int, flags: int) {
+	jni_call_void(env, self, &jm_spannable_set_span, jv_obj(what), jv_int(start), jv_int(end), jv_int(flags))
+}
+
+// android.text.style.TypefaceSpan.<init>(android.graphics.Typeface)
+@(private) jm_typeface_span_new := Jni_Method{cls = &jc_typeface_span, name = "<init>", sig = "(Landroid/graphics/Typeface;)V"}
+typeface_span_new :: proc "contextless" (env: JNI_Env, typeface: jobject) -> jobject {
+	return jni_new_object(env, &jm_typeface_span_new, jv_obj(typeface))
 }
 
 // android.view.View.<init>(android.content.Context)
@@ -690,12 +834,6 @@ gradient_drawable_set_shape :: proc "contextless" (env: JNI_Env, self: jobject, 
 @(private) jm_inset_drawable_new := Jni_Method{cls = &jc_inset_drawable, name = "<init>", sig = "(Landroid/graphics/drawable/Drawable;IIII)V"}
 inset_drawable_new :: proc "contextless" (env: JNI_Env, drawable: jobject, left: int, top: int, right: int, bottom: int) -> jobject {
 	return jni_new_object(env, &jm_inset_drawable_new, jv_obj(drawable), jv_int(left), jv_int(top), jv_int(right), jv_int(bottom))
-}
-
-// android.graphics.drawable.ColorDrawable.<init>(int)
-@(private) jm_color_drawable_new := Jni_Method{cls = &jc_color_drawable, name = "<init>", sig = "(I)V"}
-color_drawable_new :: proc "contextless" (env: JNI_Env, argb: int) -> jobject {
-	return jni_new_object(env, &jm_color_drawable_new, jv_int(argb))
 }
 
 // android.graphics.Bitmap.getWidth()

@@ -38,11 +38,18 @@ _theme_apply_mode :: proc() {
 @(private)
 _theme_recolor :: proc() {}
 
-// Sets the accent on the new window and adds the view that watches the traits.
+// Sets the accent on the new window, the bar title's font on the navigation bar's title (UIKit's
+// is 17pt semibold) and adds the view that watches the traits.
 @(private)
 theme_install :: proc(w: ^UI_Window) {
 	_theme_apply_mode()
 	if g_theme.accent.a > 0 do send(nil, w, "setTintColor:", canvas_color(g_theme.accent))
+	if title := theme_bar_title(); style_sets_font(title) {
+		keys := [1]^NS.Object{NS.AT("NSFont")}
+		values := [1]^NS.Object{apple_font(title, 17, true)}
+		attrs := NS.Dictionary.dictionaryWithObjects((^NS.id)(&values[0]), (^^NS.Copying)(&keys[0]), 1)
+		send(nil, send(^NS.Object, g_app.nav, "navigationBar"), "setTitleTextAttributes:", attrs)
+	}
 
 	cls := OBJC.objc_allocateClassPair(intrinsics.objc_find_class("UIView"), "NVTraitView", 0)
 	OBJC.class_addMethod(cls, intrinsics.objc_find_selector("traitCollectionDidChange:"), auto_cast trait_view_changed, "v@:@")

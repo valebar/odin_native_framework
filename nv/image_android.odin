@@ -7,7 +7,6 @@ package nv
 // through nv.NvFetch (Java): a download runs on a Java thread and comes back to
 // nativeOnFetch on the UI thread.
 
-import "base:runtime"
 import "core:os"
 
 // ImageView.ScaleType names, indexed by Fit.
@@ -88,6 +87,6 @@ jni_fetch_on_fetch :: proc "c" (env: JNI_Env, _: jclass, req: jlong, data: jobje
 	f := (^Fetch)(uintptr(req))
 	context = f.ctx
 	g_android.env = env
-	f.data = jni_bytes_clone(env, data, runtime.heap_allocator())
+	f.data = jni_bytes_clone(env, data, nv_heap())
 	fetch_notify(f)
 }

@@ -17,5 +17,5 @@ _list_init :: proc(h: ^List_Handle) {
 
 @(private)
 _list_reload :: proc(h: ^List_Handle) {
-	js_list_count(Web_Id(uintptr(h.table)), i32(h.list.count(h.list.user)))
+	js_list_count(Web_Id(uintptr(h.table)), i32(list_count(h)))
 }

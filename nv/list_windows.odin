@@ -33,7 +33,7 @@ _list_init :: proc(h: ^List_Handle) {
 	rows := win.ImageList_Create(1, px(h.list.item_height), win.ILC_COLOR32, 0, 0)
 	win.SendMessageW(lv, win.LVM_SETIMAGELIST, win.LVSIL_SMALL, win.LPARAM(uintptr(rawptr(rows))))
 
-	win.ListView_SetItemCountEx(lv, i32(h.list.count(h.list.user)), 0)
+	win.ListView_SetItemCountEx(lv, i32(list_count(h)), 0)
 
 	h.root = View(container)
 	h.table = rawptr(lv)
@@ -41,7 +41,7 @@ _list_init :: proc(h: ^List_Handle) {
 
 @(private)
 _list_reload :: proc(h: ^List_Handle) {
-	win.ListView_SetItemCountEx(win.HWND(h.table), i32(h.list.count(h.list.user)), win.LVSICF_NOSCROLL)
+	win.ListView_SetItemCountEx(win.HWND(h.table), i32(list_count(h)), win.LVSICF_NOSCROLL)
 }
 
 @(private)
@@ -77,7 +77,7 @@ list_proc :: proc "system" (hwnd: win.HWND, msg: win.UINT, wparam: win.WPARAM, l
 			if selected && nm.iItem >= 0 && h.list.on_select != nil {
 				callback_enter()
 				defer callback_exit()
-				h.list.on_select(h.list.user, int(nm.iItem))
+				list_select(h, int(nm.iItem))
 			}
 			return 0
 		case NM_CUSTOMDRAW:
@@ -100,7 +100,7 @@ list_custom_draw :: proc(h: ^List_Handle, cd: ^win.NMLVCUSTOMDRAW) -> win.LRESUL
 		row := i32(cd.nmcd.dwItemSpec)
 		rc: win.RECT
 		win.ListView_GetItemRect(win.HWND(h.table), row, &rc, win.LVIR_BOUNDS)
-		r := h.list.item(h.list.user, int(row))
+		r := list_item(h, int(row))
 
 		// Title above subtitle, the pair vertically centred, like the Linux cell.
 		dc := cd.nmcd.hdc

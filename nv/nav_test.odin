@@ -6,6 +6,7 @@ package nv
 // starts with mock_begin(t) and ends with mock_end(t); callback_enter / callback_exit around a step
 // stand for the native callback (a click) it runs in. Logs are exact and in order.
 
+import "base:runtime"
 import "core:testing"
 
 @(test)
@@ -337,4 +338,178 @@ test_system_pop_by_identity :: proc(t: ^testing.T) {
 	callback_exit()
 	expect_log(t, "release label B")
 	testing.expect(t, len(g_nav) == 2 && g_nav[1] == ch)
+}
+
+// set_allocator: nv_heap and the blocks of every scope come from the app's allocator, and a popped
+// page's go back to it.
+@(test)
+test_set_allocator :: proc(t: ^testing.T) {
+	Counts :: struct {
+		allocs, frees: int,
+	}
+	counts: Counts
+	counting := runtime.Allocator{
+		procedure = proc(data: rawptr, mode: runtime.Allocator_Mode, size, alignment: int, old_memory: rawptr, old_size: int, loc := #caller_location) -> ([]byte, runtime.Allocator_Error) {
+			c := (^Counts)(data)
+			#partial switch mode {
+			case .Alloc, .Alloc_Non_Zeroed: c.allocs += 1
+			case .Free:                     c.frees += 1
+			}
+			return runtime.heap_allocator_proc(nil, mode, size, alignment, old_memory, old_size, loc)
+		},
+		data = rawptr(&counts), // cleared before the test returns
+	}
+	mock_begin(t)
+	defer g_heap = {} // after mock_end, which frees the scopes into it
+	defer mock_end(t)
+	set_allocator(counting)
+	root, b := Mock_Page{name = "Root"}, Mock_Page{name = "B"}
+	run(mock_page(&root))
+	testing.expect(t, counts.allocs > 0, "the root's scope and label text")
+	before := counts
+	callback_enter()
+	push(mock_page(&b))
+	pop()
+	callback_exit()
+	testing.expect(t, counts.allocs > before.allocs, "B's scope came from it")
+	testing.expect(t, counts.frees > before.frees, "and went back to it")
+}
+
+// A page's widgets, one of each kind that calls the app, and how many calls reached it.
+@(private = "file")
+Widget_Page :: struct {
+	button: ^Button_Handle,
+	canvas: ^Canvas_Handle,
+	input:  ^Input_Handle,
+	list:   ^List_Handle,
+	calls:  int,
+}
+
+@(private = "file")
+widget_page_build :: proc(page: ^Page_Handle, user: rawptr) -> View {
+	w := (^Widget_Page)(user)
+	w.button = button_create({title = "Tap", user = w, on_click = proc(user: rawptr) { (^Widget_Page)(user).calls += 1 }})
+	w.canvas = canvas_create({
+		on_draw    = proc(user: rawptr, _: ^Painter, _, _: f64) { (^Widget_Page)(user).calls += 1 },
+		on_pointer = proc(user: rawptr, _: Pointer, _, _: f64) { (^Widget_Page)(user).calls += 1 },
+		on_scroll  = proc(user: rawptr, _, _: f64) { (^Widget_Page)(user).calls += 1 },
+		user       = w,
+	})
+	w.input = input_create({user = w, on_change = proc(user: rawptr, _: string) { (^Widget_Page)(user).calls += 1 }})
+	w.list = list_create({
+		count     = proc(user: rawptr) -> int { (^Widget_Page)(user).calls += 1; return 3 },
+		item      = proc(user: rawptr, _: int) -> Item { (^Widget_Page)(user).calls += 1; return {title = "row"} },
+		on_select = proc(user: rawptr, _: int) { (^Widget_Page)(user).calls += 1 },
+		user      = w,
+	})
+	return column_create({{button_view(w.button), 0}, {canvas_view(w.canvas), 1}, {input_view(w.input), 0}, {list_view(w.list), 1}})
+}
+
+// Every callback once, the way the backends report them.
+@(private = "file")
+widget_page_poke :: proc(w: ^Widget_Page) {
+	button_notify(w.button)
+	canvas_draw_notify(w.canvas, nil, 10, 10)
+	canvas_pointer_notify(w.canvas, .Up, 1, 1)
+	canvas_scroll_notify(w.canvas, 0, 5)
+	input_notify(w.input, w.input.input.on_change)
+	_ = list_count(w.list)
+	_ = list_item(w.list, 0)
+	list_select(w.list, 0)
+}
+
+// GTK's and iOS's slide: a popped page is still on screen, but its on_pop may have freed what its
+// widgets' callbacks reach, so none reaches the app any more.
+@(test)
+test_popped_page_calls_nothing :: proc(t: ^testing.T) {
+	mock_begin(t)
+	defer mock_end(t)
+	mock.retire = .Later
+	root := Mock_Page{name = "Root"}
+	w: Widget_Page
+	mock_launch(&root)
+	callback_enter()
+	push({title = "B", build = widget_page_build, user_data = &w})
+	callback_exit()
+	widget_page_poke(&w)
+	testing.expect_value(t, w.calls, 8)
+
+	callback_enter()
+	pop()
+	callback_exit()
+	w.calls = 0
+	widget_page_poke(&w)
+	testing.expect_value(t, w.calls, 0)
+	testing.expect_value(t, list_count(w.list), 3) // the rows it showed
+	testing.expect_value(t, list_item(w.list, 0), Item{})
+	mock_log_clear()
+}
+
+// The same for a dialog being taken down: a second click on its button does nothing.
+@(test)
+test_closed_dialog_calls_nothing :: proc(t: ^testing.T) {
+	mock_begin(t)
+	defer mock_end(t)
+	mock.retire = .Later
+	root := Mock_Page{name = "Root"}
+	d := Mock_Dialog{name = "D", buttons = {{title = "Close", on_click = proc(d: ^Dialog_Handle, _: rawptr) {
+		mock_log("clicked")
+		dialog_close(d)
+	}}}}
+	mock_launch(&root)
+	callback_enter()
+	mock_show(&d)
+	callback_exit()
+	button := d.handle.buttons[0].handle
+	button_notify(button)
+	mock_log_clear()
+	button_notify(button) // before the platform took the dialog down
+	expect_log(t)
+}
+
+// UIKit refuses a pop while a transition still runs: the page goes once it finished.
+@(test)
+test_refused_pop_waits_for_the_transition :: proc(t: ^testing.T) {
+	mock_begin(t)
+	defer mock_end(t)
+	root, b := Mock_Page{name = "Root"}, Mock_Page{name = "B"}
+	mock_launch(&root)
+	callback_enter()
+	push(mock_page(&b))
+	mock.nav_pop_ok = false // B still slides in
+	pop()
+	callback_exit()
+	testing.expect_value(t, len(g_nav), 2)
+	mock_log_clear()
+
+	mock.nav_pop_ok = true
+	nav_transition_done()
+	expect_log(t, "nav_pop B -> Root", "nav_release B", "on_pop B", "release label B")
+	testing.expect_value(t, len(g_nav), 1)
+	nav_transition_done() // nothing waits now
+	expect_log(t)
+}
+
+// A waiting pop is dropped when its page went another way (a back swipe) before the transition
+// ended: the next page is not popped in its place.
+@(test)
+test_refused_pop_dropped_when_page_went :: proc(t: ^testing.T) {
+	mock_begin(t)
+	defer mock_end(t)
+	root, b, c := Mock_Page{name = "Root"}, Mock_Page{name = "B"}, Mock_Page{name = "C"}
+	mock_launch(&root)
+	callback_enter()
+	push(mock_page(&b))
+	mock.nav_pop_ok = false
+	pop()
+	callback_exit()
+	mock.nav_pop_ok = true
+	callback_enter()
+	nav_system_pop() // the user swiped B away
+	push(mock_page(&c))
+	callback_exit()
+	mock_log_clear()
+	nav_transition_done()
+	expect_log(t)
+	testing.expect(t, len(g_nav) == 2 && g_nav[1].page.title == "C")
 }

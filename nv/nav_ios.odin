@@ -19,8 +19,9 @@ import OBJC "core:sys/darwin/ObjectiveC"
 	scope: ^Scope,
 }
 
-// Returns an owned (+1) controller showing the page's view, pinned to the safe area: a stack
-// view doesn't inset itself like a table view does, so it would slide under the navigation bar.
+// Returns an owned (+1) controller showing the page's view, pinned to the safe area and above the
+// keyboard: a stack view doesn't inset itself like a table view does, so it would slide under the
+// navigation bar.
 @(private)
 page_controller_new :: proc(e: ^Page_Handle) -> ^UI_View_Controller {
 	cls := objc_class(&page_controller_class, "NVPageController", "UIViewController", {
@@ -136,6 +137,14 @@ page_did_move :: proc "c" (self: NS.id, _: NS.SEL, parent: NS.id) {
 		g_app.removing = nil
 		return
 	}
+}
+
+// UINavigationControllerDelegate: a push or pop finished (animated or not), so a pop UIKit
+// refused meanwhile goes now (nav_transition_done).
+@(private)
+nav_did_show :: proc "c" (self: NS.id, _: NS.SEL, nav: NS.id, vc: NS.id, animated: NS.BOOL) {
+	context = g_app.ctx
+	nav_transition_done()
 }
 
 // The menu button; the scrim of a modal dialog covers the bar, so it needs no check of its own.
