@@ -55,8 +55,42 @@ _overlay_place :: proc(h: ^Overlay_Handle, child: View, place: Overlay_Place) {
 	gtk_widget_set_margin_top(w, i32(place.margin.top))
 	gtk_widget_set_margin_end(w, i32(place.margin.right))
 	gtk_widget_set_margin_bottom(w, i32(place.margin.bottom))
-	gtk_widget_set_size_request(w, place.width > 0 && place.h != .Fill ? i32(place.width) : -1,
-		place.height > 0 && place.v != .Fill ? i32(place.height) : -1)
+
+	// The place's size is the child's size request, which is also where a child keeps a size of its
+	// own (a container's width / height). A place without one leaves the child's alone; one with a
+	// size saves the child's first (as object data) and a later place without one restores it.
+	pw := place.width > 0 && place.h != .Fill ? i32(place.width + 0.5) : -1
+	ph := place.height > 0 && place.v != .Fill ? i32(place.height + 0.5) : -1
+	saved := uintptr(g_object_get_data(w, OVERLAY_OWN_SIZE))
+	if pw < 0 && ph < 0 {
+		if saved != 0 {
+			ow, oh := overlay_own_size_unpack(saved)
+			gtk_widget_set_size_request(w, ow, oh)
+			g_object_set_data(w, OVERLAY_OWN_SIZE, nil)
+		}
+		return
+	}
+	if saved == 0 {
+		ow, oh: i32
+		gtk_widget_get_size_request(w, &ow, &oh)
+		saved = overlay_own_size_pack(ow, oh)
+		g_object_set_data(w, OVERLAY_OWN_SIZE, rawptr(saved))
+	}
+	ow, oh := overlay_own_size_unpack(saved)
+	gtk_widget_set_size_request(w, pw >= 0 ? pw : ow, ph >= 0 ? ph : oh)
+}
+
+@(private) OVERLAY_OWN_SIZE :: "nv-own-size"
+
+// The child's own size request (-1: none) in a pointer that is never nil.
+@(private)
+overlay_own_size_pack :: proc(w, h: i32) -> uintptr {
+	return 1 << 31 | uintptr(u16(w + 1)) << 16 | uintptr(u16(h + 1))
+}
+
+@(private)
+overlay_own_size_unpack :: proc(p: uintptr) -> (w, h: i32) {
+	return i32(p >> 16 & 0xffff) - 1, i32(p & 0xffff) - 1
 }
 
 @(private)

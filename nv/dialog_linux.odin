@@ -36,8 +36,10 @@ _dialog_show :: proc(h: ^Dialog_Handle) {
 	gtk_widget_add_css_class(card, "nv-dialog")
 	if h.dialog.light do gtk_widget_add_css_class(card, "nv-light")
 	dialog_load_css(h, card, (^GtkWidget)(h.scrim))
-	gtk_widget_set_halign(card, .Center)
-	gtk_widget_set_valign(card, .Center) // on_dialog_position places and sizes it
+	// Fill: on_dialog_position places and sizes it. With any other alignment GTK would shrink the
+	// card to its natural size inside that allocation (a canvas body's natural width is ~0).
+	gtk_widget_set_halign(card, .Fill)
+	gtk_widget_set_valign(card, .Fill)
 	gtk_widget_set_margin_start(card, 16)
 	gtk_widget_set_margin_end(card, 16)
 	gtk_box_append(card, (^GtkWidget)(h.body))

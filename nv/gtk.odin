@@ -179,6 +179,7 @@ foreign gtk {
 	gtk_widget_set_margin_bottom :: proc(widget: ^GtkWidget, margin: i32) ---
 	gtk_widget_set_overflow      :: proc(widget: ^GtkWidget, overflow: GtkOverflow) ---
 	gtk_widget_set_size_request  :: proc(widget: ^GtkWidget, width, height: i32) ---
+	gtk_widget_get_size_request  :: proc(widget: ^GtkWidget, width, height: ^i32) ---
 	gtk_widget_set_vexpand       :: proc(widget: ^GtkWidget, expand: gboolean) ---
 	gtk_widget_set_hexpand       :: proc(widget: ^GtkWidget, expand: gboolean) ---
 	gtk_widget_set_valign        :: proc(widget: ^GtkWidget, align: GtkAlign) ---
