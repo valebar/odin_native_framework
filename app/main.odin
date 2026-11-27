@@ -17,7 +17,9 @@ package main
 // and follows the OS light / dark; the Theme action cycles System → Light → Dark, and the canvas
 // redraws with the palette on a flip. The Bench action pushes a page that times the canvas draw
 // path over a fixed workload, and the Scaffold action a page with bottom tabs, a FAB, SnackBars and
-// a drawer (scaffold_demo.odin).
+// a drawer (scaffold_demo.odin). Strokes are polylines; the canvas also shows a swatch made from
+// pixels, which every tap re-tints in place, clipped to a strip with a zigzag. The Ask dialog is
+// light, builds its input itself (numeric keyboard, focused) and the root page logs being covered.
 
 import "core:fmt"
 import "core:strconv"
@@ -39,6 +41,8 @@ State :: struct {
 	logo:    ^nv.Bitmap, // decoded from the bytes embedded below, drawn on the canvas
 	font:    ^nv.Font,   // loaded from an asset file; nil if it is missing, which means the system font
 	strokes: [dynamic][dynamic][2]f64,
+	swatch:  ^nv.Bitmap, // made from pixels; a tap on the canvas replaces them
+	phase:   int,
 }
 
 main :: proc() {
@@ -59,7 +63,10 @@ main :: proc() {
 	nv.run({
 		title = "Native List",
 		build = build,
-		user_data = state,
+		user = state,
+		on_covered = proc(_: rawptr, covered: bool) {
+			fmt.println("root covered:", covered)
+		},
 		actions = {
 			{title = "Add", icon = .Add, user = state, on_click = proc(user: rawptr) {
 				push_detail((^State)(user), "New item", 1)
@@ -84,20 +91,29 @@ main :: proc() {
 	})
 }
 
-// A modal dialog with an input: Apply copies its text into the filter, Cancel just closes. Both
-// close through the handle their callback gets; on_close runs after either.
+// A light modal dialog with an input that `build` makes in the dialog's own scope (it goes when the
+// dialog closes), with the numeric keyboard and the focus: Apply copies its text into the filter,
+// Cancel just closes. Both close through the handle their callback gets; on_close runs after either.
 ask_filter :: proc(user: rawptr) {
 	s := (^State)(user)
-	s.ask = nv.input_create({placeholder = "Digits", text = nv.input_text(s.filter, context.temp_allocator), style = {font = s.font, size = 18}})
 	nv.dialog_show({
 		title   = "Filter items",
-		content = nv.input_view(s.ask),
 		modal   = true,
+		light   = true,
+		width   = 360,
+		radius  = 16,
+		scrim   = {0, 0, 0.2, 0.5},
+		build   = proc(user: rawptr, _: ^nv.Dialog_Handle) -> nv.View {
+			s := (^State)(user)
+			text := nv.input_text(s.filter, context.temp_allocator)
+			s.ask = nv.input_create({placeholder = "Digits", text = text, keyboard = .Number, style = {font = s.font, size = 18}})
+			return nv.view(s.ask)
+		},
 		buttons = {
-			{title = "Cancel", on_click = proc(d: ^nv.Dialog_Handle, _: rawptr) {
+			{title = "Cancel", on_click = proc(_: rawptr, d: ^nv.Dialog_Handle) {
 				nv.dialog_close(d)
 			}},
-			{title = "Apply", user = s, on_click = proc(d: ^nv.Dialog_Handle, user: rawptr) {
+			{title = "Apply", user = s, on_click = proc(user: rawptr, d: ^nv.Dialog_Handle) {
 				s := (^State)(user)
 				text := nv.input_text(s.ask, context.temp_allocator)
 				nv.input_set_text(s.filter, text)
@@ -111,6 +127,7 @@ ask_filter :: proc(user: rawptr) {
 		},
 		user = s,
 	})
+	nv.input_focus(s.ask, select_all = true)
 }
 
 // A non-modal dialog: the page underneath stays usable, and a pushed detail page hides it.
@@ -118,13 +135,13 @@ show_tip :: proc(user: rawptr) {
 	msg := nv.label_create({text = "Type digits to filter both lists."})
 	nv.dialog_show({
 		title   = "Tip",
-		content = nv.label_view(msg),
-		buttons = {{title = "Got it", on_click = proc(d: ^nv.Dialog_Handle, _: rawptr) { nv.dialog_close(d) }}},
+		content = nv.view(msg),
+		buttons = {{title = "Got it", on_click = proc(_: rawptr, d: ^nv.Dialog_Handle) { nv.dialog_close(d) }}},
 		on_close = proc(_: rawptr) { fmt.println("tip closed") },
 	})
 }
 
-build :: proc(page: ^nv.Page_Handle, user: rawptr) -> nv.View {
+build :: proc(user: rawptr, page: ^nv.Page_Handle) -> nv.View {
 	s := (^State)(user)
 	apply_filter(s, "")
 
@@ -181,7 +198,11 @@ build :: proc(page: ^nv.Page_Handle, user: rawptr) -> nv.View {
 		on_draw = draw_canvas,
 		on_pointer = proc(user: rawptr, kind: nv.Pointer, x, y: f64) {
 			s := (^State)(user)
-			if kind == .Down do append(&s.strokes, [dynamic][2]f64{})
+			if kind == .Down {
+				append(&s.strokes, [dynamic][2]f64{})
+				s.phase += 1
+				nv.bitmap_set_rgba(s.swatch, swatch_pixels(s.phase))
+			}
 			if len(s.strokes) > 0 do append(&s.strokes[len(s.strokes) - 1], [2]f64{x, y})
 			nv.canvas_redraw(s.canvas)
 		},
@@ -189,6 +210,7 @@ build :: proc(page: ^nv.Page_Handle, user: rawptr) -> nv.View {
 	})
 
 	if s.logo == nil do s.logo = nv.bitmap_from_bytes(#load("assets/sample.png")) // kept across Android relaunches
+	if s.swatch == nil do s.swatch = nv.bitmap_from_rgba(SWATCH, SWATCH, swatch_pixels(s.phase))
 	if s.font == nil {
 		s.font = nv.font_from_file("tuffy_bold.ttf")
 		if s.font == nil do fmt.println("tuffy_bold.ttf not found; using the system font")
@@ -197,13 +219,13 @@ build :: proc(page: ^nv.Page_Handle, user: rawptr) -> nv.View {
 
 	s.header = nv.label_create({text = header_text(s), heading = true, style = {font = s.font, size = 22}})
 	hint := nv.label_create({text = "Select a row for details", style = {size = 13, italic = true, color = {0, 0.55, 0.5, 1}}})
-	lists := nv.row_create({{nv.list_view(s.list), 1}, {nv.list_view(s.list2), 2}}, spacing = 8)
-	search := nv.row_create({{nv.input_view(s.filter), 1}, {nv.button_view(s.clear), 0}, {nv.button_view(s.tip), 0}}, spacing = 8)
+	lists := nv.row_create({{nv.view(s.list), 1}, {nv.view(s.list2), 2}}, spacing = 8)
+	search := nv.row_create({{nv.view(s.filter), 1}, {nv.view(s.clear), 0}, {nv.view(s.tip), 0}}, spacing = 8)
 	search_box := nv.container_create({
 		child = search, padding = nv.insets_all(8), radius = 10,
 		color = {0.93, 0.95, 1, 1}, border_color = {0.7, 0.75, 0.85, 1}, border_width = 1,
 	})
-	return nv.column_create({{nv.label_view(s.header), 0}, {nv.label_view(hint), 0}, {nv.container_view(search_box), 0}, {lists, 2}, {nv.canvas_view(s.canvas), 1}}, spacing = 8)
+	return nv.column_create({{nv.view(s.header), 0}, {nv.view(hint), 0}, {nv.view(search_box), 0}, {lists, 2}, {nv.view(s.canvas), 1}}, spacing = 8)
 }
 
 header_text :: proc(s: ^State) -> string {
@@ -233,7 +255,7 @@ push_detail :: proc(s: ^State, title: string, level: int) {
 	d.title = strings.clone(title)
 	d.level = level
 	nv.push({
-		title = d.title, build = detail_build, user_data = d, on_pop = detail_free,
+		title = d.title, build = detail_build, user = d, on_pop = detail_free,
 		actions = {{title = "Edit", user = d, on_click = detail_edit}},
 	})
 }
@@ -256,7 +278,7 @@ detail_done :: proc(user: rawptr) {
 	nv.container_set_color(d.card, CARD_COLOR)
 }
 
-detail_build :: proc(page: ^nv.Page_Handle, user: rawptr) -> nv.View {
+detail_build :: proc(user: rawptr, page: ^nv.Page_Handle) -> nv.View {
 	d := (^Detail)(user)
 	d.page = page
 	label := nv.label_create({text = fmt.tprintf("%s, level %d", d.title, d.level), heading = true})
@@ -269,17 +291,19 @@ detail_build :: proc(page: ^nv.Page_Handle, user: rawptr) -> nv.View {
 		user = d,
 	})
 	// A modal confirm on a pushed page. Leave pops the page, which closes the dialog (its on_close
-	// runs first, while the page is still there); the header's back button is blocked meanwhile.
+	// runs first, while the page is still there); the header's back button is blocked meanwhile. A
+	// tap outside the card stays (dismissible).
 	d.back = nv.button_create({
 		title = "Back",
 		on_click = proc(user: rawptr) {
 			nv.dialog_show({
 				title   = "Leave page?",
-				content = nv.label_view(nv.label_create({text = "Unsaved edits are lost."})),
+				content = nv.view(nv.label_create({text = "Unsaved edits are lost."})),
 				modal   = true,
+				dismissible = true,
 				buttons = {
-					{title = "Stay", on_click = proc(d: ^nv.Dialog_Handle, _: rawptr) { nv.dialog_close(d) }},
-					{title = "Leave", on_click = proc(_: ^nv.Dialog_Handle, _: rawptr) { nv.pop() }},
+					{title = "Stay", on_click = proc(_: rawptr, d: ^nv.Dialog_Handle) { nv.dialog_close(d) }},
+					{title = "Leave", on_click = proc(_: rawptr, _: ^nv.Dialog_Handle) { nv.pop() }},
 				},
 				on_close = proc(_: rawptr) { fmt.println("leave closed") },
 			})
@@ -291,7 +315,7 @@ detail_build :: proc(page: ^nv.Page_Handle, user: rawptr) -> nv.View {
 	thumb := nv.image_create({bitmap = icon, width = 64, height = 48})
 	nv.bitmap_free(icon) // the widget holds its own reference
 	photo := nv.image_create({url = fmt.tprintf("https://picsum.photos/id/%d/600/400", 10 + d.level), fit = .Cover})
-	header := nv.row_create({{nv.image_view(thumb), 0}, {nv.label_view(label), 1}}, spacing = 12)
+	header := nv.row_create({{nv.view(thumb), 0}, {nv.view(label), 1}}, spacing = 12)
 	d.card = nv.container_create({child = header, margin = {top = 4, bottom = 4}, padding = nv.insets_all(12), radius = 12, color = CARD_COLOR})
 	// An indeterminate progress, and a determinate one with a track that its button steps by 10%.
 	spinner := nv.progress_create({})
@@ -305,9 +329,9 @@ detail_build :: proc(page: ^nv.Page_Handle, user: rawptr) -> nv.View {
 		},
 		user = d,
 	})
-	progress := nv.row_create({{nv.progress_view(spinner), 0}, {nv.progress_view(d.done), 0}, {nv.button_view(step), 1}}, spacing = 12)
+	progress := nv.row_create({{nv.view(spinner), 0}, {nv.view(d.done), 0}, {nv.view(step), 1}}, spacing = 12)
 	return nv.column_create({
-		{nv.container_view(d.card), 0}, {nv.button_view(d.more), 0}, {nv.button_view(d.back), 0}, {progress, 0}, {nv.image_view(photo), 1},
+		{nv.view(d.card), 0}, {nv.view(d.more), 0}, {nv.view(d.back), 0}, {progress, 0}, {nv.view(photo), 1},
 	}, spacing = 8)
 }
 
@@ -327,9 +351,29 @@ draw_canvas :: proc(user: rawptr, p: ^nv.Painter, w, h: f64) {
 	nv.stroke_ellipse(p, w - 60, 12, 44, 44, {0.6, 0.3, 0, 1}, 2)
 	nv.draw_image(p, s.logo, w - 76, h - 57, 64, 48)
 	nv.draw_text(p, fmt.tprintf("Draw here (%d strokes)", len(s.strokes)), 12, 12, {color = pal.secondary_text, font = s.font})
-	for st in s.strokes {
-		for i in 1..<len(st) do nv.draw_line(p, st[i-1].x, st[i-1].y, st[i].x, st[i].y, pal.accent, 3)
+	// The swatch and a zigzag, both cut to a strip.
+	nv.clip_push(p, 12, 40, 140, 28)
+	nv.draw_image(p, s.swatch, 12, 24, 140, 60)
+	zigzag: [8][2]f64
+	for &pt, i in zigzag do pt = {12 + f64(i) * 20, 40 + f64(i % 2) * 28}
+	nv.stroke_polyline(p, zigzag[:], {1, 1, 1, 1}, 3)
+	nv.clip_pop(p)
+	for st in s.strokes do nv.stroke_polyline(p, st[:], pal.accent, 3)
+}
+
+SWATCH :: 32
+
+// RGBA pixels with straight alpha: a ramp that `phase` shifts, fading towards the bottom.
+swatch_pixels :: proc(phase: int) -> []u8 {
+	px := make([]u8, SWATCH * SWATCH * 4, context.temp_allocator)
+	for y in 0 ..< SWATCH do for x in 0 ..< SWATCH {
+		i := (y * SWATCH + x) * 4
+		px[i] = u8((x * 8 + phase * 40) % 256)
+		px[i + 1] = u8(y * 8)
+		px[i + 2] = u8(255 - x * 8)
+		px[i + 3] = u8(255 - y * 4)
 	}
+	return px
 }
 
 set_filter :: proc(s: ^State, text: string) {
@@ -369,12 +413,12 @@ push_bench :: proc(s: ^State) {
 	b := new(Bench)
 	b.s = s
 	nv.push({
-		title = "Bench", build = bench_build, user_data = b,
+		title = "Bench", build = bench_build, user = b,
 		on_pop = proc(user: rawptr) { free((^Bench)(user)) },
 	})
 }
 
-bench_build :: proc(page: ^nv.Page_Handle, user: rawptr) -> nv.View {
+bench_build :: proc(user: rawptr, page: ^nv.Page_Handle) -> nv.View {
 	b := (^Bench)(user)
 	b.label = nv.label_create({text = "Pick a workload", heading = true})
 	b.canvas = nv.canvas_create({on_draw = bench_draw, user = b})
@@ -389,10 +433,10 @@ bench_build :: proc(page: ^nv.Page_Handle, user: rawptr) -> nv.View {
 		case .Mixed: on_click = proc(user: rawptr) { bench_start((^Bench)(user), .Mixed) }
 		}
 		button := nv.button_create({title = fmt.tprint(kind), user = b, on_click = on_click})
-		buttons[i] = {nv.button_view(button), 1}
+		buttons[i] = {nv.view(button), 1}
 	}
 	row := nv.row_create(buttons[:], spacing = 8)
-	return nv.column_create({{nv.label_view(b.label), 0}, {row, 0}, {nv.canvas_view(b.canvas), 1}}, spacing = 8)
+	return nv.column_create({{nv.view(b.label), 0}, {row, 0}, {nv.view(b.canvas), 1}}, spacing = 8)
 }
 
 bench_start :: proc(b: ^Bench, kind: Bench_Kind) {

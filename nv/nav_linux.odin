@@ -1,4 +1,5 @@
 #+build linux:default
+#+private
 package nv
 
 // Linux navigation backend: pages are children of a GtkStack that slides between them, the
@@ -75,11 +76,40 @@ _nav_actions_changed :: proc(e: ^Page_Handle) {
 }
 
 @(private)
+_nav_leading_changed :: proc(e: ^Page_Handle) {
+	if e == g_nav[len(g_nav) - 1] do nav_set_leading(e)
+}
+
+@(private)
 nav_update_chrome :: proc(e: ^Page_Handle) {
 	nav_set_title(e)
 	gtk_widget_set_visible(g_linux.back, len(g_nav) > 1)
 	gtk_widget_set_visible(g_linux.menu, gboolean(nav_shows_menu(e)))
+	nav_set_leading(e)
 	nav_rebuild_actions(e)
+}
+
+// The holder after back / menu shows the page's bar_leading. Taking a view out of it drops the
+// holder's reference, so the first time a view is shown it gets one of its own, released with its
+// page's scope.
+@(private)
+nav_set_leading :: proc(e: ^Page_Handle) {
+	v := (^GtkWidget)(e.bar_leading)
+	if v == g_linux.leading_view do return
+	if g_linux.leading_view != nil do gtk_box_remove(g_linux.leading, g_linux.leading_view)
+	g_linux.leading_view = v
+	if v == nil do return
+	if g_object_get_data(v, "nv-bar") == nil {
+		g_object_ref_sink(v)
+		g_object_set_data(v, "nv-bar", v)
+		scope_on_dispose_in(e.scope, unref_widget, v)
+	}
+	gtk_box_append(g_linux.leading, v)
+}
+
+@(private)
+unref_widget :: proc(data: rawptr) {
+	g_object_unref(data)
 }
 
 @(private)

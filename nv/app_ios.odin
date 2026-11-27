@@ -1,4 +1,5 @@
 #+build darwin:ios
+#+private
 package nv
 
 // iOS app backend: UIApplicationMain + scene lifecycle (NVSceneDelegate is named in ios/Info.plist).

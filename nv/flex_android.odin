@@ -1,4 +1,5 @@
 #+build linux:android
+#+private
 package nv
 
 // Android Row / Column backend: LinearLayout. A flex child gets main-axis size 0 plus

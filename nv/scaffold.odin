@@ -27,25 +27,27 @@ Tab :: struct {
 }
 
 // Flutter's FloatingActionButton: a round button in the accent color with an icon, or an extended
-// one (icon and label, or only a label) when `label` is set. Floats over the body's bottom
+// one (icon and title, or only a title) when `title` is set. Floats over the body's bottom
 // trailing corner and moves up while a SnackBar shows. An icon the platform has no image for shows
 // Add's instead.
 Fab :: struct {
 	icon:     Icon,
-	label:    string, // copied; "" = a round icon button
+	title:    string, // copied; "" = a round icon button
 	on_click: proc(user: rawptr), // optional
 	user:     rawptr,
 }
 
 // A short message at the bottom of the body, with an optional action button. One at a time: a new
-// one replaces the one showing. It hides after `duration_ms` or when the action is clicked. The
-// message is one line; a longer one is cut.
+// one replaces the one showing. It hides after `duration_ms` or when the action is clicked. Each
+// "\n" in the message starts another line and makes it 20 taller (48 for one line, 68 for two, as
+// Material's); lines don't wrap, a longer one is cut (Android's TextView wraps it).
 Snackbar :: struct {
 	message:     string, // copied
 	action:      string, // copied; "" = no button
 	on_action:   proc(user: rawptr), // optional; the SnackBar is already hidden
 	user:        rawptr,
 	duration_ms: int, // 4000 when 0
+	color:       Color, // the background; alpha 0 = the default dark grey
 }
 
 Scaffold :: struct {
@@ -53,7 +55,7 @@ Scaffold :: struct {
 	tabs:   []Tab, // copied; with tabs, a bottom bar switches between their bodies
 	tab:    int,   // the initially selected tab
 	on_tab: proc(user: rawptr, index: int), // optional; after the selected tab changed
-	fab:    Fab,   // shown when fab.icon != .None or fab.label != ""
+	fab:    Fab,   // shown when fab.icon != .None or fab.title != ""
 	drawer: View,  // optional; the root page's bar gets a menu button that opens it (Flutter's hamburger)
 	user:   rawptr,
 }
@@ -110,7 +112,7 @@ Scaffold_Handle :: struct {
 }
 
 @(private) Fab_Handle :: struct {
-	fab:     Fab, // fab.label is an owned copy (heap)
+	fab:     Fab, // fab.title is an owned copy (heap)
 	scope:   ^Scope,
 	ctx:     runtime.Context,
 	root:    View,
@@ -134,19 +136,20 @@ Scaffold_Handle :: struct {
 // memory (the backend outlives any scope), freed by timer_fire; a cancelled timer still fires but
 // does nothing, like a detached Image_Fetch.
 @(private) Timer :: struct {
-	fn:        proc(data: rawptr),
-	data:      rawptr,
+	fn:        proc(user: rawptr),
+	user:      rawptr,
 	cancelled: bool,
 	ctx:       runtime.Context,
 }
 
 @(private) SNACK_HEIGHT :: 48
+@(private) SNACK_LINE   :: 20 // per line after the first
 @(private) SNACK_MARGIN :: 8
 @(private) FAB_MARGIN   :: 16
 @(private) DRAWER_WIDTH :: 304
 @(private) SNACK_COLOR  :: Color{0.2, 0.2, 0.2, 1}
 
-// Makes the page's scaffold; call it from the page's `build` and return `scaffold_view`. One per
+// Makes the page's scaffold; call it from the page's `build` and return `view(h)`. One per
 // page; the views in `body`, the tab bodies and `drawer` belong to it.
 scaffold_create :: proc(s: Scaffold) -> ^Scaffold_Handle {
 	assert(g_nav_building > 0 && g_scope_override == nil, "nv.scaffold_create belongs in a page's build")
@@ -162,7 +165,7 @@ scaffold_create :: proc(s: Scaffold) -> ^Scaffold_Handle {
 	if len(s.tabs) > 0 {
 		h.tab = clamp(s.tab, 0, len(s.tabs) - 1)
 		h.bodies = make([]View, len(s.tabs), scope_allocator(scope_current()))
-		h.inner = overlay_new(container_view(container_create({})))
+		h.inner = overlay_new(view(container_create({})))
 		for t, i in s.tabs {
 			assert(t.body != nil, "nv.scaffold_create: every tab has a body")
 			h.bodies[i] = t.body
@@ -174,10 +177,10 @@ scaffold_create :: proc(s: Scaffold) -> ^Scaffold_Handle {
 		h.inner = overlay_new(s.body)
 	}
 
-	if s.fab.icon != .None || s.fab.label != "" {
+	if s.fab.icon != .None || s.fab.title != "" {
 		h.fab = scope_new_in(Fab_Handle)
 		h.fab.fab = s.fab
-		h.fab.fab.label = strings.clone(s.fab.label, nv_heap())
+		h.fab.fab.title = strings.clone(s.fab.title, nv_heap())
 		h.fab.ctx = context
 		scope_on_dispose(fab_dispose, h.fab)
 		g_backend.fab_init(h.fab)
@@ -186,15 +189,14 @@ scaffold_create :: proc(s: Scaffold) -> ^Scaffold_Handle {
 
 	h.snack_label = label_create({style = {color = {1, 1, 1, 1}}})
 	h.snack_button = button_create({on_click = scaffold_snack_clicked, user = h})
-	row := row_create({{label_view(h.snack_label), 1}, {button_view(h.snack_button), 0}}, spacing = 8)
+	row := row_create({{view(h.snack_label), 1}, {view(h.snack_button), 0}}, spacing = 8)
 	top, bottom := container_create({}), container_create({}) // centre the row in the fixed height
 	h.snack = container_create({
-		child  = column_create({{container_view(top), 1}, {row, 0}, {container_view(bottom), 1}}),
+		child  = column_create({{view(top), 1}, {row, 0}, {view(bottom), 1}}),
 		color  = SNACK_COLOR, radius = 4, height = SNACK_HEIGHT, padding = {16, 0, 8, 0},
 	})
-	g_backend.overlay_add(h.inner, container_view(h.snack),
-		{h = .Fill, v = .End, margin = insets_all(SNACK_MARGIN), height = SNACK_HEIGHT})
-	g_backend.view_set_hidden(container_view(h.snack), true)
+	g_backend.overlay_add(h.inner, view(h.snack), scaffold_snack_place(h))
+	g_backend.view_set_hidden(view(h.snack), true)
 
 	root := h.inner.root
 	if len(s.tabs) > 0 {
@@ -218,8 +220,8 @@ scaffold_create :: proc(s: Scaffold) -> ^Scaffold_Handle {
 		g_backend.overlay_scrim_init(h.outer)
 		g_backend.view_set_hidden(h.outer.scrim, true)
 		h.panel = container_create({child = s.drawer, color = theme_palette().background})
-		g_backend.overlay_add(h.outer, container_view(h.panel), {h = .Start, v = .Fill, width = DRAWER_WIDTH})
-		g_backend.view_set_hidden(container_view(h.panel), true)
+		g_backend.overlay_add(h.outer, view(h.panel), {h = .Start, v = .Fill, width = DRAWER_WIDTH})
+		g_backend.view_set_hidden(view(h.panel), true)
 		root = h.outer.root
 		h.next = g_scaffolds
 		if g_scaffolds != nil do g_scaffolds.prev = h
@@ -229,6 +231,7 @@ scaffold_create :: proc(s: Scaffold) -> ^Scaffold_Handle {
 	return h
 }
 
+@(private)
 scaffold_view :: proc(h: ^Scaffold_Handle) -> View {
 	return h.root
 }
@@ -249,38 +252,48 @@ scaffold_open_drawer :: proc(h: ^Scaffold_Handle) {
 	h.drawer_open = true
 	g_backend.view_set_enabled(h.outer.base, false)
 	g_backend.view_set_hidden(h.outer.scrim, false)
-	g_backend.view_set_hidden(container_view(h.panel), false)
+	g_backend.view_set_hidden(view(h.panel), false)
 }
 
 scaffold_close_drawer :: proc(h: ^Scaffold_Handle) {
 	if h.panel == nil || !h.drawer_open do return
 	h.drawer_open = false
-	g_backend.view_set_hidden(container_view(h.panel), true)
+	g_backend.view_set_hidden(view(h.panel), true)
 	g_backend.view_set_hidden(h.outer.scrim, true)
 	g_backend.view_set_enabled(h.outer.base, true)
 }
 
 // Shows a SnackBar over the bottom of the body, replacing the one showing.
-snackbar_show :: proc(h: ^Scaffold_Handle, s: Snackbar) {
+scaffold_show_snackbar :: proc(h: ^Scaffold_Handle, s: Snackbar) {
 	label_set_text(h.snack_label, s.message)
 	button_set_title(h.snack_button, s.action)
-	g_backend.view_set_hidden(button_view(h.snack_button), s.action == "")
+	color := s.color.a > 0 ? s.color : SNACK_COLOR
+	if h.snack.container.color != color do container_set_color(h.snack, color)
+	g_backend.view_set_hidden(view(h.snack_button), s.action == "")
+	height := f64(SNACK_HEIGHT + SNACK_LINE * strings.count(s.message, "\n"))
+	resized := height != h.snack.container.height
+	if resized {
+		container_set_size(h.snack, 0, height)
+		g_backend.overlay_place(h.inner, view(h.snack), scaffold_snack_place(h))
+	}
 	h.snack_action, h.snack_user = s.on_action, s.user
 	if h.snack_timer != nil do h.snack_timer.cancelled = true
 	h.snack_timer = timer_start(s.duration_ms > 0 ? s.duration_ms : 4000, scaffold_snack_expired, h)
-	if h.snack_shown do return
-	h.snack_shown = true
-	g_backend.view_set_hidden(container_view(h.snack), false)
+	if h.snack_shown && !resized do return
+	if !h.snack_shown {
+		h.snack_shown = true
+		g_backend.view_set_hidden(view(h.snack), false)
+	}
 	if h.fab != nil do g_backend.overlay_place(h.inner, h.fab.root, scaffold_fab_place(h))
 }
 
-snackbar_hide :: proc(h: ^Scaffold_Handle) {
+scaffold_hide_snackbar :: proc(h: ^Scaffold_Handle) {
 	if !h.snack_shown do return
 	h.snack_shown = false
 	if h.snack_timer != nil do h.snack_timer.cancelled = true
 	h.snack_timer = nil
 	h.snack_action, h.snack_user = nil, nil
-	g_backend.view_set_hidden(container_view(h.snack), true)
+	g_backend.view_set_hidden(view(h.snack), true)
 	if h.fab != nil do g_backend.overlay_place(h.inner, h.fab.root, scaffold_fab_place(h))
 }
 
@@ -304,8 +317,13 @@ scaffold_recolor :: proc() {
 @(private)
 scaffold_fab_place :: proc(h: ^Scaffold_Handle) -> Overlay_Place {
 	bottom: f64 = FAB_MARGIN
-	if h.snack_shown do bottom += SNACK_HEIGHT + SNACK_MARGIN
+	if h.snack_shown do bottom += h.snack.container.height + SNACK_MARGIN
 	return {h = .End, v = .End, margin = {0, 0, FAB_MARGIN, bottom}}
+}
+
+@(private)
+scaffold_snack_place :: proc(h: ^Scaffold_Handle) -> Overlay_Place {
+	return {h = .Fill, v = .End, margin = insets_all(SNACK_MARGIN), height = h.snack.container.height}
 }
 
 @(private)
@@ -319,15 +337,15 @@ scaffold_switch :: proc(h: ^Scaffold_Handle, index: int) {
 scaffold_snack_clicked :: proc(user: rawptr) {
 	h := (^Scaffold_Handle)(user)
 	cb, u := h.snack_action, h.snack_user
-	snackbar_hide(h)
+	scaffold_hide_snackbar(h)
 	if cb != nil do cb(u)
 }
 
 @(private)
-scaffold_snack_expired :: proc(data: rawptr) {
-	h := (^Scaffold_Handle)(data)
+scaffold_snack_expired :: proc(user: rawptr) {
+	h := (^Scaffold_Handle)(user)
 	h.snack_timer = nil // timer_fire frees it
-	snackbar_hide(h)
+	scaffold_hide_snackbar(h)
 }
 
 @(private)
@@ -382,7 +400,7 @@ overlay_scrim_notify :: proc(h: ^Overlay_Handle) {
 
 @(private)
 fab_dispose :: proc(data: rawptr) {
-	delete((^Fab_Handle)(data).fab.label, nv_heap())
+	delete((^Fab_Handle)(data).fab.title, nv_heap())
 }
 
 // Called by the backends when the FAB was clicked.
@@ -412,9 +430,9 @@ tabbar_notify :: proc(h: ^Tabbar_Handle, index: int) {
 }
 
 @(private)
-timer_start :: proc(ms: int, fn: proc(data: rawptr), data: rawptr) -> ^Timer {
+timer_start :: proc(ms: int, fn: proc(user: rawptr), user: rawptr) -> ^Timer {
 	t := new(Timer, nv_heap())
-	t^ = {fn = fn, data = data, ctx = context}
+	t^ = {fn = fn, user = user, ctx = context}
 	g_backend.post_delayed(ms, t)
 	return t
 }
@@ -425,7 +443,7 @@ timer_fire :: proc "contextless" (t: ^Timer) {
 	context = t.ctx
 	if !t.cancelled {
 		callback_enter()
-		t.fn(t.data)
+		t.fn(t.user)
 		callback_exit()
 	}
 	free(t, nv_heap())

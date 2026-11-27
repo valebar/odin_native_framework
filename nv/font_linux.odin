@@ -1,4 +1,5 @@
 #+build linux:default
+#+private
 package nv
 
 // Linux font backend. Fontconfig only takes fonts from files, so the bytes go to a temp file

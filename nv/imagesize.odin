@@ -1,3 +1,4 @@
+#+private
 package nv
 
 // An image's dimensions from its header (PNG, JPEG, GIF, WebP, BMP), without decoding it. The web

@@ -1,4 +1,5 @@
 #+build linux:default
+#+private
 package nv
 
 // Linux container backend: a GtkBox that is the margin box (the GTK margin properties keep the
@@ -78,4 +79,10 @@ container_load_css :: proc(h: ^Container_Handle) {
 		lc.seq, background, border, int(c.radius + 0.5),
 		int(c.padding.top + 0.5), int(c.padding.right + 0.5), int(c.padding.bottom + 0.5), int(c.padding.left + 0.5))
 	gtk_css_provider_load_from_data(lc.provider, strings.clone_to_cstring(css, context.temp_allocator), -1)
+}
+
+@(private)
+_container_set_size :: proc(h: ^Container_Handle) {
+	c := &h.container
+	gtk_widget_set_size_request((^GtkWidget)(h.root), c.width > 0 ? i32(c.width + 0.5) : -1, c.height > 0 ? i32(c.height + 0.5) : -1)
 }

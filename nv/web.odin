@@ -1,4 +1,5 @@
 #+build js
+#+private
 package nv
 
 // Web backend (HTML / CSS / JS, `-target:js_wasm32`): the DOM is the native toolkit. The wasm calls
@@ -21,7 +22,7 @@ foreign import nv_js "nv"
 
 // The kinds nv.js reports through nv_web_event (EV in nv.js).
 @(private) Web_Event :: enum i32 {
-	Button, Input_Change, Input_Submit, Action, Back, Menu, Fab, Scrim, Tab, List_Select, Theme,
+	Button, Input_Change, Input_Submit, Action, Back, Menu, Fab, Scrim, Tab, List_Select, Theme, Dialog_Scrim,
 }
 
 // The icon nv.js draws for the bar's back button, after the nv.Icon ones.
@@ -34,6 +35,7 @@ foreign nv_js {
 	js_create         :: proc(tag, class: string) -> Web_Id ---
 	js_release        :: proc(id: Web_Id) ---
 	js_append         :: proc(parent, child: Web_Id) ---
+	js_clear          :: proc(id: Web_Id) --- // takes the children out of the document, releasing none
 	js_label          :: proc(class: string) -> Web_Id --- // a box around a span; js_text sets the span's
 	js_text           :: proc(id: Web_Id, text: string) ---
 	js_style          :: proc(id: Web_Id, property, value: string) ---
@@ -42,6 +44,8 @@ foreign nv_js {
 	js_hidden         :: proc(id: Web_Id, hidden: b32) ---
 	js_inert          :: proc(id: Web_Id, inert: b32) ---
 	js_focus          :: proc(id: Web_Id) ---
+	js_input_focus    :: proc(id: Web_Id, select_all: b32) ---
+	js_input_kind     :: proc(id: Web_Id, keyboard: Keyboard, secure: b32) ---
 	js_icon           :: proc(id: Web_Id, icon: i32) ---
 	js_listen         :: proc(id: Web_Id, kind: Web_Event, h: rawptr, arg: i32) ---
 	js_value          :: proc(id: Web_Id, buf: []u8) -> int --- // the value's length in bytes; copied if it fits
@@ -59,12 +63,16 @@ foreign nv_js {
 	js_list_count     :: proc(id: Web_Id, count: i32) ---
 	js_canvas_create  :: proc(h: ^Canvas_Handle) -> Web_Id ---
 	js_canvas_redraw  :: proc(id: Web_Id) ---
+	js_layout_create  :: proc(h: ^Layout_Handle) -> Web_Id ---
 	js_fill_rect      :: proc(x, y, w, h: f64, argb: u32) ---
 	js_stroke_rect    :: proc(x, y, w, h: f64, argb: u32, width: f64) ---
 	js_line           :: proc(x0, y0, x1, y1: f64, argb: u32, width: f64) ---
 	js_fill_ellipse   :: proc(x, y, w, h: f64, argb: u32) ---
 	js_stroke_ellipse :: proc(x, y, w, h: f64, argb: u32, width: f64) ---
 	js_arc            :: proc(cx, cy, r, start, sweep: f64, argb: u32, width: f64) ---
+	js_polyline       :: proc(points: rawptr, n: i32, argb: u32, width: f64) --- // n [2]f64 points
+	js_clip_push      :: proc(x, y, w, h: f64) ---
+	js_clip_pop       :: proc() ---
 	js_draw_text      :: proc(text: string, x, y, size: f64, weight: i32, italic: b32, font: i32, argb: u32) ---
 	js_measure_text   :: proc(text: string, size: f64, weight: i32, italic: b32, font: i32) -> f64 ---
 	js_text_height    :: proc(size: f64, weight: i32, italic: b32, font: i32) -> f64 ---
@@ -73,6 +81,8 @@ foreign nv_js {
 	// Bitmaps, fonts, assets, downloads, timers
 	js_bitmap         :: proc(data: []u8) -> i32 ---
 	js_bitmap_release :: proc(bitmap: i32) ---
+	js_bitmap_rgba    :: proc(width, height: i32, pixels: rawptr) -> i32 --- // 0 if the browser refused it
+	js_bitmap_set_rgba :: proc(bitmap: i32, pixels: rawptr) ---
 	js_image_set      :: proc(img: Web_Id, bitmap: i32, fit: i32) ---
 	js_font           :: proc(data: []u8, weight: i32, italic: b32) -> i32 --- // 0 if the browser refused it
 	js_font_release   :: proc(font: i32) ---
@@ -80,6 +90,8 @@ foreign nv_js {
 	js_asset_copy     :: proc(path: string, buf: []u8) ---
 	js_fetch          :: proc(url: string, f: ^Fetch) ---
 	js_timeout        :: proc(ms: i32, t: ^Timer) ---
+	js_file_open      :: proc(r: ^File_Request, accept: string) ---
+	js_file_save      :: proc(r: ^File_Request, name: string, data: []u8) ---
 
 	// The theme
 	js_system_dark    :: proc() -> b32 ---
@@ -93,6 +105,7 @@ foreign nv_js {
 	back:    Web_Id, // the bar's back button, shown on pushed pages
 	menu:    Web_Id, // the bar's menu button, shown when nav_shows_menu
 	title:   Web_Id,
+	leading: Web_Id, // holds the top page's bar_leading
 	actions: Web_Id, // holds the top page's action buttons
 	buttons: [dynamic]Web_Id, // those buttons
 	pages:   Web_Id, // one .nv-page per page on the stack
@@ -221,6 +234,8 @@ nv_web_event :: proc "c" (kind: Web_Event, h: rawptr, arg: i32) {
 			_theme_apply_mode()
 			theme_notify()
 		}
+	case .Dialog_Scrim:
+		dialog_scrim_notify(h) // `h` is the scrim's id
 	}
 }
 
@@ -244,6 +259,13 @@ nv_web_list_bind :: proc "c" (h: ^List_Handle, index: i32, title, subtitle: Web_
 nv_web_draw :: proc "c" (h: ^Canvas_Handle, width, height: f64) {
 	context = h.ctx
 	canvas_draw_notify(h, nil, width, height)
+}
+
+// A Layout's size changed (layoutObserver in nv.js).
+@(private, export)
+nv_web_layout :: proc "c" (h: ^Layout_Handle, width, height: f64) {
+	context = h.ctx
+	layout_notify(h, width, height)
 }
 
 @(private, export)
@@ -274,6 +296,22 @@ nv_web_fetched :: proc "c" (f: ^Fetch, data: rawptr, n: i32) {
 	context = f.ctx
 	if n >= 0 do f.data = ([^]u8)(data)[:n]
 	fetch_notify(f)
+}
+
+// A file dialog ended: the name and the bytes (open) are from nv_web_alloc, taken over here.
+@(private, export)
+nv_web_file :: proc "c" (r: ^File_Request, status: i32, name: rawptr, name_n: i32, data: rawptr, data_n: i32) {
+	context = r.ctx
+	n := string(([^]u8)(name)[:max(name_n, 0)])
+	ok := File_Status(status) == .Ok
+	if ok && !r.save {
+		file_set_result(r, n, ([^]u8)(data)[:max(data_n, 0)])
+	} else {
+		if ok do file_set_result(r, n)
+		if data != nil do free(data, nv_heap())
+	}
+	if name != nil do free(name, nv_heap())
+	file_notify(r, File_Status(status))
 }
 
 @(private, export)

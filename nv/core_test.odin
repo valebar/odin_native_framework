@@ -227,7 +227,7 @@ test_progress_create :: proc(t: ^testing.T) {
 	testing.expect_value(t, p.progress.size, 36)
 	testing.expect_value(t, p.container.container.width, 36)
 	testing.expect_value(t, p.container.container.child, p.canvas.root)
-	testing.expect_value(t, progress_view(p), p.container.root)
+	testing.expect_value(t, view(p), p.container.root)
 	progress_set_value(p, nil)
 	callback_exit()
 	expect_log(t, "canvas_init", "container_init", "canvas_redraw")
@@ -300,4 +300,71 @@ test_opentype_info :: proc(t: ^testing.T) {
 	_, _, _, ok_cut := opentype_info(data[:64]) // the table directory points past the end
 	_, _, _, ok_woff := opentype_info(transmute([]u8)string("wOFF........"))
 	testing.expect(t, !ok_nil && !ok_cut && !ok_woff)
+}
+
+@(test)
+test_input_keyboard_and_focus :: proc(t: ^testing.T) {
+	mock_begin(t)
+	defer mock_end(t)
+	root, b := Mock_Page{name = "Root"}, Mock_Page{name = "B"}
+	mock_launch(&root)
+	callback_enter()
+	push(mock_page(&b))
+	pin := input_create({text = "12", keyboard = .Number, secure = true})
+	plain := input_create({text = "a"})
+	input_focus(pin, select_all = true)
+	input_focus(plain)
+	pop()
+	input_focus(pin) // its page is gone
+	callback_exit()
+	expect_log(t, "build B", "label_init B", "nav_push B", "input_init 12 Number secure", "input_init a", "input_focus 12 all", "input_focus a",
+		"nav_pop B -> Root", "nav_release B", "on_pop B", "release input a", "release input 12", "release label B")
+}
+
+// Pixels make a bitmap whose pixels can be replaced in place at the same size; a decoded one's can't.
+@(test)
+test_bitmap_from_rgba :: proc(t: ^testing.T) {
+	mock_begin(t)
+	defer mock_end(t)
+	root := Mock_Page{name = "Root"}
+	mock_launch(&root)
+	px := [8]u8{7, 0, 0, 255, 0, 0, 0, 255}
+	testing.expect(t, bitmap_from_rgba(0, 1, px[:]) == nil)
+	testing.expect(t, bitmap_from_rgba(3, 1, px[:]) == nil) // too few bytes
+	expect_log(t)
+	mock.decode_ok = false
+	testing.expect(t, bitmap_from_rgba(2, 1, px[:]) == nil) // refused: the Bitmap must not leak
+	expect_log(t, "bitmap_rgba 2x1 7")
+	mock.decode_ok = true
+
+	callback_enter()
+	b := bitmap_from_rgba(1, 1, px[:]) // more bytes than one pixel: the first four
+	testing.expect(t, b != nil && b.rgba && b.width == 1 && b.height == 1 && b.refs == 1)
+	img := image_create({bitmap = b})
+	px[0] = 9
+	testing.expect(t, bitmap_set_rgba(b, px[:4]))
+	testing.expect(t, !bitmap_set_rgba(b, px[:])) // another size
+	testing.expect(t, !bitmap_set_rgba(nil, px[:4]))
+	image_set_bitmap(img, b)
+	decoded := bitmap_from_bytes({1, 1})
+	testing.expect(t, !bitmap_set_rgba(decoded, px[:4]))
+	bitmap_free(decoded)
+	bitmap_free(b) // the image keeps it
+	callback_exit()
+	expect_log(t, "bitmap_rgba 1x1 7", "image_init", "bitmap_set_rgba 1x1 9", "image_set_bitmap true", "bitmap_decode 1x1", "bitmap_free 1x1")
+	testing.expect_value(t, b.refs, 1)
+}
+
+@(test)
+test_asset_read :: proc(t: ^testing.T) {
+	mock_begin(t)
+	defer mock_end(t)
+	mock.asset = {1, 2, 3}
+	data, ok := asset_read("data/x.bin")
+	defer delete(data)
+	testing.expect(t, ok && len(data) == 3 && data[2] == 3)
+	mock.asset = nil
+	none, found := asset_read("missing")
+	testing.expect(t, !found && none == nil)
+	expect_log(t, "asset_read data/x.bin", "asset_read missing")
 }

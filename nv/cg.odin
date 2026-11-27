@@ -1,4 +1,5 @@
 #+build darwin
+#+private
 package nv
 
 // CoreGraphics drawing shared by the macOS and iOS canvas backends. Both hand drawRect: a
@@ -12,12 +13,16 @@ import "base:runtime"
 import "core:math"
 import NS "core:sys/darwin/Foundation"
 
+IS_IOS :: ODIN_PLATFORM_SUBTARGET_IOS
+
 foreign import cg "system:CoreGraphics.framework"
 
 CGContextRef :: distinct rawptr
 
 CG_LINE_CAP_BUTT  :: i32(0)
 CG_LINE_CAP_ROUND :: i32(1)
+CG_LINE_JOIN_MITER :: i32(0)
+CG_LINE_JOIN_ROUND :: i32(1)
 
 @(default_calling_convention="c")
 foreign cg {
@@ -25,6 +30,9 @@ foreign cg {
 	CGContextSetRGBStrokeColor :: proc(c: CGContextRef, r, g, b, a: NS.Float) ---
 	CGContextSetLineWidth      :: proc(c: CGContextRef, width: NS.Float) ---
 	CGContextSetLineCap        :: proc(c: CGContextRef, cap: i32) ---
+	CGContextSetLineJoin       :: proc(c: CGContextRef, join: i32) ---
+	CGContextAddLines          :: proc(c: CGContextRef, points: [^][2]f64, count: uint) --- // CGPoint = [2]f64 (asserted below)
+	CGContextClipToRect        :: proc(c: CGContextRef, rect: NS.Rect) ---
 	CGContextFillRect          :: proc(c: CGContextRef, rect: NS.Rect) ---
 	CGContextStrokeRectWithWidth :: proc(c: CGContextRef, rect: NS.Rect, width: NS.Float) ---
 	CGContextFillEllipseInRect   :: proc(c: CGContextRef, rect: NS.Rect) ---
@@ -43,6 +51,10 @@ foreign cg {
 	CGImageGetWidth            :: proc(image: CGImageRef) -> uint ---
 	CGImageGetHeight           :: proc(image: CGImageRef) -> uint ---
 	CGImageRelease             :: proc(image: CGImageRef) ---
+	CGImageCreate              :: proc(width, height, bits_per_component, bits_per_pixel, bytes_per_row: uint, space: CGColorSpaceRef,
+		bitmap_info: u32, provider: CGDataProviderRef, decode: rawptr, should_interpolate: bool, intent: i32) -> CGImageRef ---
+	CGColorSpaceCreateDeviceRGB :: proc() -> CGColorSpaceRef ---
+	CGColorSpaceRelease        :: proc(space: CGColorSpaceRef) ---
 	CGDataProviderCreateWithCFData :: proc(data: ^NS.Data) -> CGDataProviderRef --- // CFDataRef: toll-free bridged
 	CGDataProviderRelease          :: proc(provider: CGDataProviderRef) ---
 	CGFontCreateWithDataProvider   :: proc(provider: CGDataProviderRef) -> CGFontRef ---
@@ -54,6 +66,11 @@ CGImageSourceRef  :: distinct rawptr
 CGDataProviderRef :: distinct rawptr
 CGFontRef         :: distinct rawptr
 CTFontRef         :: distinct rawptr
+CGColorSpaceRef   :: distinct rawptr
+
+#assert(size_of(NS.Point) == size_of([2]f64) && NS.Float == f64)
+
+CG_IMAGE_ALPHA_LAST :: u32(3) // kCGImageAlphaLast: RGBA, not premultiplied; default byte order
 
 CG_INTERPOLATION_HIGH :: i32(3)
 
@@ -77,6 +94,7 @@ foreign coretext {
 foreign corefoundation {
 	CFRelease     :: proc(cf: rawptr) ---
 	CFAutorelease :: proc(cf: rawptr) -> rawptr ---
+	CFDataCreate  :: proc(allocator: rawptr, bytes: [^]u8, length: int) -> ^NS.Data --- // copies; CFDataRef: toll-free bridged
 }
 
 // Fonts: the bytes become a CGFont, kept for the Font's lifetime; no CTFontManager registration
@@ -155,6 +173,38 @@ _bitmap_decode :: proc(b: ^Bitmap, data: []u8) -> bool {
 @(private)
 _bitmap_free :: proc(b: ^Bitmap) {
 	CGImageRelease(CGImageRef(b.native))
+}
+
+// Pixels: a CGImage over a copy of them (DeviceRGB, like the canvas's SetRGB colours; straight
+// alpha), which holds the provider and the data. CGImage is immutable, so a new set makes another.
+@(private)
+_bitmap_rgba :: proc(b: ^Bitmap, pixels: []u8) -> bool {
+	image := cg_image_rgba(b.width, b.height, pixels)
+	b.native = rawptr(image)
+	return image != nil
+}
+
+// The old CGImage is released: canvases draw b.native as it is, and an iOS UIImage keeps its own.
+@(private)
+_bitmap_set_rgba :: proc(b: ^Bitmap, pixels: []u8) -> bool {
+	image := cg_image_rgba(b.width, b.height, pixels)
+	if image == nil do return false
+	CGImageRelease(CGImageRef(b.native))
+	b.native = rawptr(image)
+	return true
+}
+
+@(private)
+cg_image_rgba :: proc "contextless" (w, h: int, pixels: []u8) -> CGImageRef {
+	data := CFDataCreate(nil, raw_data(pixels), len(pixels))
+	if data == nil do return nil
+	defer CFRelease(data)
+	provider := CGDataProviderCreateWithCFData(data)
+	if provider == nil do return nil
+	defer CGDataProviderRelease(provider)
+	space := CGColorSpaceCreateDeviceRGB()
+	defer CGColorSpaceRelease(space)
+	return CGImageCreate(uint(w), uint(h), 8, 32, uint(w * 4), space, CG_IMAGE_ALPHA_LAST, provider, nil, true, 0)
 }
 
 // CGContextDrawImage draws bottom-up, so the image is flipped back inside the rect.
@@ -432,4 +482,30 @@ apple_color_components :: proc "contextless" (c: ^NS.Object) -> Color {
 font_line_height :: proc "contextless" (f: ^NS.Object) -> NS.Float {
 	asc, desc := send(NS.Float, f, "ascender"), send(NS.Float, f, "descender")
 	return NS.Float(int(asc - desc + 0.999)) + 2
+}
+
+// One path: butt ends, round joins; the join goes back to miter (the default) for stroke_rect.
+@(private)
+_stroke_polyline :: proc(p: ^Painter, points: [][2]f64, color: Color, width: f64) {
+	ctx := cg_stroke(p, color, width)
+	CGContextSetLineCap(ctx, CG_LINE_CAP_BUTT)
+	CGContextSetLineJoin(ctx, CG_LINE_JOIN_ROUND)
+	CGContextBeginPath(ctx)
+	CGContextAddLines(ctx, raw_data(points), uint(len(points)))
+	CGContextStrokePath(ctx)
+	CGContextSetLineJoin(ctx, CG_LINE_JOIN_MITER)
+}
+
+// The clip is gstate: saved and restored around it. Every primitive sets its own colour, width
+// and cap, and the text attributes are not gstate, so a restore leaves nothing stale.
+@(private)
+_clip_push :: proc(p: ^Painter, x, y, w, h: f64) {
+	ctx := CGContextRef(p.native)
+	CGContextSaveGState(ctx)
+	CGContextClipToRect(ctx, cg_rect(x, y, w, h))
+}
+
+@(private)
+_clip_pop :: proc(p: ^Painter) {
+	CGContextRestoreGState(CGContextRef(p.native))
 }

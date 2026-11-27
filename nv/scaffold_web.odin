@@ -1,4 +1,5 @@
 #+build js
+#+private
 package nv
 
 // Web scaffold backend. The overlay is a one-cell grid (.nv-overlay, nv.css): the base and the
@@ -39,6 +40,10 @@ _overlay_place :: proc(h: ^Overlay_Handle, child: View, place: Overlay_Place) {
 	c := web_id(child)
 	m := place.margin
 	js_class(c, "nv-abs", !place.sizes)
+	// Each mode clears the other's properties, for a child placed again (a relative child still
+	// moves by left / top).
+	stale := place.sizes ? []string{"left", "right", "top", "bottom", "transform"} : []string{"justify-self", "align-self", "margin"}
+	for p in stale do js_style(c, p, "")
 	if place.sizes {
 		self :: proc(a: Align) -> string {
 			switch a {
@@ -88,21 +93,21 @@ _overlay_scrim_init :: proc(h: ^Overlay_Handle) {
 	h.scrim = web_view(scrim)
 }
 
-// A round icon button, or an extended one with the label; an icon-less round FAB shows Add.
+// A round icon button, or an extended one with the title; an icon-less round FAB shows Add.
 @(private)
 _fab_init :: proc(h: ^Fab_Handle) {
 	f := &h.fab
-	b := web_create("button", f.label == "" ? "nv-fab nv-round" : "nv-fab")
+	b := web_create("button", f.title == "" ? "nv-fab nv-round" : "nv-fab")
 	js_attr(b, "type", "button")
 	icon := f.icon
-	if f.label == "" {
+	if f.title == "" {
 		if icon == .None do icon = .Add
 		js_attr(b, "aria-label", fmt.tprint(icon))
 	}
 	if icon != .None do js_icon(b, i32(icon))
-	if f.label != "" {
+	if f.title != "" {
 		text := web_create("span")
-		js_text(text, f.label)
+		js_text(text, f.title)
 		js_append(b, text)
 	}
 	js_listen(b, .Fab, h, 0)

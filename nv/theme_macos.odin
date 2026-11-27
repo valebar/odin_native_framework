@@ -1,4 +1,5 @@
 #+build darwin:default
+#+private
 package nv
 
 // macOS theme backend. The mode is NSApp.appearance (Aqua, DarkAqua, or nil to follow the

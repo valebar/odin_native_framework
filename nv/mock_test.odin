@@ -48,6 +48,7 @@ mock: struct {
 	retire:            Mock_Retire,
 	parked:            [dynamic]^Scope, // .Later: until mock_retire_parked
 	fetches:           [dynamic]^Fetch, // in fetch_start order, nil once finished
+	files:             [dynamic]^File_Request, // in file_open / file_save order, nil once finished
 	nav_pop_ok:        bool,            // false: the platform refuses (UIKit mid-transition)
 	decode_ok:         bool,
 	font_ok:           bool,
@@ -65,16 +66,20 @@ mock_backend := Backend{
 	nav_release         = mock_nav_release,
 	nav_title_changed   = mock_nav_title_changed,
 	nav_actions_changed = mock_nav_actions_changed,
+	nav_leading_changed = mock_nav_leading_changed,
 	list_init           = mock_list_init,
 	list_reload         = mock_list_reload,
 	flex_create         = mock_flex_create,
 	container_init      = mock_container_init,
 	container_set_color = mock_container_set_color,
+	container_set_size  = mock_container_set_size,
+	layout_init         = mock_layout_init,
 	label_init          = mock_label_init,
 	label_set_text      = mock_label_set_text,
 	input_init          = mock_input_init,
 	input_text          = mock_input_text,
 	input_set_text      = mock_input_set_text,
+	input_focus         = mock_input_focus,
 	button_init         = mock_button_init,
 	button_set_title    = mock_button_set_title,
 	canvas_init         = mock_canvas_init,
@@ -83,10 +88,14 @@ mock_backend := Backend{
 	image_set_bitmap    = mock_image_set_bitmap,
 	bitmap_decode       = mock_bitmap_decode,
 	bitmap_free         = mock_bitmap_free,
+	bitmap_rgba         = mock_bitmap_rgba,
+	bitmap_set_rgba     = mock_bitmap_set_rgba,
 	font_load           = mock_font_load,
 	font_free           = mock_font_free,
 	asset_read          = mock_asset_read,
 	fetch_start         = mock_fetch_start,
+	file_open           = mock_file_open,
+	file_save           = mock_file_save,
 	dialog_show         = mock_dialog_show,
 	dialog_close        = mock_dialog_close,
 	dialog_set_hidden   = mock_dialog_set_hidden,
@@ -111,6 +120,7 @@ mock_backend := Backend{
 @(init)
 mock_install :: proc "contextless" () {
 	g_backend = mock_backend
+	g_draw_mock = mock_log
 }
 
 // Starts a test on a clean core: every global back to zero (a test that crashed left them dirty,
@@ -121,19 +131,22 @@ mock_begin :: proc(t: ^testing.T) {
 	g_main_ctx = {}
 	g_scope_override, g_scopes_retired = nil, {}
 	g_progress, g_scaffolds = nil, nil
+	g_file_request = nil
 	g_theme, g_dark, g_theme_live = {}, false, false
 	g_backend = mock_backend
+	g_draw_mock = mock_log
 	mock = {t = t, nav_pop_ok = true, decode_ok = true, font_ok = true}
 	if virtual.arena_init_growing(&mock.arena) != nil do testing.fail_now(t, "no arena for the mock")
 	mock.log = make([dynamic]string, mock_allocator())
 	mock.parked = make([dynamic]^Scope, mock_allocator())
 	mock.fetches = make([dynamic]^Fetch, mock_allocator())
+	mock.files = make([dynamic]^File_Request, mock_allocator())
 	mock.timers = make([dynamic]^Timer, mock_allocator())
 }
 
 // Ends a test, then fails on what it left. What is still up is torn down the way Android's relaunch
 // reset does in jni_on_create (on_pop for every pushed page, on_close for every dialog), then the
-// root is freed without its on_pop, so every scope dies; downloads in flight fail. A real app exit
+// root is freed without its on_pop, so every scope dies; downloads in flight fail and open file dialogs end cancelled. A real app exit
 // runs none of this. Then no view and no open callback bracket may be left. Nothing may still be pending: every outermost build is followed by a flush, so a
 // page or dialog left queued is a core bug (it is still torn down, so the report stays short).
 // The stacks' backing arrays are freed, since they hold this test's allocator.
@@ -162,6 +175,7 @@ mock_end :: proc(t: ^testing.T, loc := #caller_location) {
 	callback_exit()
 	mock_retire_parked()
 	for f, i in mock.fetches do if f != nil do mock_fetch_finish(i, nil)
+	for f, i in mock.files do if f != nil do mock_file_finish(i, .Cancelled)
 	mock_fire_timers() // the cancelled ones only free themselves
 	delete(g_nav)
 	delete(g_nav_pending)
@@ -270,6 +284,14 @@ mock_fetch_finish :: proc(i: int, data: []u8) {
 	fetch_notify(f)
 }
 
+// File dialog `i` (file_open / file_save order) ended, reported like a panel's completion.
+mock_file_finish :: proc(i: int, status: File_Status, name := "", data: []u8 = nil) {
+	r := mock.files[i]
+	mock.files[i] = nil
+	if status == .Ok do file_set_result(r, name, slice.clone(data, nv_heap()))
+	file_notify(r, status)
+}
+
 // ---- the backend ----
 
 // GTK's on_activate: the platform is up, so the theme starts and the root page is built.
@@ -307,6 +329,23 @@ mock_nav_actions_changed :: proc(e: ^Page_Handle) {
 	mock_log("nav_actions_changed %d", len(e.actions))
 }
 
+mock_nav_leading_changed :: proc(e: ^Page_Handle) {
+	mock_require(e.root != nil, "_nav_leading_changed gets a shown page")
+	mock_log("nav_leading_changed %s %s", e.page.title, e.bar_leading == nil ? "none" : mock_view_name(e.bar_leading))
+}
+
+mock_file_open :: proc(r: ^File_Request) {
+	mock_require(r.page != nil && !r.save, "_file_open gets an attached open")
+	append(&mock.files, r)
+	mock_log("file_open %s", strings.join(r.extensions, ",", context.temp_allocator))
+}
+
+mock_file_save :: proc(r: ^File_Request) {
+	mock_require(r.page != nil && r.save, "_file_save gets an attached save")
+	append(&mock.files, r)
+	mock_log("file_save %s %d", r.name, len(r.data))
+}
+
 mock_list_init :: proc(h: ^List_Handle) {
 	h.root = mock_view("list")
 	mock_log("list_init")
@@ -331,6 +370,21 @@ mock_container_set_color :: proc(h: ^Container_Handle) {
 	mock_log("container_set_color %v", h.container.color)
 }
 
+mock_container_set_size :: proc(h: ^Container_Handle) {
+	mock_log("container_set_size %v %v", h.container.width, h.container.height)
+}
+
+mock_layout_init :: proc(h: ^Layout_Handle) {
+	mock_require(h.layout.child != nil, "_layout_init gets a child")
+	h.root = mock_view("layout")
+	mock_log("layout_init %s", mock_view_name(h.layout.child))
+}
+
+// The platform laid the Layout out at w × h, reported the way the backends do.
+mock_layout :: proc(h: ^Layout_Handle, w, hh: f64) {
+	layout_notify(h, w, hh)
+}
+
 mock_label_init :: proc(h: ^Label_Handle) {
 	h.root = mock_view("label", h.label.text)
 	mock_log("label_init %s", h.label.text)
@@ -343,7 +397,8 @@ mock_label_set_text :: proc(h: ^Label_Handle, text: string) {
 
 mock_input_init :: proc(h: ^Input_Handle) {
 	h.root = mock_view("input", h.input.text)
-	mock_log("input_init %s", h.input.text)
+	if h.input.keyboard == .Text && !h.input.secure do mock_log("input_init %s", h.input.text)
+	else do mock_log("input_init %s %v%s", h.input.text, h.input.keyboard, h.input.secure ? " secure" : "")
 }
 
 mock_input_text :: proc(h: ^Input_Handle, allocator := context.allocator) -> string {
@@ -355,6 +410,10 @@ mock_input_set_text :: proc(h: ^Input_Handle, text: string) {
 	mock_view_of(h.root).text = strings.clone(text, mock_allocator())
 	mock_log("input_set_text %s", text)
 	input_notify(h, h.input.on_change)
+}
+
+mock_input_focus :: proc(h: ^Input_Handle, select_all: bool) {
+	mock_log("input_focus %s%s", mock_view_of(h.root).text, select_all ? " all" : "")
 }
 
 mock_button_init :: proc(h: ^Button_Handle) {
@@ -400,6 +459,19 @@ mock_bitmap_free :: proc(b: ^Bitmap) {
 	mock_log("bitmap_free %dx%d", b.width, b.height)
 }
 
+// The pixels' first byte stands for the image.
+mock_bitmap_rgba :: proc(b: ^Bitmap, pixels: []u8) -> bool {
+	mock_require(b.rgba && len(pixels) == b.width * b.height * 4, "_bitmap_rgba gets width * height * 4 bytes")
+	mock_log("bitmap_rgba %dx%d %d", b.width, b.height, pixels[0])
+	return mock.decode_ok
+}
+
+mock_bitmap_set_rgba :: proc(b: ^Bitmap, pixels: []u8) -> bool {
+	mock_require(b.rgba && len(pixels) == b.width * b.height * 4, "_bitmap_set_rgba gets an rgba bitmap's size")
+	mock_log("bitmap_set_rgba %dx%d %d", b.width, b.height, pixels[0])
+	return true
+}
+
 mock_font_load :: proc(f: ^Font, data: []u8) -> bool {
 	mock_log("font_load %s", f.family)
 	return mock.font_ok
@@ -421,6 +493,7 @@ mock_fetch_start :: proc(f: ^Fetch) {
 
 mock_dialog_show :: proc(h: ^Dialog_Handle) {
 	mock_require(slice.contains(g_dialogs[:], h) && h.scope != nil && h.body != nil, "_dialog_show gets a built dialog in g_dialogs")
+	if h.dialog.modal do h.scrim = rawptr(h) // what a test taps (dialog_scrim_notify); no view
 	mock_log("dialog_show %s", h.dialog.title)
 }
 
@@ -469,8 +542,8 @@ mock_overlay_scrim_init :: proc(h: ^Overlay_Handle) {
 }
 
 mock_fab_init :: proc(h: ^Fab_Handle) {
-	h.root = mock_view("fab", h.fab.label)
-	mock_log("fab_init %v %s", h.fab.icon, h.fab.label)
+	h.root = mock_view("fab", h.fab.title)
+	mock_log("fab_init %v %s", h.fab.icon, h.fab.title)
 }
 
 mock_tabbar_init :: proc(h: ^Tabbar_Handle) {
@@ -525,16 +598,23 @@ Mock_Page :: struct {
 	pop:          bool,         // build: pop (ignored)
 	pop_title:    string,       // on_pop: page_set_title (the page is gone: nothing to show)
 	pop_actions:  []Action,     // on_pop: page_set_actions (nor this)
+	log_covered:  bool,         // on_covered logs itself
 	handle:       ^Page_Handle, // set by build
 	label:        ^Label_Handle,
 	pushed:       ^Page_Handle, // what the push returned
 }
 
 mock_page :: proc(mp: ^Mock_Page) -> Page {
-	return {title = mp.name, build = mock_build, user_data = mp, on_pop = mock_on_pop, actions = mp.actions}
+	return {title = mp.name, build = mock_build, user = mp, on_pop = mock_on_pop, actions = mp.actions,
+		on_covered = mp.log_covered ? mock_on_covered : nil}
 }
 
-mock_build :: proc(page: ^Page_Handle, user: rawptr) -> View {
+mock_on_covered :: proc(user: rawptr, covered: bool) {
+	mock_log("%s %s", covered ? "covered" : "uncovered", (^Mock_Page)(user).name)
+	mock_require(g_callback_depth > 0, "on_covered runs bracketed")
+}
+
+mock_build :: proc(user: rawptr, page: ^Page_Handle) -> View {
 	mp := (^Mock_Page)(user)
 	mock_log("build %s", mp.name)
 	mp.handle = page
@@ -547,7 +627,7 @@ mock_build :: proc(page: ^Page_Handle, user: rawptr) -> View {
 	}
 	if mp.pop do pop()
 	mp.label = label_create({text = mp.name})
-	return label_view(mp.label)
+	return view(mp.label)
 }
 
 mock_on_pop :: proc(user: rawptr) {
@@ -564,12 +644,24 @@ Mock_Dialog :: struct {
 	content: View,
 	buttons: []Dialog_Button,
 	reclose: bool,           // on_close calls dialog_close again (must be a no-op)
+	build:   bool,           // Dialog.build makes a label "built" (in the dialog's scope)
+	light:   bool,
+	dismissible: bool,
 	handle:  ^Dialog_Handle, // set by mock_show
+	built:   ^Label_Handle,
 }
 
 mock_show :: proc(md: ^Mock_Dialog) -> ^Dialog_Handle {
-	md.handle = dialog_show({title = md.name, content = md.content, buttons = md.buttons, modal = md.modal, on_close = mock_on_close, user = md})
+	md.handle = dialog_show({title = md.name, content = md.content, buttons = md.buttons, modal = md.modal, on_close = mock_on_close, user = md,
+		build = md.build ? mock_dialog_build : nil, light = md.light, dismissible = md.dismissible})
 	return md.handle
+}
+
+mock_dialog_build :: proc(user: rawptr, h: ^Dialog_Handle) -> View {
+	md := (^Mock_Dialog)(user)
+	mock_require(h.scope != nil && g_scope_override == h.scope, "Dialog.build runs in the dialog's scope")
+	md.built = label_create({text = "built"})
+	return view(md.built)
 }
 
 mock_on_close :: proc(user: rawptr) {
@@ -578,11 +670,11 @@ mock_on_close :: proc(user: rawptr) {
 	if md.reclose do dialog_close(md.handle)
 }
 
-mock_close_clicked :: proc(d: ^Dialog_Handle, _: rawptr) {
+mock_close_clicked :: proc(_: rawptr, d: ^Dialog_Handle) {
 	dialog_close(d)
 }
 
-mock_pop_clicked :: proc(_: ^Dialog_Handle, _: rawptr) {
+mock_pop_clicked :: proc(_: rawptr, _: ^Dialog_Handle) {
 	pop()
 }
 

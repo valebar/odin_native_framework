@@ -1,4 +1,5 @@
 #+build darwin:default
+#+private
 package nv
 
 // macOS label backend: an NSTextField label in the system font (bold 17pt for a heading, 15pt

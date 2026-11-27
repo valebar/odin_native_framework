@@ -1,4 +1,5 @@
 #+build darwin:ios
+#+private
 package nv
 
 // iOS button backend: a system UIButton; target-action delivers TouchUpInside to an

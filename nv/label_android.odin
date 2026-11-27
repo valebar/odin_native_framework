@@ -1,4 +1,5 @@
 #+build linux:android
+#+private
 package nv
 
 // Android label backend: a TextView, 20sp bold as a heading, 16sp otherwise, changed by the style

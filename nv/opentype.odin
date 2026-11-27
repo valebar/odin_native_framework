@@ -1,3 +1,4 @@
+#+private
 package nv
 
 // Reads what the backends that select a loaded font by name (fontconfig on Linux, GDI on Windows)

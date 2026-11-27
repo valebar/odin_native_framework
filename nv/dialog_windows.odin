@@ -1,12 +1,16 @@
 #+build windows
+#+private
 package nv
 
 // Windows dialog backend: the card is an "NVDialog" child of the NVNav host (so it can cover the
 // bar too), cut to a rounded rectangle with a window region and painted with a thin border; it
 // holds the body and sizes it to its measure plus padding. A modal dialog first creates an
 // "NVScrim": a black, layered child window at 40% alpha (layered children work since Windows 8).
-// Any window swallows the mouse for what it covers; the keyboard is blocked by disabling the
-// page root and the bar's controls while a modal dialog is visible. nav_layout places the
+// Any window swallows the mouse for what it covers (the scrim reports a click for a dismissible
+// dialog; the card is a sibling above it); the keyboard is blocked by disabling the
+// page root and the bar's controls while a modal dialog is visible. Dialog.scrim sets the scrim's
+// fill (WM_ERASEBKGND) and alpha; a light card paints white and its controls keep the light
+// styles and colours (in_light_dialog, win32.odin). nav_layout places the
 // dialogs of the top page on every WM_SIZE and keeps them at the top of the z-order, since a
 // new child or a re-parented page lands above its siblings. A closed dialog's windows are hidden
 // at once and destroyed through WM_NV_DESTROY, like a popped page: the close often runs inside
@@ -14,10 +18,9 @@ package nv
 
 import win "core:sys/windows"
 
-@(private) DIALOG_WIDTH  :: 320.0 // dp
 @(private) DIALOG_PAD    :: 16.0
 @(private) DIALOG_RADIUS :: 12.0
-@(private) SCRIM_ALPHA   :: 0x66
+@(private) SCRIM_ALPHA   :: 0x66 // the scaffold's; a dialog's comes from dialog_scrim
 
 @(private)
 _dialog_show :: proc(h: ^Dialog_Handle) {
@@ -25,13 +28,21 @@ _dialog_show :: proc(h: ^Dialog_Handle) {
 	if h.dialog.modal {
 		scrim := win.CreateWindowExW(win.WS_EX_LAYERED, wstr(CLASS_SCRIM), nil,
 			win.WS_CHILD | win.WS_VISIBLE | win.WS_CLIPSIBLINGS, 0, 0, 0, 0, host, nil, g_windows.hinstance, nil)
-		win.SetLayeredWindowAttributes(scrim, 0, SCRIM_ALPHA, win.LWA_ALPHA)
+		alpha := win.BYTE(clamp(dialog_scrim(h).a, 0, 1) * 255 + 0.5)
+		win.SetLayeredWindowAttributes(scrim, 0, alpha, win.LWA_ALPHA)
 		h.scrim = rawptr(scrim)
 	}
 	card := win.CreateWindowExW(0, wstr(CLASS_DIALOG), nil,
 		win.WS_CHILD | win.WS_VISIBLE | win.WS_CLIPCHILDREN | win.WS_CLIPSIBLINGS, 0, 0, 0, 0, host, nil, g_windows.hinstance, h)
 	win.SetParent(win.HWND(h.body), card)
 	h.card = rawptr(card)
+	if h.dialog.light { // the body's controls were themed for the page; now they are in the card
+		win.EnumChildWindows(card, proc "system" (hwnd: win.HWND, _: win.LPARAM) -> win.BOOL {
+			context = g_windows.ctx
+			theme_control(hwnd)
+			return true
+		}, 0)
+	}
 
 	dialog_apply_modal()
 	if h.dialog.modal && len(h.buttons) > 0 do win.SetFocus(win.HWND(h.buttons[0].handle.control))
@@ -74,7 +85,7 @@ dialog_apply_modal :: proc() {
 }
 
 // Places the top page's visible dialogs in the host's client rect: the scrim over all of it, the
-// card centered at DIALOG_WIDTH (less on a narrow window) by the body's height plus padding, then
+// card centered at dialog_width (less on a narrow window) by the body's height plus padding, then
 // raises them above the pages in show order.
 @(private)
 dialog_layout :: proc(rc: win.RECT) {
@@ -86,22 +97,37 @@ dialog_layout :: proc(rc: win.RECT) {
 			win.SetWindowPos(win.HWND(d.scrim), nil, 0, 0, 0, 0, win.SWP_NOMOVE | win.SWP_NOSIZE | win.SWP_NOACTIVATE)
 		}
 		pad := px(DIALOG_PAD)
-		w := min(px(DIALOG_WIDTH), rc.right - 2 * pad)
+		w := min(px(dialog_width(d)), rc.right - 2 * pad)
 		hgt := measure(win.HWND(d.body)).y + 2 * pad
 		win.MoveWindow(win.HWND(d.card), (rc.right - w) / 2, (rc.bottom - hgt) / 2, w, hgt, true)
 		win.SetWindowPos(win.HWND(d.card), nil, 0, 0, 0, 0, win.SWP_NOMOVE | win.SWP_NOSIZE | win.SWP_NOACTIVATE) // HWND_TOP
 	}
 }
 
-// A dialog's scrim only swallows the mouse; a scaffold's (scaffold_windows.odin) has its overlay
-// in GWLP_USERDATA and reports a click.
+// A dialog's scrim swallows the mouse, reports a click for a dismissible dialog and fills itself
+// with Dialog.scrim's colour; a scaffold's (scaffold_windows.odin) has its overlay in
+// GWLP_USERDATA, stays black (the class brush) and reports a click.
 @(private)
 scrim_proc :: proc "system" (hwnd: win.HWND, msg: win.UINT, wparam: win.WPARAM, lparam: win.LPARAM) -> win.LRESULT {
-	if msg == win.WM_LBUTTONDOWN {
+	switch msg {
+	case win.WM_LBUTTONDOWN:
 		if h := overlay_handle_of(hwnd); h != nil {
 			context = h.ctx
 			overlay_scrim_notify(h)
 			return 0
+		}
+		dialog_scrim_notify(rawptr(hwnd))
+		return 0
+	case win.WM_ERASEBKGND:
+		if overlay_handle_of(hwnd) != nil do break
+		for d in g_dialogs {
+			if win.HWND(d.scrim) != hwnd do continue
+			rc: win.RECT
+			win.GetClientRect(hwnd, &rc)
+			brush := win.CreateSolidBrush(colorref(dialog_scrim(d)))
+			win.FillRect(win.HDC(wparam), &rc, brush)
+			win.DeleteObject(win.HGDIOBJ(brush))
+			return 1
 		}
 	}
 	return win.DefWindowProcW(hwnd, msg, wparam, lparam)
@@ -125,7 +151,7 @@ dialog_proc :: proc "system" (hwnd: win.HWND, msg: win.UINT, wparam: win.WPARAM,
 		win.GetClientRect(hwnd, &rc)
 		pad := px(DIALOG_PAD)
 		if h.body != nil do win.MoveWindow(win.HWND(h.body), pad, pad, max(rc.right - 2 * pad, 0), max(rc.bottom - 2 * pad, 0), true)
-		r := px(DIALOG_RADIUS) * 2
+		r := px(dialog_radius(h, DIALOG_RADIUS)) * 2
 		win.SetWindowRgn(hwnd, CreateRoundRectRgn(0, 0, rc.right + 1, rc.bottom + 1, r, r), true) // the system owns the region
 		return 0
 	case win.WM_PAINT:
@@ -133,10 +159,11 @@ dialog_proc :: proc "system" (hwnd: win.HWND, msg: win.UINT, wparam: win.WPARAM,
 		dc := win.BeginPaint(hwnd, &ps)
 		rc: win.RECT
 		win.GetClientRect(hwnd, &rc)
-		pen := win.CreatePen(win.PS_SOLID, 1, colorref(theme_palette().separator))
+		light := h.dialog.light
+		pen := win.CreatePen(win.PS_SOLID, 1, colorref(light ? PALETTE_LIGHT.separator : theme_palette().separator))
 		old_pen := win.SelectObject(dc, win.HGDIOBJ(pen))
-		old_brush := win.SelectObject(dc, win.HGDIOBJ(g_theme_windows.bg))
-		r := px(DIALOG_RADIUS) * 2
+		old_brush := win.SelectObject(dc, win.HGDIOBJ(light ? g_theme_windows.light : g_theme_windows.bg))
+		r := px(dialog_radius(h, DIALOG_RADIUS)) * 2
 		win.RoundRect(dc, 0, 0, rc.right, rc.bottom, r, r)
 		win.SelectObject(dc, old_brush)
 		win.SelectObject(dc, old_pen)

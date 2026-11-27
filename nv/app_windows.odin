@@ -1,4 +1,5 @@
 #+build windows
+#+private
 package nv
 
 // Windows (Win32) app backend. The main window is created hidden before the root page is built,

@@ -1,4 +1,5 @@
 #+build windows
+#+private
 package nv
 
 // Windows canvas backend: an "NVCanvas" window painted with GDI+ (plain GDI has no
@@ -7,8 +8,11 @@ package nv
 // requested size. The canvas keeps one brush and one pen (Windows_Canvas, in Canvas_Handle.extra)
 // and recolors them per primitive: creating a GDI+ object per call costs more than the drawing.
 // The back buffer is kept across paints too, recreated only when the client size changes.
+// clip_push saves the Graphics state (GdipSaveGraphics) and intersects its clip; GDI text, which
+// ignores the GDI+ clip, gets the same rect (in px) on its DC.
 // The left mouse button is captured while pressed, so a drag keeps reporting outside the window.
 
+import "base:builtin"
 import win "core:sys/windows"
 
 foreign import gdiplus "system:gdiplus.lib"
@@ -35,6 +39,17 @@ foreign import gdiplus "system:gdiplus.lib"
 @(private) GP_INTERPOLATION_HIGH_QUALITY_BICUBIC :: i32(7)
 @(private) GP_PIXEL_OFFSET_DEFAULT               :: i32(0)
 @(private) GP_PIXEL_OFFSET_HIGH_QUALITY          :: i32(2)
+@(private) GP_LINE_JOIN_MITER     :: i32(0)
+@(private) GP_LINE_JOIN_ROUND     :: i32(2)
+@(private) GP_COMBINE_INTERSECT   :: i32(1)
+
+@(private) GpPointF :: struct { x, y: f32 }
+
+// One clip_push: the Graphics state to restore and the clip so far in px (for GDI text).
+@(private) Windows_Clip :: struct {
+	state: u32, // GraphicsState
+	rect:  win.RECT,
+}
 
 // Per-canvas GDI+ state (Canvas_Handle.extra, in the page's arena): the brush and pen every
 // primitive draws with, the colour / width they were last set to, and the back buffer.
@@ -45,6 +60,8 @@ foreign import gdiplus "system:gdiplus.lib"
 	pen_argb:   u32,
 	pen_width:  f32,
 	pen_cap:    i32, // of both ends: round for lines, flat for arcs
+	pen_join:   i32, // miter for rects, round for polylines
+	clips:      [dynamic]Windows_Clip, // clip_push's, innermost last (the scope's arena); empty between paints
 	mem:        win.HDC, // back buffer of `size` px; nil until the first paint
 	bmp:        win.HBITMAP,
 	old:        win.HGDIOBJ,
@@ -69,6 +86,11 @@ foreign gdiplus {
 	GdipDeletePen           :: proc(pen: GpPen) -> i32 ---
 	GdipSetPenStartCap      :: proc(pen: GpPen, cap: i32) -> i32 ---
 	GdipSetPenEndCap        :: proc(pen: GpPen, cap: i32) -> i32 ---
+	GdipSetPenLineJoin      :: proc(pen: GpPen, join: i32) -> i32 ---
+	GdipDrawLines           :: proc(graphics: GpGraphics, pen: GpPen, points: [^]GpPointF, count: i32) -> i32 ---
+	GdipSaveGraphics        :: proc(graphics: GpGraphics, state: ^u32) -> i32 ---
+	GdipRestoreGraphics     :: proc(graphics: GpGraphics, state: u32) -> i32 ---
+	GdipSetClipRect         :: proc(graphics: GpGraphics, x, y, w, h: f32, combine: i32) -> i32 ---
 	GdipFillRectangle       :: proc(graphics: GpGraphics, brush: GpBrush, x, y, w, h: f32) -> i32 ---
 	GdipDrawRectangle       :: proc(graphics: GpGraphics, pen: GpPen, x, y, w, h: f32) -> i32 ---
 	GdipDrawLine            :: proc(graphics: GpGraphics, pen: GpPen, x1, y1, x2, y2: f32) -> i32 ---
@@ -82,6 +104,9 @@ foreign gdiplus {
 	GdipFillPath            :: proc(graphics: GpGraphics, brush: GpBrush, path: GpPath) -> i32 ---
 	GdipDrawPath            :: proc(graphics: GpGraphics, pen: GpPen, path: GpPath) -> i32 ---
 	GdipCreateBitmapFromStream :: proc(stream: ^win.IStream, bitmap: ^GpImage) -> i32 ---
+	GdipCreateBitmapFromScan0 :: proc(width, height, stride: i32, format: i32, scan0: [^]u8, bitmap: ^GpImage) -> i32 ---
+	GdipBitmapLockBits      :: proc(bitmap: GpImage, rect: ^GpRect, flags: u32, format: i32, data: ^GpBitmapData) -> i32 ---
+	GdipBitmapUnlockBits    :: proc(bitmap: GpImage, data: ^GpBitmapData) -> i32 ---
 	GdipGetImageWidth       :: proc(image: GpImage, width: ^u32) -> i32 ---
 	GdipGetImageHeight      :: proc(image: GpImage, height: ^u32) -> i32 ---
 	GdipDisposeImage        :: proc(image: GpImage) -> i32 ---
@@ -109,7 +134,9 @@ _canvas_init :: proc(h: ^Canvas_Handle) {
 	GdipCreateSolidFill(0, &c.brush)
 	GdipCreatePen1(0, 1, GP_UNIT_WORLD, &c.pen)
 	c.pen_width = 1
-	c.pen_cap = GP_LINE_CAP_FLAT // the pen's default
+	c.pen_cap = GP_LINE_CAP_FLAT // the pen's defaults
+	c.pen_join = GP_LINE_JOIN_MITER
+	c.clips = make([dynamic]Windows_Clip, scope_allocator(h.scope))
 	scope_on_dispose(canvas_dispose, h)
 }
 
@@ -165,8 +192,9 @@ with_pen :: proc "contextless" (c: Color, width: f64) -> GpPen {
 	return pen
 }
 
-// The canvas's brush / pen, recolored (and the pen resized and its caps set) only when the value
-// changed. Caps only show on open figures, so the rectangles and ellipses leave them as they are.
+// The canvas's brush / pen, recolored (and the pen resized and its caps / join set) only when the
+// value changed. Caps only show on open figures, so the rectangles and ellipses leave them as they
+// are; joins only on corners (rects: miter, polylines: round).
 @(private)
 brush_for :: proc "contextless" (p: ^Painter, color: Color) -> GpBrush {
 	c := (^Windows_Canvas)(p.h.extra)
@@ -178,12 +206,16 @@ brush_for :: proc "contextless" (p: ^Painter, color: Color) -> GpBrush {
 }
 
 @(private)
-pen_for :: proc "contextless" (p: ^Painter, color: Color, width: f64, ends: Maybe(i32) = nil) -> GpPen {
+pen_for :: proc "contextless" (p: ^Painter, color: Color, width: f64, ends: Maybe(i32) = nil, join: Maybe(i32) = nil) -> GpPen {
 	c := (^Windows_Canvas)(p.h.extra)
 	if want, ok := ends.?; ok && want != c.pen_cap {
 		GdipSetPenStartCap(c.pen, want)
 		GdipSetPenEndCap(c.pen, want)
 		c.pen_cap = want
+	}
+	if want, ok := join.?; ok && want != c.pen_join {
+		GdipSetPenLineJoin(c.pen, want)
+		c.pen_join = want
 	}
 	if argb := color_argb(color); argb != c.pen_argb {
 		GdipSetPenColor(c.pen, argb)
@@ -203,7 +235,7 @@ _fill_rect :: proc(p: ^Painter, x, y, w, h: f64, color: Color) {
 
 @(private)
 _stroke_rect :: proc(p: ^Painter, x, y, w, h: f64, color: Color, width: f64) {
-	GdipDrawRectangle(p.native, pen_for(p, color, width), f32(x), f32(y), f32(w), f32(h))
+	GdipDrawRectangle(p.native, pen_for(p, color, width, join = GP_LINE_JOIN_MITER), f32(x), f32(y), f32(w), f32(h))
 }
 
 @(private)
@@ -237,6 +269,13 @@ _draw_text :: proc(p: ^Painter, text: string, x, y: f64, style: Text_Style) {
 	dc: win.HDC
 	GdipGetDC(p.native, &dc)
 	defer GdipReleaseDC(p.native, dc)
+	saved: i32 // the DC's state before the clip, 0 without one
+	if c := (^Windows_Canvas)(p.h.extra); len(c.clips) > 0 {
+		r := c.clips[len(c.clips) - 1].rect
+		saved = win.SaveDC(dc)
+		IntersectClipRect(dc, r.left, r.top, r.right, r.bottom)
+	}
+	defer if saved != 0 do win.RestoreDC(dc, saved) // the back buffer's DC outlives the paint
 	old := win.SelectObject(dc, win.HGDIOBJ(hfont))
 	defer win.SelectObject(dc, old)
 	win.SetBkMode(dc, .TRANSPARENT)
@@ -282,6 +321,7 @@ canvas_paint :: proc(hwnd: win.HWND, h: ^Canvas_Handle) {
 	win.FillRect(c.mem, &rc, background_brush_of(win.GetParent(hwnd)))
 
 	// A Graphics per paint: cheap, and a kept one would accumulate clip and transform state.
+	clear(&c.clips) // the core pops what on_draw left pushed
 	g: GpGraphics
 	GdipCreateFromHDC(c.mem, &g)
 	GdipSetSmoothingMode(g, GP_SMOOTHING_ANTIALIAS)
@@ -338,4 +378,36 @@ canvas_proc :: proc "system" (hwnd: win.HWND, msg: win.UINT, wparam: win.WPARAM,
 		return 0
 	}
 	return win.DefWindowProcW(hwnd, msg, wparam, lparam)
+}
+
+// One open figure: butt ends, round joins.
+@(private)
+_stroke_polyline :: proc(p: ^Painter, points: [][2]f64, color: Color, width: f64) {
+	pts := make([]GpPointF, len(points), context.temp_allocator)
+	for q, i in points do pts[i] = {f32(q.x), f32(q.y)}
+	pen := pen_for(p, color, width, GP_LINE_CAP_FLAT, GP_LINE_JOIN_ROUND)
+	GdipDrawLines(p.native, pen, raw_data(pts), i32(len(pts)))
+}
+
+// The clip rect is in world units (dp), so the transform applies; the px copy clips GDI text.
+@(private)
+_clip_push :: proc(p: ^Painter, x, y, w, h: f64) {
+	c := (^Windows_Canvas)(p.h.extra)
+	state: u32
+	GdipSaveGraphics(p.native, &state)
+	GdipSetClipRect(p.native, f32(x), f32(y), f32(w), f32(h), GP_COMBINE_INTERSECT)
+	r := win.RECT{px(x), px(y), px(x + w), px(y + h)}
+	if n := len(c.clips); n > 0 {
+		o := c.clips[n - 1].rect
+		r = {max(r.left, o.left), max(r.top, o.top), min(r.right, o.right), min(r.bottom, o.bottom)}
+		r.right, r.bottom = max(r.right, r.left), max(r.bottom, r.top)
+	}
+	append(&c.clips, Windows_Clip{state, r})
+}
+
+@(private)
+_clip_pop :: proc(p: ^Painter) {
+	c := (^Windows_Canvas)(p.h.extra)
+	if len(c.clips) == 0 do return
+	GdipRestoreGraphics(p.native, builtin.pop(&c.clips).state)
 }

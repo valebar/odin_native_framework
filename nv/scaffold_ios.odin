@@ -1,4 +1,5 @@
 #+build darwin:ios
+#+private
 package nv
 
 // iOS scaffold backend; the overlay, the visibility and the timer are shared (appkit.odin). The
@@ -48,15 +49,15 @@ _fab_init :: proc(h: ^Fab_Handle) {
 	button := ui_button_system() // autoreleased
 	objc_own(button)->retain()
 	if image := fab_symbol(f.icon); image != nil do send(nil, button, "setImage:forState:", image, UI_CONTROL_STATE_NORMAL)
-	if f.label != "" {
-		ui_button_set_title(button, ns_string(f.label))
+	if f.title != "" {
+		ui_button_set_title(button, ns_string(f.title))
 		send(nil, button, "setTitleColor:forState:", canvas_color({1, 1, 1, 1}), UI_CONTROL_STATE_NORMAL)
-		// Material's 20pt either side of the content, and 8pt between the icon and the label.
+		// Material's 20pt either side of the content, and 8pt between the icon and the title.
 		send(nil, button, "setContentEdgeInsets:", UI_Edge_Insets{0, 20, 0, 20})
 		send(nil, button, "setTitleEdgeInsets:", UI_Edge_Insets{0, 8, 0, -8})
 	}
 	send(nil, button, "setTintColor:", canvas_color({1, 1, 1, 1}))
-	fab_style(button, f.label != "", theme_palette().accent)
+	fab_style(button, f.title != "", theme_palette().accent)
 	ui_control_add_target(button, t, intrinsics.objc_find_selector("nvFab:"), UI_CONTROL_EVENT_TOUCH_UP_INSIDE)
 	h.root = View(button)
 	h.control = button

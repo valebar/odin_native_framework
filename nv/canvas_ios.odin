@@ -1,4 +1,5 @@
 #+build darwin:ios
+#+private
 package nv
 
 // iOS canvas backend: a UIView subclass, NVCanvasView, registered at runtime. It draws in

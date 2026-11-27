@@ -1,4 +1,5 @@
 #+build windows
+#+private
 package nv
 
 // Windows button backend: a "Button" push button inside an "NVButton" container window, which

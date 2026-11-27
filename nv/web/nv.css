@@ -23,16 +23,21 @@ html, body { margin: 0; height: 100%; background: var(--nv-bg); }
 #nv-app *, #nv-app *::before, #nv-app *::after { box-sizing: border-box; }
 .nv-hidden { display: none !important; }
 
-/* The bar: back / menu button, title, actions. */
+/* The bar: back / menu button and the leading view, title, actions. The side columns share what
+   the title leaves, so the title is centred over the whole bar until a side needs the room. */
 .nv-bar {
-	flex: none; display: flex; align-items: center; gap: 4px; height: 56px; padding: 0 8px;
+	flex: none; display: grid; grid-template-columns: minmax(max-content, 1fr) minmax(0, auto) minmax(max-content, 1fr);
+	align-items: center; height: 56px; padding: 0 8px;
 	background: var(--nv-surface); border-bottom: 1px solid var(--nv-sep);
 }
+.nv-bar-start { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.nv-bar-leading { display: flex; align-items: center; }
+.nv-bar-leading:empty { display: none; }
 .nv-bar-title {
-	flex: 1 1 0; min-width: 0; padding: 0 8px; font-size: 18px; font-weight: 600;
+	min-width: 0; padding: 0 8px; font-size: 18px; font-weight: 600; text-align: center;
 	white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.nv-bar-actions { flex: none; display: flex; gap: 2px; }
+.nv-bar-actions { justify-self: end; display: flex; gap: 2px; }
 .nv-icon-btn {
 	flex: none; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
 	min-width: 40px; height: 40px; padding: 0 8px; border: none; border-radius: 20px;
@@ -66,6 +71,10 @@ html, body { margin: 0; height: 100%; background: var(--nv-bg); }
 .nv-container { display: flex; flex-direction: column; }
 .nv-box { flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
 .nv-box > * { flex: 1 1 auto; min-width: 0; min-height: 0; }
+
+/* Layout: the child fills it; it takes the size it is given, whatever the child's. */
+.nv-layout { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
+.nv-layout > * { flex: 1 1 0; min-width: 0; min-height: 0; }
 
 /* Label, Button, Input */
 .nv-label { display: flex; align-items: center; min-width: 0; }
@@ -140,12 +149,18 @@ html, body { margin: 0; height: 100%; background: var(--nv-bg); }
 .nv-tab.nv-selected { color: var(--nv-accent); }
 #nv-app .nv-tab svg { width: 22px; height: 22px; }
 
-/* Dialog: a card over the page, a scrim under it when modal. */
+/* Dialog: a card over the page, a scrim under it when modal. The width (--nv-dw), the radius and
+   the scrim's colour are inline (dialog_web.odin). */
 .nv-dscrim { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.4); }
 .nv-dialog {
 	position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
-	width: min(320px, calc(100% - 32px)); max-height: calc(100% - 32px); overflow: auto;
+	width: min(var(--nv-dw, 320px), calc(100% - 32px)); max-height: calc(100% - 32px); overflow: auto;
 	display: flex; flex-direction: column; padding: 16px; border-radius: 12px;
 	background: var(--nv-bg); border: 1px solid var(--nv-sep); box-shadow: 0 6px 24px rgba(0, 0, 0, 0.3);
 }
 .nv-dialog > * { flex: none; }
+/* A light card: the light palette (PALETTE_LIGHT) for everything inside, whatever the theme. */
+.nv-dialog.nv-light {
+	--nv-bg: #fff; --nv-surface: #f5f5fa; --nv-text: #1a1a1f; --nv-text2: #737380; --nv-sep: #ccccd4;
+	color-scheme: light; color: #000; background: #fff;
+}

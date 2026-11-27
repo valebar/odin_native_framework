@@ -1,4 +1,5 @@
 #+build darwin:ios
+#+private
 package nv
 
 // iOS theme backend. The mode is the window's overrideUserInterfaceStyle (0 follows the system,

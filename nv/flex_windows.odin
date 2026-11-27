@@ -1,4 +1,5 @@
 #+build windows
+#+private
 package nv
 
 // Windows Row / Column backend. Win32 has no layout system, so an "NVFlex" window places its
@@ -6,6 +7,7 @@ package nv
 // children split the rest in exact proportion to their weights, and the cross axis stretches.
 
 import "core:slice"
+import "core:strings"
 import win "core:sys/windows"
 
 @(private) Flex_Data :: struct {
@@ -35,6 +37,9 @@ label_new :: proc(text: string, parent: win.HWND, style: win.DWORD, font: win.HF
 	win.SendMessageW(label, win.WM_SETFONT, win.WPARAM(uintptr(font)), 0)
 	return label
 }
+
+// A multi-line Static's extent, as SS_LEFTNOWORDWRAP draws it.
+@(private) DT_LINES_CALC :: win.DrawTextFormat(u32(win.DrawTextFormat.DT_CALCRECT) | u32(win.DrawTextFormat.DT_NOPREFIX) | u32(win.DrawTextFormat.DT_EXPANDTABS))
 
 @(private)
 flex_data :: proc "contextless" (hwnd: win.HWND) -> ^Flex_Data {
@@ -150,6 +155,8 @@ measure :: proc(hwnd: win.HWND) -> [2]i32 {
 		return image_measure(hwnd)
 	case CLASS_CONTAINER:
 		return container_measure(hwnd)
+	case CLASS_LAYOUT:
+		return layout_measure(hwnd)
 	case CLASS_OVERLAY:
 		return overlay_measure(hwnd)
 	case CLASS_FAB:
@@ -165,6 +172,13 @@ measure :: proc(hwnd: win.HWND) -> [2]i32 {
 		dc := win.GetDC(hwnd)
 		defer win.ReleaseDC(hwnd, dc)
 		font := win.HFONT(uintptr(win.SendMessageW(hwnd, win.WM_GETFONT, 0, 0)))
+		if strings.contains(text, "\n") { // a multi-line label (label_windows.odin)
+			old := win.SelectObject(dc, win.HGDIOBJ(font))
+			defer win.SelectObject(dc, old)
+			rc: win.RECT
+			win.DrawTextW(dc, wstr(text), -1, &rc, DT_LINES_CALC)
+			return {rc.right, rc.bottom}
+		}
 		sz := text_size(dc, font, text)
 		return {sz.cx, sz.cy}
 	}

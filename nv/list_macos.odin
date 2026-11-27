@@ -1,4 +1,5 @@
 #+build darwin:default
+#+private
 package nv
 
 // macOS list backend: NSTableView inside NSScrollView, with cell reuse.

@@ -1,4 +1,5 @@
 #+build darwin:default
+#+private
 package nv
 
 // macOS scaffold backend; the overlay, the visibility and the timer are shared (appkit.odin). The
@@ -64,19 +65,19 @@ _fab_init :: proc(h: ^Fab_Handle) {
 	image := fab_symbol(f.icon)
 	button: ^Button_View
 	switch {
-	case f.label == "" && image != nil:
+	case f.title == "" && image != nil:
 		button = send(^Button_View, Button_View, "buttonWithImage:target:action:", image, t, action)
 	case image != nil:
-		button = send(^Button_View, Button_View, "buttonWithTitle:image:target:action:", ns_string(f.label), image, t, action)
+		button = send(^Button_View, Button_View, "buttonWithTitle:image:target:action:", ns_string(f.title), image, t, action)
 	case:
-		button = button_push(ns_string(f.label), t, action)
+		button = button_push(ns_string(f.title), t, action)
 	}
 	objc_own(button)->retain() // autoreleased; *_init makes owned views
 	send(nil, button, "setBordered:", NS.BOOL(false))
 	send(nil, button, "setContentTintColor:", canvas_color({1, 1, 1, 1}))
 	send(nil, button, "setWantsLayer:", NS.BOOL(true))
-	fab_style(button, f.label != "", theme_palette().accent)
-	if f.label != "" {
+	fab_style(button, f.title != "", theme_palette().accent)
+	if f.title != "" {
 		send(nil, button, "sizeToFit") // the natural width plus Material's 20pt either side
 		w := send(NS.Rect, button, "frame").size.width
 		layout_anchor_constant(anchor_width(button), w + 40, 999)

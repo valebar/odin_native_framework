@@ -1,4 +1,5 @@
 #+build linux:android
+#+private
 package nv
 
 // Android navigation backend: the top page is the Activity's content view and its title goes to
@@ -74,7 +75,25 @@ android_chrome :: proc(e: ^Page_Handle) {
 		jni_delete_local_ref(env, bar)
 	}
 	android_set_title(env, e.page.title)
+	android_set_leading(env, e)
 	activity_invalidate_options_menu(env, activity)
+}
+
+@(private)
+_nav_leading_changed :: proc(e: ^Page_Handle) {
+	if e == g_nav[len(g_nav) - 1] do android_set_leading(g_android.env, e)
+}
+
+// The page's leading view in the bar's holder; the view's reference belongs to its page's scope.
+@(private)
+android_set_leading :: proc(env: JNI_Env, e: ^Page_Handle) {
+	holder := g_android.bar_leading
+	if holder == nil do return
+	view_group_remove_all_views(env, holder)
+	if e.bar_leading == nil do return
+	lp := frame_lp_new(env, LAYOUT_WRAP_CONTENT, LAYOUT_WRAP_CONTENT)
+	view_group_add_view(env, holder, jobject(e.bar_leading), lp)
+	jni_delete_local_ref(env, lp)
 }
 
 // The ActionBar shows the top page only; a lower page's changes are picked up when it is shown again.
@@ -83,21 +102,26 @@ _nav_title_changed :: proc(e: ^Page_Handle) {
 	if e == g_nav[len(g_nav) - 1] do android_set_title(g_android.env, e.page.title)
 }
 
-// The title as the bar's custom view (nv.NvTitleView: centred, as on iOS) in the bar title style,
-// once per Activity. Its context is the bar's themed one, for the bar's text color.
+// The bar's custom view (nv.NvBarView: the leading view's holder, then nv.NvTitleView, centred as
+// on iOS) with the title in the bar title style, once per Activity. Its context is the bar's themed one, for the bar's text color.
 @(private)
 android_title_install :: proc(env: JNI_Env, bar: jobject) {
 	ctx := action_bar_get_themed_context(env, bar)
-	tv := nv_title_view_new(env, ctx)
+	bv := nv_bar_view_new(env, ctx)
 	jni_delete_local_ref(env, ctx)
+	tv := nv_bar_view_get_title(env, bv)
+	leading := nv_bar_view_get_leading(env, bv)
 	android_style_text(env, tv, theme_bar_title()) // over the ActionBar title's own look (NvTitleView)
 	lp := action_bar_layout_params_new(env, LAYOUT_MATCH_PARENT, LAYOUT_MATCH_PARENT)
-	action_bar_set_custom_view(env, bar, tv, lp)
+	action_bar_set_custom_view(env, bar, bv, lp)
 	jni_delete_local_ref(env, lp)
 	action_bar_set_display_show_title_enabled(env, bar, false)
 	action_bar_set_display_show_custom_enabled(env, bar, true)
 	g_android.title_view = jni_new_global_ref(env, tv)
+	g_android.bar_leading = jni_new_global_ref(env, leading)
 	jni_delete_local_ref(env, tv)
+	jni_delete_local_ref(env, leading)
+	jni_delete_local_ref(env, bv)
 }
 
 // The page title: the bar's title view, and the Activity's title (accessibility, recents).

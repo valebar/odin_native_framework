@@ -1,4 +1,5 @@
 #+build linux:default
+#+private
 package nv
 
 // Linux Row / Column backend: a GtkBox. A child's flex maps onto its expand flag along the

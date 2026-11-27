@@ -2,6 +2,8 @@ package nv;
 
 import android.content.Context;
 import android.graphics.Canvas;
+import android.graphics.Paint;
+import android.graphics.Path;
 import android.view.InputDevice;
 import android.view.MotionEvent;
 import android.view.View;
@@ -31,6 +33,21 @@ public final class NvCanvasView extends View {
             return true;
         }
         return super.onGenericMotionEvent(e);
+    }
+
+    private static final Path polyline = new Path(); // the UI thread's, reused
+
+    // One stroked path through the first n floats of pts (x0, y0, x1, y1, ..), with round joins;
+    // the paint's join is put back, since rects keep theirs.
+    static void strokePolyline(Canvas c, float[] pts, int n, Paint paint) {
+        Path p = polyline;
+        p.rewind();
+        p.moveTo(pts[0], pts[1]);
+        for (int i = 2; i + 1 < n; i += 2) p.lineTo(pts[i], pts[i + 1]);
+        Paint.Join join = paint.getStrokeJoin();
+        paint.setStrokeJoin(Paint.Join.ROUND);
+        c.drawPath(p, paint);
+        paint.setStrokeJoin(join);
     }
 
     private static native void nativeOnDraw(long handle, Canvas c, int width, int height);

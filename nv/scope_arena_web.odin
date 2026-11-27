@@ -1,4 +1,5 @@
 #+build js
+#+private
 package nv
 
 // A scope's arena (see Scope) on the web: wasm has no virtual memory (core:mem/virtual's reserve

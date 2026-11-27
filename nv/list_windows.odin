@@ -1,4 +1,5 @@
 #+build windows
+#+private
 package nv
 
 // Windows list backend: a SysListView32 in virtual mode (LVS_OWNERDATA). It only knows the row

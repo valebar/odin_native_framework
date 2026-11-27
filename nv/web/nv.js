@@ -13,7 +13,7 @@
 // Web_Event in web.odin.
 const EV = {
 	BUTTON: 0, INPUT_CHANGE: 1, INPUT_SUBMIT: 2, ACTION: 3, BACK: 4, MENU: 5, FAB: 6, SCRIM: 7,
-	TAB: 8, LIST_SELECT: 9, THEME: 10,
+	TAB: 8, LIST_SELECT: 9, THEME: 10, DIALOG_SCRIM: 11,
 };
 
 let mem = null; // odin.WasmMemoryInterface
@@ -37,6 +37,7 @@ function release(id) {
 	if (!el) return;
 	if (el.nvCanvas) canvasDispose(el.nvCanvas);
 	if (el.nvList) listDispose(el.nvList);
+	if (el.nvLayout) { el.nvLayout.alive = false; layoutObserver.unobserve(el); }
 	el.remove();
 	els[id] = null;
 	freeIds.push(id);
@@ -114,6 +115,25 @@ function onPopState(e) {
 		depth = after;
 	}
 	historySync(ex.nv_web_depth());
+}
+
+// ---- Layout: reports its size before the canvases inside redraw ----
+
+// Created before resizeObserver: observers deliver in creation order, so the app's answer to a new
+// size (hidden views, new widths) is in the DOM before the canvases measure themselves.
+const layoutObserver = new ResizeObserver((entries) => {
+	for (const e of entries) {
+		const l = e.target.nvLayout;
+		if (l && l.alive) ex.nv_web_layout(l.h, e.target.clientWidth, e.target.clientHeight);
+	}
+});
+
+function layoutCreate(h) {
+	const el = document.createElement("div");
+	el.className = "nv-layout";
+	el.nvLayout = {h, alive: true};
+	layoutObserver.observe(el);
+	return put(el);
 }
 
 // ---- lists: a virtualized scroller with recycled rows ----
@@ -315,6 +335,7 @@ const SYSTEM_FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
 // blob URL by <img>; Odin already knows its size from the header (imagesize.odin).
 const bitmaps = [null];
 const fonts = [null];
+const IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 
 function bitmapCreate(bytes) {
 	const b = {blob: new Blob([bytes]), image: null, url: null, alive: true};
@@ -325,6 +346,45 @@ function bitmapCreate(bytes) {
 	}, () => {});
 	bitmaps.push(b);
 	return bitmaps.length - 1;
+}
+
+// A bitmap from RGBA pixels (straight alpha, as ImageData) is a <canvas> of its size: canvases
+// draw it at once, and new pixels show on their next draw. <img> gets a PNG of the pixels of the
+// version it was set to (toBlob, encoded off the main thread). 0 if the browser has no such canvas.
+function bitmapRgba(w, h, p) {
+	const image = document.createElement("canvas");
+	image.width = w;
+	image.height = h;
+	const ctx = image.getContext("2d");
+	if (!ctx) return 0;
+	const b = {blob: null, image, ctx, url: null, alive: true, version: 0, urlVersion: -1};
+	bitmapPut(b, p);
+	bitmaps.push(b);
+	return bitmaps.length - 1;
+}
+
+// putImageData copies: the view of wasm memory is dropped at once.
+function bitmapPut(b, p) {
+	const w = b.image.width, h = b.image.height;
+	b.ctx.putImageData(new ImageData(new Uint8ClampedArray(mem.memory.buffer, p, w * h * 4), w, h), 0, 0);
+	b.version++;
+}
+
+// Shows a pixel bitmap in an <img>: a URL per version, the older one revoked once a newer exists.
+// `img.nvBitmap` / `nvVersion` drop an encode that a later js_image_set overtook.
+function imageRgba(img, b) {
+	const v = b.version;
+	img.nvVersion = v;
+	if (b.urlVersion === v) { img.src = b.url; return; }
+	b.image.toBlob((blob) => {
+		if (!b.alive || !blob) return;
+		if (b.urlVersion < v) {
+			if (b.url) URL.revokeObjectURL(b.url);
+			b.url = URL.createObjectURL(blob);
+			b.urlVersion = v;
+		}
+		if (img.nvBitmap === b && img.nvVersion === v) img.src = b.url;
+	});
 }
 
 // ---- assets and downloads ----
@@ -386,6 +446,26 @@ const imports = {
 	},
 	js_inert: (id, on) => { els[id].inert = !!on; },
 	js_focus: (id) => els[id].focus(),
+	js_input_focus: (id, all) => {
+		const el = els[id];
+		el.focus();
+		if (all) el.select();
+		else el.setSelectionRange(el.value.length, el.value.length);
+	},
+	// nv.Keyboard: Text, Sentences, Number, Signed_Number, Decimal. A signed number gets the numeric
+	// pad (Android's has a minus) except on iOS, whose pads have none: the text keyboard there.
+	js_input_kind: (id, kind, secure) => {
+		const el = els[id];
+		if (secure) {
+			el.type = "password";
+			el.setAttribute("autocapitalize", "off");
+			el.spellcheck = false;
+		}
+		const mode = [null, null, "numeric", IOS ? null : "numeric", "decimal"][kind];
+		if (mode) el.setAttribute("inputmode", mode);
+		if (kind === 1) el.setAttribute("autocapitalize", "sentences");
+		if (kind >= 2) { el.setAttribute("autocapitalize", "off"); el.setAttribute("autocorrect", "off"); }
+	},
 	js_blur: () => { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); },
 	js_icon: (id, icon) => els[id].append(iconSvg(icon)),
 	js_listen: (id, kind, h, arg) => {
@@ -415,6 +495,7 @@ const imports = {
 	js_list_count: (id, n) => listCount(els[id].nvList, n),
 
 	js_canvas_create: canvasCreate,
+	js_layout_create: layoutCreate,
 	js_canvas_redraw: (id) => canvasRedraw(els[id].nvCanvas),
 	js_fill_rect: (x, y, w, h, c) => fillStyle(c).fillRect(x, y, w, h),
 	js_stroke_rect: (x, y, w, h, c, lw) => {
@@ -445,6 +526,27 @@ const imports = {
 		ctx.arc(cx, cy, r, a0, a0 + sweep * Math.PI / 180, sweep < 0);
 		ctx.stroke();
 	},
+	// A fresh view per call: wasm memory growth detaches the old ones. Only this sets a round join
+	// (strokeRect sets its miter; the others have no corners).
+	js_polyline: (p, n, c, lw) => {
+		const pts = mem.loadF64Array(p, n * 2);
+		const ctx = strokeStyle(c, lw, "butt");
+		ctx.lineJoin = "round";
+		ctx.moveTo(pts[0], pts[1]);
+		for (let i = 2; i < pts.length; i += 2) ctx.lineTo(pts[i], pts[i + 1]);
+		ctx.stroke();
+	},
+	js_clip_push: (x, y, w, h) => {
+		const ctx = cur.ctx;
+		ctx.save(); // the state cache stays right: nothing changes yet
+		ctx.beginPath();
+		ctx.rect(x, y, w, h);
+		ctx.clip();
+	},
+	js_clip_pop: () => {
+		cur.ctx.restore(); // colours, width and font go back to what clip_push saw
+		cur.fill = cur.stroke = cur.font = cur.lw = undefined;
+	},
 	// (x, y) is the top-left of the line box: the baseline is the font's ascent below it.
 	js_draw_text: (p, n, x, y, size, weight, italic, font, c) => {
 		const ctx = fillStyle(c);
@@ -465,21 +567,29 @@ const imports = {
 	},
 
 	js_bitmap: (p, n) => bitmapCreate(mem.loadBytes(p, n).slice()),
+	js_bitmap_rgba: bitmapRgba,
+	js_bitmap_set_rgba: (id, p) => { if (bitmaps[id]) bitmapPut(bitmaps[id], p); },
 	js_bitmap_release: (id) => {
 		const b = bitmaps[id];
 		if (!b) return;
 		b.alive = false;
-		if (b.image) b.image.close();
+		if (b.ctx) { b.image.width = b.image.height = 0; } // a pixel bitmap's canvas: its memory goes now
+		else if (b.image) b.image.close();
 		if (b.url) URL.revokeObjectURL(b.url);
 		bitmaps[id] = null;
 	},
 	js_image_set: (id, bmp, fit) => {
 		const img = els[id];
 		const b = bitmaps[bmp];
+		img.nvBitmap = b;
 		img.style.objectFit = ["contain", "cover", "fill"][fit] || "contain";
 		if (!b) { img.removeAttribute("src"); img.classList.add("nv-hidden"); return; }
-		if (!b.url) b.url = URL.createObjectURL(b.blob);
-		img.src = b.url;
+		if (b.ctx) {
+			imageRgba(img, b);
+		} else {
+			if (!b.url) b.url = URL.createObjectURL(b.blob);
+			img.src = b.url;
+		}
 		img.classList.remove("nv-hidden");
 	},
 
@@ -515,12 +625,69 @@ const imports = {
 			.then((b) => deliver(f, b ? new Uint8Array(b) : null), () => deliver(f, null));
 	},
 	js_timeout: (ms, t) => { setTimeout(() => ex.nv_web_timer(t), ms); },
+	js_file_open: (r, p, n) => fileOpen(r, S(p, n)),
+	js_file_save: (r, p, n, dp, dn) => fileSave(r, S(p, n), mem.loadBytes(dp, dn).slice()),
 
 	js_system_dark: () => darkQuery.matches,
 	js_system_accent: systemAccent,
 	js_color_scheme: (dark) => { document.documentElement.style.colorScheme = dark ? "dark" : "light"; },
 	js_redraw_all: redrawAll,
 };
+
+// ---- files ----
+
+// File_Status in nv.odin.
+const FILE = {OK: 0, CANCELLED: 1, FAILED: 2};
+let filePending = 0; // the open dialog's request, 0 for none
+let fileInput = null;
+
+// Copies the name and the bytes into wasm memory (nv_web_alloc), which nv_web_file takes over.
+function fileDeliver(r, status, name, bytes) {
+	const nb = enc.encode(name || "");
+	const np = nb.length ? ex.nv_web_alloc(nb.length) : 0;
+	if (nb.length) mem.loadBytes(np, nb.length).set(nb);
+	const dp = bytes && bytes.length ? ex.nv_web_alloc(bytes.length) : 0;
+	if (dp) mem.loadBytes(dp, bytes.length).set(bytes);
+	ex.nv_web_file(r, status, np, nb.length, dp, bytes ? bytes.length : 0);
+}
+
+// A hidden <input type=file> in #nv-app (Safari wants it in the document). Browsers that never fire
+// `cancel` leave the request pending until the next dialog, which reports it cancelled first.
+function fileOpen(r, accept) {
+	if (filePending) { const old = filePending; filePending = 0; fileDeliver(old, FILE.CANCELLED); }
+	if (!fileInput) {
+		fileInput = document.createElement("input");
+		fileInput.type = "file";
+		fileInput.style.display = "none";
+		document.getElementById("nv-app").append(fileInput);
+		fileInput.addEventListener("change", () => {
+			const req = filePending, file = fileInput.files[0];
+			filePending = 0;
+			fileInput.value = "";
+			if (!req) return;
+			if (!file) { fileDeliver(req, FILE.CANCELLED); return; }
+			file.arrayBuffer().then((b) => fileDeliver(req, FILE.OK, file.name, new Uint8Array(b)), () => fileDeliver(req, FILE.FAILED));
+		});
+		fileInput.addEventListener("cancel", () => {
+			const req = filePending;
+			filePending = 0;
+			if (req) fileDeliver(req, FILE.CANCELLED);
+		});
+	}
+	fileInput.accept = accept;
+	filePending = r;
+	fileInput.click();
+}
+
+// A download: the browser shows no save dialog, so it is done once it started.
+function fileSave(r, name, bytes) {
+	const url = URL.createObjectURL(new Blob([bytes]));
+	const a = document.createElement("a");
+	a.href = url;
+	a.download = name;
+	a.click();
+	setTimeout(() => { URL.revokeObjectURL(url); fileDeliver(r, FILE.OK, name); }, 0);
+}
 
 // ---- the loader ----
 

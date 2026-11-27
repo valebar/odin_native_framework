@@ -1,4 +1,5 @@
 #+build darwin:default
+#+private
 package nv
 
 // macOS button backend: a bezel push button (NSButton buttonWithTitle:target:action:) whose

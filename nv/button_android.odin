@@ -1,4 +1,5 @@
 #+build linux:android
+#+private
 package nv
 
 // Android button backend: an android.widget.Button. nv.NvClickListener (Java shim) forwards

@@ -1,4 +1,5 @@
 #+build js
+#+private
 package nv
 
 // Web label backend: a div centering one line of text (a span, cut with an ellipsis) in the box a

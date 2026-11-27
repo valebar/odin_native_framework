@@ -1,4 +1,5 @@
 #+build linux:default
+#+private
 package nv
 
 // Linux canvas backend: a GtkDrawingArea drawn with cairo, a GtkGestureDrag for the pointer
@@ -220,4 +221,33 @@ on_canvas_scroll :: proc "c" (c: ^GtkEventController, dx, dy: f64, user: gpointe
 	k := gtk_event_controller_scroll_get_unit(c) == GDK_SCROLL_UNIT_WHEEL ? f64(SCROLL_LINE) : 1
 	canvas_scroll_notify(h, dx * k, dy * k)
 	return true
+}
+
+// One path, butt ends and round joins; the join goes back to miter, which the rects stroke with.
+@(private)
+_stroke_polyline :: proc(p: ^Painter, points: [][2]f64, color: Color, width: f64) {
+	cr := cairo_of(p, color)
+	cairo_set_line_width(cr, width)
+	cairo_set_line_cap(cr, CAIRO_LINE_CAP_BUTT)
+	cairo_set_line_join(cr, CAIRO_LINE_JOIN_ROUND)
+	cairo_move_to(cr, points[0].x, points[0].y)
+	for pt in points[1:] do cairo_line_to(cr, pt.x, pt.y)
+	cairo_stroke(cr)
+	cairo_set_line_join(cr, CAIRO_LINE_JOIN_MITER)
+}
+
+// The clip is gstate: save / restore bracket it. Nothing is cached across draw calls, so the
+// colour, width and font a restore brings back are set again by the next call anyway.
+@(private)
+_clip_push :: proc(p: ^Painter, x, y, w, h: f64) {
+	cr := (^cairo_t)(p.native)
+	cairo_save(cr)
+	cairo_new_path(cr)
+	cairo_rectangle(cr, x, y, w, h)
+	cairo_clip(cr)
+}
+
+@(private)
+_clip_pop :: proc(p: ^Painter) {
+	cairo_restore((^cairo_t)(p.native))
 }

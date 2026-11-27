@@ -1,4 +1,5 @@
 #+build darwin:ios
+#+private
 package nv
 
 // Minimal hand-written UIKit bindings (iOS only).
@@ -91,6 +92,8 @@ UI_TABLE_VIEW_CELL_STYLE_DEFAULT  :: NS.Integer(0)
 
 UI_TEXT_BORDER_STYLE_ROUNDED_RECT       :: NS.Integer(3)
 UI_RETURN_KEY_DONE                      :: NS.Integer(9)
+UI_TEXT_AUTOCAPITALIZATION_SENTENCES    :: NS.Integer(2)
+UI_USER_INTERFACE_STYLE_LIGHT           :: NS.Integer(1)
 UI_BUTTON_TYPE_SYSTEM                   :: NS.Integer(1)
 UI_BAR_BUTTON_ITEM_STYLE_PLAIN          :: NS.Integer(0)
 UI_CONTROL_STATE_NORMAL                 :: NS.UInteger(0)

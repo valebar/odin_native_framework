@@ -1,4 +1,5 @@
 #+build darwin:default
+#+private
 package nv
 
 // Minimal hand-written AppKit bindings not covered by core:sys/darwin/Foundation, for the macOS
@@ -84,9 +85,10 @@ view_remove_from_superview :: proc "c" (v: ^AK.View) {
 	send(nil, v, "removeFromSuperview")
 }
 
-// Returns an owned (+1) custom box: a plain filled rectangle with optional rounded corners.
-box_new :: proc "c" (frame: NS.Rect) -> ^Box {
-	b := send(^Box, Box, "alloc")
+// Returns an owned (+1) custom box: a plain filled rectangle with optional rounded corners. `cls`
+// is an NSBox subclass, or nil.
+box_new :: proc "c" (frame: NS.Rect, cls: NS.Class = nil) -> ^Box {
+	b := cls != nil ? send(^Box, (^NS.Object)(rawptr(cls)), "alloc") : send(^Box, Box, "alloc")
 	b = send(^Box, b, "initWithFrame:", frame)
 	send(nil, b, "setBoxType:", BOX_TYPE_CUSTOM)
 	send(nil, b, "setTitlePosition:", BOX_TITLE_NONE)
@@ -267,6 +269,11 @@ text_field_set_tag :: proc "c" (tf: ^Text_Field, tag: NS.Integer) {
 // Autoreleased editable field: single line, non-wrapping, scrolls horizontally.
 text_field_editable :: proc "c" (s: ^NS.String) -> ^Text_Field {
 	return send(^Text_Field, Text_Field, "textFieldWithString:", s)
+}
+
+// The same as an NSSecureTextField (bullets, no copy).
+secure_text_field_editable :: proc "c" (s: ^NS.String) -> ^Text_Field {
+	return send(^Text_Field, objc_class_object("NSSecureTextField"), "textFieldWithString:", s)
 }
 
 text_field_set_placeholder :: proc "c" (tf: ^Text_Field, s: ^NS.String) {

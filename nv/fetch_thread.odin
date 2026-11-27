@@ -1,4 +1,5 @@
 #+build windows, linux:default
+#+private
 package nv
 
 // Image downloads on Windows and Linux (Android's libc can't host core:thread, so NvFetch.java

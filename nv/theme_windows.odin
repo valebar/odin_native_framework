@@ -1,4 +1,5 @@
 #+build windows
+#+private
 package nv
 
 // Windows theme backend. Win32 has no light / dark switch for an app, so the pieces are set one
@@ -36,6 +37,7 @@ foreign dwmapi {
 	heights:      map[win.HFONT]i32, // line height in px of every font we made, the base fonts included
 	bg:           win.HBRUSH,        // palette.background
 	surface:      win.HBRUSH,        // palette.surface: edits
+	light:        win.HBRUSH,        // DIALOG_LIGHT: a light dialog's card and edits, whatever the theme
 	allow_dark:   proc "system" (hwnd: win.HWND, allow: win.BOOL) -> win.BOOL, // uxtheme #133; may be nil
 }
 
@@ -89,6 +91,7 @@ theme_windows_brushes :: proc() {
 	}
 	g_theme_windows.bg = win.CreateSolidBrush(colorref(p.background))
 	g_theme_windows.surface = win.CreateSolidBrush(colorref(p.surface))
+	if g_theme_windows.light == nil do g_theme_windows.light = win.CreateSolidBrush(colorref(DIALOG_LIGHT))
 }
 
 // The main window's title bar, and its border in the accent color when the app set one (Win11).
@@ -102,23 +105,24 @@ theme_window_frame :: proc(wnd: win.HWND) {
 	}
 }
 
-// The visual style of a common control for the current light / dark; other windows are left
-// alone (they paint from the palette).
+// The visual style of a common control for the current light / dark (light inside a light
+// dialog); other windows are left alone (they paint from the palette).
 @(private)
 theme_control :: proc(hwnd: win.HWND) {
+	dark := g_dark && !in_light_dialog(hwnd)
 	theme: string
 	switch class_name(hwnd) {
-	case "Button":        theme = g_dark ? "DarkMode_Explorer" : ""
-	case "Edit":          theme = g_dark ? "DarkMode_CFD" : ""
+	case "Button":        theme = dark ? "DarkMode_Explorer" : ""
+	case "Edit":          theme = dark ? "DarkMode_CFD" : ""
 	case win.WC_LISTVIEW:
-		theme = g_dark ? "DarkMode_Explorer" : "Explorer"
-		p := theme_palette()
-		win.SendMessageW(hwnd, LVM_SETBKCOLOR, 0, win.LPARAM(colorref(p.background)))
-		win.ListView_SetTextBkColor(hwnd, colorref(p.background))
+		theme = dark ? "DarkMode_Explorer" : "Explorer"
+		bg := (dark ? PALETTE_DARK : PALETTE_LIGHT).background
+		win.SendMessageW(hwnd, LVM_SETBKCOLOR, 0, win.LPARAM(colorref(bg)))
+		win.ListView_SetTextBkColor(hwnd, colorref(bg))
 	case:
 		return
 	}
-	if g_theme_windows.allow_dark != nil do g_theme_windows.allow_dark(hwnd, win.BOOL(g_dark))
+	if g_theme_windows.allow_dark != nil do g_theme_windows.allow_dark(hwnd, win.BOOL(dark))
 	win.SetWindowTheme(hwnd, theme == "" ? nil : wstr(theme), nil) // nil: back to the default style
 }
 
@@ -145,7 +149,7 @@ erase_background :: proc "contextless" (hwnd: win.HWND, dc: win.HDC) -> win.LRES
 ctlcolor_static :: proc "contextless" (wparam: win.WPARAM, lparam: win.LPARAM) -> win.LRESULT {
 	dc := win.HDC(wparam)
 	label := win.HWND(uintptr(lparam))
-	color := g_dark ? PALETTE_DARK.text : PALETTE_LIGHT.text
+	color := g_dark && !in_light_dialog(label) ? PALETTE_DARK.text : PALETTE_LIGHT.text
 	if h := (^Label_Handle)(uintptr(win.GetWindowLongPtrW(label, win.GWLP_USERDATA))); h != nil {
 		if h.label.style.color.a > 0 do color = h.label.style.color
 	}

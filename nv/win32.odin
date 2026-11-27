@@ -1,4 +1,5 @@
 #+build windows
+#+private
 package nv
 
 // Shared Win32 state and helpers for the Windows backend. The bindings themselves come from
@@ -30,6 +31,7 @@ foreign gdi32 {
 	GetTextFaceW :: proc(hdc: win.HDC, c: i32, lpName: win.LPWSTR) -> i32 ---
 	RemoveFontMemResourceEx :: proc(h: win.HANDLE) -> win.BOOL ---
 	CreateRoundRectRgn :: proc(x1, y1, x2, y2, w, h: i32) -> win.HRGN ---
+	IntersectClipRect :: proc(hdc: win.HDC, left, top, right, bottom: i32) -> i32 ---
 }
 
 @(private) g_windows: struct {
@@ -41,6 +43,8 @@ foreign gdi32 {
 	nav_menu:   win.HWND, // the bar's menu button, on a root page with a drawer (nav_shows_menu)
 	nav_title:  win.HWND,
 	nav_actions: [dynamic]win.HWND, // the bar's action buttons for the top page
+	nav_leading: win.HWND, // the top page's bar_leading, moved into the bar; nil for none
+	nav_leading_home: win.HWND, // the root of the page it belongs to, where it is parked when not shown
 	dpi:        u32,
 	font:       win.HFONT, // message font (Segoe UI 9pt): list subtitles, inputs, buttons, plain labels
 	bold:       win.HFONT, // bold message font: list titles
@@ -62,6 +66,7 @@ foreign gdi32 {
 @(private) CLASS_SCRIM  :: "NVScrim"
 @(private) CLASS_DIALOG :: "NVDialog"
 @(private) CLASS_CONTAINER :: "NVContainer"
+@(private) CLASS_LAYOUT :: "NVLayout"
 
 @(private)
 wstr :: proc(s: string) -> win.wstring {
@@ -102,6 +107,7 @@ register_classes :: proc() {
 	register(CLASS_OVERLAY, overlay_proc)
 	register(CLASS_FAB, fab_proc)
 	register(CLASS_TABBAR, tabbar_proc)
+	register(CLASS_LAYOUT, layout_proc)
 }
 
 // Fonts follow the user's message font (Settings > Accessibility > Text size included) at `dpi`.
@@ -182,15 +188,31 @@ class_is :: proc "contextless" (hwnd: win.HWND, name: string) -> bool {
 }
 
 // The brush a window's background is painted with: the fill of the nearest NVContainer around (or
-// at) `hwnd` that has a color, else the palette's page background (theme_windows.odin). Labels,
-// Row / Column, buttons, images and the canvas all erase with it, so they don't punch holes into
-// a colored container.
+// at) `hwnd` that has a color, else a light dialog's white, else the palette's page background
+// (theme_windows.odin). Labels, Row / Column, buttons, images and the canvas all erase with it, so
+// they don't punch holes into a colored container.
 @(private)
 background_brush_of :: proc "contextless" (hwnd: win.HWND) -> win.HBRUSH {
 	for p := hwnd; p != nil; p = win.GetParent(p) {
+		if class_is(p, CLASS_DIALOG) {
+			d := (^Dialog_Handle)(uintptr(win.GetWindowLongPtrW(p, win.GWLP_USERDATA)))
+			if d != nil && d.dialog.light do return g_theme_windows.light
+			break
+		}
 		if !class_is(p, CLASS_CONTAINER) do continue
 		h := (^Container_Handle)(uintptr(win.GetWindowLongPtrW(p, win.GWLP_USERDATA)))
 		if h != nil && h.box != nil && h.container.color.a > 0 do return win.HBRUSH(h.box)
 	}
 	return g_theme_windows.bg
+}
+
+// Whether `hwnd` is inside a light dialog's card (Dialog.light), whose content stays light.
+@(private)
+in_light_dialog :: proc "contextless" (hwnd: win.HWND) -> bool {
+	for p := hwnd; p != nil; p = win.GetParent(p) {
+		if !class_is(p, CLASS_DIALOG) do continue
+		d := (^Dialog_Handle)(uintptr(win.GetWindowLongPtrW(p, win.GWLP_USERDATA)))
+		return d != nil && d.dialog.light
+	}
+	return false
 }

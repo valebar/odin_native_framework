@@ -1,4 +1,5 @@
 #+build windows
+#+private
 package nv
 
 // Windows container backend: an "NVContainer" window that is the margin box. It places its child
@@ -182,4 +183,10 @@ container_proc :: proc "system" (hwnd: win.HWND, msg: win.UINT, wparam: win.WPAR
 		return 0
 	}
 	return win.DefWindowProcW(hwnd, msg, wparam, lparam)
+}
+
+// container_measure reads the new size; the Rows / Columns around lay out again.
+@(private)
+_container_set_size :: proc(h: ^Container_Handle) {
+	flex_relayout_ancestors(win.HWND(h.root))
 }

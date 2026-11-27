@@ -1,13 +1,32 @@
 #+build linux:android
+#+private
 package nv
 
-// Android image backend. BitmapFactory decodes into an android.graphics.Bitmap (a global ref).
+// Android image backend. BitmapFactory decodes into an android.graphics.Bitmap (a global ref);
+// pixels go into a mutable ARGB_8888 Bitmap through AndroidBitmap_lockPixels (libjnigraphics).
 // The widget is an nv.NvImageView (an ImageView whose natural size comes from here, so an
 // explicit size can be smaller than the bitmap) scaled by its ScaleType. Downloads and assets go
 // through nv.NvFetch (Java): a download runs on a Java thread and comes back to
 // nativeOnFetch on the UI thread.
 
 import "core:os"
+
+foreign import jnigraphics "system:jnigraphics"
+
+@(private) Android_Bitmap_Info :: struct {
+	width, height, stride: u32,
+	format:                i32,
+	flags:                 u32,
+}
+
+@(private) ANDROID_BITMAP_FORMAT_RGBA_8888 :: 1
+
+@(private)
+foreign jnigraphics {
+	AndroidBitmap_getInfo      :: proc "c" (env: JNI_Env, bitmap: jobject, info: ^Android_Bitmap_Info) -> i32 ---
+	AndroidBitmap_lockPixels   :: proc "c" (env: JNI_Env, bitmap: jobject, pixels: ^rawptr) -> i32 ---
+	AndroidBitmap_unlockPixels :: proc "c" (env: JNI_Env, bitmap: jobject) -> i32 ---
+}
 
 // ImageView.ScaleType names, indexed by Fit.
 @(private) image_scale_types := [Fit]string{
@@ -89,4 +108,53 @@ jni_fetch_on_fetch :: proc "c" (env: JNI_Env, _: jclass, req: jlong, data: jobje
 	g_android.env = env
 	f.data = jni_bytes_clone(env, data, nv_heap())
 	fetch_notify(f)
+}
+
+// Bitmap.createBitmap(w, h, ARGB_8888) is mutable; the global ref goes like a decoded one's.
+@(private)
+_bitmap_rgba :: proc(b: ^Bitmap, pixels: []u8) -> bool {
+	env := g_android.env
+	config := bitmap_config_value_of(env, "ARGB_8888")
+	bmp := bitmap_create_bitmap(env, b.width, b.height, config)
+	jni_delete_local_ref(env, config)
+	if bmp == nil do return false
+	defer jni_delete_local_ref(env, bmp)
+	if !android_bitmap_copy(env, bmp, b.width, b.height, pixels) do return false
+	b.native = rawptr(jni_new_global_ref(env, bmp))
+	return true
+}
+
+@(private)
+_bitmap_set_rgba :: proc(b: ^Bitmap, pixels: []u8) -> bool {
+	return android_bitmap_copy(g_android.env, jobject(b.native), b.width, b.height, pixels)
+}
+
+// Copies straight-alpha RGBA rows into the locked Bitmap, premultiplied as ARGB_8888 holds them
+// (R, G, B, A in memory) at its own stride. Unlocking bumps the bitmap's generation, so the
+// renderer uploads the new pixels on the next draw.
+@(private)
+android_bitmap_copy :: proc "contextless" (env: JNI_Env, bmp: jobject, w, h: int, pixels: []u8) -> bool {
+	info: Android_Bitmap_Info
+	if AndroidBitmap_getInfo(env, bmp, &info) != 0 do return false
+	if info.format != ANDROID_BITMAP_FORMAT_RGBA_8888 || int(info.width) != w || int(info.height) != h do return false
+	dst: rawptr
+	if AndroidBitmap_lockPixels(env, bmp, &dst) != 0 do return false
+	defer AndroidBitmap_unlockPixels(env, bmp)
+	if dst == nil do return false
+	for y in 0 ..< h {
+		src := pixels[y * w * 4:][:w * 4]
+		row := ([^]u8)(dst)[y * int(info.stride):][:w * 4]
+		for x := 0; x < w * 4; x += 4 {
+			a := u32(src[x + 3])
+			if a == 255 {
+				row[x], row[x + 1], row[x + 2], row[x + 3] = src[x], src[x + 1], src[x + 2], 255
+				continue
+			}
+			row[x]     = u8((u32(src[x]) * a + 127) / 255)
+			row[x + 1] = u8((u32(src[x + 1]) * a + 127) / 255)
+			row[x + 2] = u8((u32(src[x + 2]) * a + 127) / 255)
+			row[x + 3] = u8(a)
+		}
+	}
+	return true
 }

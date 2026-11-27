@@ -1,4 +1,5 @@
 #+build darwin:default
+#+private
 package nv
 
 // macOS image backend: an NSView subclass, NVImageView, registered at runtime. NSImageView has no

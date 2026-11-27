@@ -1,4 +1,5 @@
 #+build linux:default
+#+private
 package nv
 
 // Linux image backend. GTK decodes (gdk_texture_new_from_bytes, GTK 4.6), and the pixels are
@@ -144,4 +145,44 @@ fetch_idle :: proc "c" (data: gpointer) -> gboolean {
 	context = f.ctx
 	fetch_notify(f)
 	return G_SOURCE_REMOVE
+}
+
+// Pixels go into the same kind of cairo surface a decode makes, so drawing needs nothing new.
+@(private)
+_bitmap_rgba :: proc(b: ^Bitmap, pixels: []u8) -> bool {
+	surface := cairo_image_surface_create(CAIRO_FORMAT_ARGB32, i32(b.width), i32(b.height))
+	if cairo_image_surface_get_data(surface) == nil { // an error surface (too large, out of memory)
+		cairo_surface_destroy(surface)
+		return false
+	}
+	b.native = surface
+	surface_fill_rgba(surface, b.width, b.height, pixels)
+	return true
+}
+
+@(private)
+_bitmap_set_rgba :: proc(b: ^Bitmap, pixels: []u8) -> bool {
+	surface_fill_rgba((^cairo_surface_t)(b.native), b.width, b.height, pixels)
+	return true
+}
+
+// Straight RGBA bytes into cairo's ARGB32: premultiplied, one native-endian 0xAARRGGBB word per
+// pixel, rows `stride` bytes apart.
+@(private)
+surface_fill_rgba :: proc "contextless" (surface: ^cairo_surface_t, w, h: int, pixels: []u8) {
+	cairo_surface_flush(surface)
+	data := cairo_image_surface_get_data(surface)
+	stride := int(cairo_image_surface_get_stride(surface))
+	for y in 0 ..< h {
+		row := ([^]u32)(&data[y * stride])
+		src := pixels[y * w * 4:]
+		for x in 0 ..< w {
+			r, g, bl, a := u32(src[x * 4]), u32(src[x * 4 + 1]), u32(src[x * 4 + 2]), u32(src[x * 4 + 3])
+			if a < 255 {
+				r, g, bl = (r * a + 127) / 255, (g * a + 127) / 255, (bl * a + 127) / 255
+			}
+			row[x] = a << 24 | r << 16 | g << 8 | bl
+		}
+	}
+	cairo_surface_mark_dirty(surface)
 }

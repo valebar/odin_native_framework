@@ -1,4 +1,5 @@
 #+build js
+#+private
 package nv
 
 // Web navigation backend: each page is an .nv-page in the page host holding the page's root; the
@@ -49,10 +50,23 @@ _nav_actions_changed :: proc(e: ^Page_Handle) {
 }
 
 @(private)
+_nav_leading_changed :: proc(e: ^Page_Handle) {
+	if e == g_nav[len(g_nav) - 1] do nav_set_leading(e)
+}
+
+// The page's scope releases the element; the bar only shows it.
+@(private)
+nav_set_leading :: proc(e: ^Page_Handle) {
+	js_clear(g_web.leading)
+	if e.bar_leading != nil do js_append(g_web.leading, web_id(e.bar_leading))
+}
+
+@(private)
 nav_update_chrome :: proc(e: ^Page_Handle) {
 	nav_set_title(e)
 	js_hidden(g_web.back, len(g_nav) <= 1)
 	js_hidden(g_web.menu, !nav_shows_menu(e))
+	nav_set_leading(e)
 	nav_rebuild_actions(e)
 	js_history(i32(len(g_nav) - 1))
 }

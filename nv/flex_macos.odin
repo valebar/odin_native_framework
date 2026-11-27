@@ -1,4 +1,5 @@
 #+build darwin:default
+#+private
 package nv
 
 // macOS Row / Column backend: NSStackView with Fill distribution. A flex child gets a low
@@ -24,6 +25,11 @@ _flex_create :: proc(f: Flex) -> View {
 		priority := c.flex > 0 ? LAYOUT_PRIORITY_FLEX : LAYOUT_PRIORITY_REQUIRED
 		view_set_content_hugging_priority(child, priority, NS.Integer(f.axis))
 		container_forward_hugging(child, priority, f.axis)
+		// The cross axis stretches every child (the stack's fill alignment ranks below a view's
+		// default hugging, so a label or a fixed-size container would otherwise keep its width).
+		cross := f.axis == .Vertical ? Axis.Horizontal : Axis.Vertical
+		view_set_content_hugging_priority(child, LAYOUT_PRIORITY_FLEX, NS.Integer(cross))
+		container_forward_hugging(child, LAYOUT_PRIORITY_FLEX, cross)
 	}
 	flex_link_sizes(f.children, f.axis)
 	return View(stack)

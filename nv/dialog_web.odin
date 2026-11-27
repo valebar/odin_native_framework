@@ -1,20 +1,28 @@
 #+build js
+#+private
 package nv
 
 // Web dialog backend: the card (.nv-dialog) and, for a modal dialog, a scrim under it are children
-// of #nv-app, over the bar and the pages. The scrim takes the pointer; the keyboard is kept off the
-// bar, the pages and the other dialogs by `inert` while the top page has a visible modal dialog.
+// of #nv-app, over the bar and the pages. The scrim takes the pointer and reports a click for a
+// dismissible dialog (the card is its sibling, so a click on it never bubbles there); the keyboard
+// is kept off the bar, the pages and the other dialogs by `inert` while the top page has a visible
+// modal dialog.
 // The card and the scrim are released at the close, which takes them out of the document; the
-// body's elements go with the dialog's scope.
+// body's elements go with the dialog's scope. The width (--nv-dw), radius and scrim colour are
+// inline; a light card (.nv-light) sets the light palette's variables for everything inside.
 
 @(private)
 _dialog_show :: proc(h: ^Dialog_Handle) {
 	if h.dialog.modal {
 		scrim := js_create("div", "nv-dscrim")
+		js_style(scrim, "background", web_color(dialog_scrim(h)))
+		js_listen(scrim, .Dialog_Scrim, rawptr(uintptr(scrim)), 0)
 		js_append(g_web.app, scrim)
 		h.scrim = rawptr(uintptr(scrim))
 	}
-	card := js_create("div", "nv-dialog")
+	card := js_create("div", h.dialog.light ? "nv-dialog nv-light" : "nv-dialog")
+	js_style(card, "--nv-dw", web_px(dialog_width(h)))
+	js_style(card, "border-radius", web_px(dialog_radius(h, 12)))
 	js_attr(card, "role", "dialog")
 	if h.dialog.modal do js_attr(card, "aria-modal", "true")
 	js_append(card, web_id(h.body))

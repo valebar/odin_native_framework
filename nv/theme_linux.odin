@@ -1,4 +1,5 @@
 #+build linux:default
+#+private
 package nv
 
 // Linux (GTK4) theme backend. The mode is the gtk-application-prefer-dark-theme setting. Plain

@@ -11,8 +11,8 @@ Mock_Post :: struct {
 }
 
 mock_post_worker :: proc(data: rawptr) {
-	post_main(proc(data: rawptr) {
-		p := (^Mock_Post)(data)
+	post_main(proc(user: rawptr) {
+		p := (^Mock_Post)(user)
 		p.runs += 1
 		p.depth = g_callback_depth
 	}, data)
@@ -22,8 +22,8 @@ mock_post_worker :: proc(data: rawptr) {
 test_post_main_from_worker :: proc(t: ^testing.T) {
 	mock_begin(t)
 	defer mock_end(t)
-	run({title = "P", build = proc(page: ^Page_Handle, user: rawptr) -> View {
-		return label_view(label_create({text = "body"}))
+	run({title = "P", build = proc(user: rawptr, page: ^Page_Handle) -> View {
+		return view(label_create({text = "body"}))
 	}})
 	mock_log_clear()
 	p: Mock_Post

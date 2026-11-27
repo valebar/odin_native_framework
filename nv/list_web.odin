@@ -1,4 +1,5 @@
 #+build js
+#+private
 package nv
 
 // Web list backend: a scrolling div whose rows are absolutely placed over a spacer as tall as all

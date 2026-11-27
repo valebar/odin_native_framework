@@ -1,4 +1,5 @@
 #+build darwin
+#+private
 package nv
 
 // Image downloads on macOS / iOS: a detached raw pthread per download runs the blocking

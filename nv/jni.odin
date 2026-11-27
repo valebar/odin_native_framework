@@ -1,4 +1,5 @@
 #+build linux:android
+#+private
 package nv
 
 // Minimal JNI binding. Function indices follow `struct JNINativeInterface` in the NDK's jni.h.
@@ -82,8 +83,10 @@ Jni_Field :: struct {
 @(private) JNI_RELEASE_STRING_UTF_CHARS :: 170
 @(private) JNI_GET_ARRAY_LENGTH      :: 171
 @(private) JNI_NEW_BYTE_ARRAY        :: 176
+@(private) JNI_NEW_FLOAT_ARRAY       :: 181
 @(private) JNI_GET_BYTE_ARRAY_REGION :: 200
 @(private) JNI_SET_BYTE_ARRAY_REGION :: 208
+@(private) JNI_SET_FLOAT_ARRAY_REGION :: 213
 @(private) JNI_EXCEPTION_CHECK       :: 228
 
 @(private)
@@ -234,6 +237,16 @@ jni_byte_array :: proc "contextless" (env: JNI_Env, data: []u8) -> jobject {
 	arr := jni_fn(env, proc "c" (JNI_Env, jint) -> jobject, JNI_NEW_BYTE_ARRAY)(env, jint(len(data)))
 	jni_fn(env, proc "c" (JNI_Env, jobject, jint, jint, [^]u8), JNI_SET_BYTE_ARRAY_REGION)(env, arr, 0, jint(len(data)), raw_data(data))
 	return arr
+}
+
+// A new float[n]; a local ref, nil when out of memory.
+jni_float_array :: proc "contextless" (env: JNI_Env, n: int) -> jobject {
+	return jni_fn(env, proc "c" (JNI_Env, jint) -> jobject, JNI_NEW_FLOAT_ARRAY)(env, jint(n))
+}
+
+// Copies `data` into the start of the float[] `arr`.
+jni_set_floats :: proc "contextless" (env: JNI_Env, arr: jobject, data: []f32) {
+	jni_fn(env, proc "c" (JNI_Env, jobject, jint, jint, [^]f32), JNI_SET_FLOAT_ARRAY_REGION)(env, arr, 0, jint(len(data)), raw_data(data))
 }
 
 // Copies a byte[]; nil for a null array.

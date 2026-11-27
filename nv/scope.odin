@@ -1,3 +1,4 @@
+#+private
 package nv
 
 import "base:intrinsics"
@@ -49,16 +50,6 @@ nv_heap :: proc() -> runtime.Allocator {
 
 @(private) g_heap: runtime.Allocator
 
-// Makes nv take all of its own memory from `allocator` instead of the heap: what outlives a
-// callback (nv_heap), the blocks of the pages' and dialogs' arenas, downloads, timers. Call it
-// before `run` and before loading fonts or bitmaps. Download threads and post_main allocate from
-// other threads, so it must be thread-safe; nv frees into it as before, so an arena that ignores
-// frees will do.
-set_allocator :: proc(allocator: runtime.Allocator) {
-	assert(len(g_nav) == 0, "nv.set_allocator before nv.run")
-	g_heap = allocator
-}
-
 // Set while `dialog_present` builds a dialog's body, which belongs to the dialog, not the page.
 @(private) g_scope_override: ^Scope
 
@@ -96,7 +87,12 @@ scope_new_in :: proc($T: typeid) -> ^T {
 // Runs `fn(data)` when the current scope dies.
 @(private)
 scope_on_dispose :: proc(fn: proc(data: rawptr), data: rawptr) {
-	s := scope_current()
+	scope_on_dispose_in(scope_current(), fn, data)
+}
+
+// Runs `fn(data)` when `s` dies, whichever scope is current.
+@(private)
+scope_on_dispose_in :: proc(s: ^Scope, fn: proc(data: rawptr), data: rawptr) {
 	d := new(Disposer, scope_allocator(s))
 	d^ = {s.disposers, fn, data}
 	s.disposers = d

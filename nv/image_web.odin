@@ -1,11 +1,14 @@
 #+build js
+#+private
 package nv
 
 // Web image backend. The browser decodes asynchronously (createImageBitmap for the canvas, a blob
 // URL for <img>), so a Bitmap's size comes from the file's header (image_size, imagesize.odin) and
 // the pixels follow: a canvas that drew the bitmap before it was decoded draws again once it is.
 // The widget is an <img> filling its view with `object-fit` for the Fit; the view's natural size
-// is image_natural_size (--nv-w / --nv-h, nv.css), so the <img> itself sizes nothing.
+// is image_natural_size (--nv-w / --nv-h, nv.css), so the <img> itself sizes nothing. A bitmap from
+// pixels is a <canvas> of its size that canvases draw at once; <img> shows a PNG of it made when it
+// is set (image_set_bitmap).
 
 @(private)
 _bitmap_decode :: proc(b: ^Bitmap, data: []u8) -> bool {
@@ -41,4 +44,18 @@ _image_set_bitmap :: proc(h: ^Image_Handle) {
 	js_style(view, "--nv-h", web_px(s.y))
 	bitmap: i32 = h.bitmap != nil ? i32(uintptr(h.bitmap.native)) : 0
 	js_image_set(Web_Id(uintptr(h.view)), bitmap, i32(h.image.fit))
+}
+
+@(private)
+_bitmap_rgba :: proc(b: ^Bitmap, pixels: []u8) -> bool {
+	id := js_bitmap_rgba(i32(b.width), i32(b.height), raw_data(pixels))
+	if id == 0 do return false
+	b.native = rawptr(uintptr(id))
+	return true
+}
+
+@(private)
+_bitmap_set_rgba :: proc(b: ^Bitmap, pixels: []u8) -> bool {
+	js_bitmap_set_rgba(i32(uintptr(b.native)), raw_data(pixels))
+	return true
 }

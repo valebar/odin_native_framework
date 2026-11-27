@@ -210,7 +210,7 @@ test_dialog_content_belongs_to_page :: proc(t: ^testing.T) {
 	push(mock_page(&b))
 	content := label_create({text = "body"})
 	mock_log_clear()
-	d := Mock_Dialog{name = "D", content = label_view(content), buttons = {{title = "OK", on_click = mock_close_clicked}}}
+	d := Mock_Dialog{name = "D", content = view(content), buttons = {{title = "OK", on_click = mock_close_clicked}}}
 	mock_show(&d)
 	callback_exit()
 	expect_log(t, "label_init D", "button_init OK", "flex_create Horizontal 1", "flex_create Vertical 3", "dialog_show D")
@@ -386,7 +386,7 @@ Widget_Page :: struct {
 }
 
 @(private = "file")
-widget_page_build :: proc(page: ^Page_Handle, user: rawptr) -> View {
+widget_page_build :: proc(user: rawptr, page: ^Page_Handle) -> View {
 	w := (^Widget_Page)(user)
 	w.button = button_create({title = "Tap", user = w, on_click = proc(user: rawptr) { (^Widget_Page)(user).calls += 1 }})
 	w.canvas = canvas_create({
@@ -402,7 +402,7 @@ widget_page_build :: proc(page: ^Page_Handle, user: rawptr) -> View {
 		on_select = proc(user: rawptr, _: int) { (^Widget_Page)(user).calls += 1 },
 		user      = w,
 	})
-	return column_create({{button_view(w.button), 0}, {canvas_view(w.canvas), 1}, {input_view(w.input), 0}, {list_view(w.list), 1}})
+	return column_create({{view(w.button), 0}, {view(w.canvas), 1}, {view(w.input), 0}, {view(w.list), 1}})
 }
 
 // Every callback once, the way the backends report them.
@@ -429,7 +429,7 @@ test_popped_page_calls_nothing :: proc(t: ^testing.T) {
 	w: Widget_Page
 	mock_launch(&root)
 	callback_enter()
-	push({title = "B", build = widget_page_build, user_data = &w})
+	push({title = "B", build = widget_page_build, user = &w})
 	callback_exit()
 	widget_page_poke(&w)
 	testing.expect_value(t, w.calls, 8)
@@ -452,7 +452,7 @@ test_closed_dialog_calls_nothing :: proc(t: ^testing.T) {
 	defer mock_end(t)
 	mock.retire = .Later
 	root := Mock_Page{name = "Root"}
-	d := Mock_Dialog{name = "D", buttons = {{title = "Close", on_click = proc(d: ^Dialog_Handle, _: rawptr) {
+	d := Mock_Dialog{name = "D", buttons = {{title = "Close", on_click = proc(_: rawptr, d: ^Dialog_Handle) {
 		mock_log("clicked")
 		dialog_close(d)
 	}}}}
@@ -512,4 +512,184 @@ test_refused_pop_dropped_when_page_went :: proc(t: ^testing.T) {
 	nav_transition_done()
 	expect_log(t)
 	testing.expect(t, len(g_nav) == 2 && g_nav[1].page.title == "C")
+}
+
+// Bar leading: set during build it waits for the push; later it reaches the backend for any shown
+// page; nil keeps the view alive with its page.
+Mock_Leading_Page :: struct {
+	page:    ^Page_Handle,
+	cluster: View,
+}
+
+@(test)
+test_bar_leading_from_build_waits :: proc(t: ^testing.T) {
+	mock_begin(t)
+	defer mock_end(t)
+	lp: Mock_Leading_Page
+	run({title = "Root", user = &lp, build = proc(user: rawptr, page: ^Page_Handle) -> View {
+		lp := (^Mock_Leading_Page)(user)
+		lp.page = page
+		lp.cluster = view(label_create({text = "cluster"}))
+		page_set_bar_leading(page, lp.cluster)
+		return view(label_create({text = "body"}))
+	}})
+	expect_log(t, "theme_apply_mode System", "label_init cluster", "label_init body", "nav_push Root")
+	testing.expect(t, lp.page.bar_leading == lp.cluster)
+}
+
+@(test)
+test_bar_leading_set_clear_reset :: proc(t: ^testing.T) {
+	mock_begin(t)
+	defer mock_end(t)
+	lp: Mock_Leading_Page
+	run({title = "Root", user = &lp, build = proc(user: rawptr, page: ^Page_Handle) -> View {
+		lp := (^Mock_Leading_Page)(user)
+		lp.page = page
+		lp.cluster = view(label_create({text = "cluster"}))
+		return view(label_create({text = "body"}))
+	}})
+	mock_log_clear()
+	views := mock.views
+	page_set_bar_leading(lp.page, lp.cluster)
+	page_set_bar_leading(lp.page, nil)
+	page_set_bar_leading(lp.page, lp.cluster)
+	expect_log(t, "nav_leading_changed Root label cluster", "nav_leading_changed Root none", "nav_leading_changed Root label cluster")
+	testing.expect_value(t, mock.views, views)
+}
+
+// A page below the top hears of it too (the backend decides what to show); a popped page's view
+// dies with its scope.
+@(test)
+test_bar_leading_on_lower_page :: proc(t: ^testing.T) {
+	mock_begin(t)
+	defer mock_end(t)
+	lp: Mock_Leading_Page
+	run({title = "Root", user = &lp, build = proc(user: rawptr, page: ^Page_Handle) -> View {
+		lp := (^Mock_Leading_Page)(user)
+		lp.page = page
+		lp.cluster = view(label_create({text = "cluster"}))
+		return view(label_create({text = "body"}))
+	}})
+	push({title = "Top", build = proc(user: rawptr, page: ^Page_Handle) -> View {
+		page_set_bar_leading(page, view(label_create({text = "top cluster"})))
+		return view(label_create({text = "top"}))
+	}})
+	mock_log_clear()
+	page_set_bar_leading(lp.page, lp.cluster)
+	expect_log(t, "nav_leading_changed Root label cluster")
+	pop()
+	testing.expect_value(t, mock.views, 2) // the root's cluster and body; the top page's two went
+}
+
+// on_covered: the page below hears true once the pushed page is shown, the page back on top false
+// after a pop (the system's too); never the popped page, nor on the first show.
+@(test)
+test_on_covered :: proc(t: ^testing.T) {
+	mock_begin(t)
+	defer mock_end(t)
+	root, b, c := Mock_Page{name = "Root", log_covered = true}, Mock_Page{name = "B", log_covered = true}, Mock_Page{name = "C", log_covered = true}
+	run(mock_page(&root))
+	expect_log(t, "theme_apply_mode System", "build Root", "label_init Root", "nav_push Root")
+
+	callback_enter()
+	push(mock_page(&b))
+	pop()
+	callback_exit()
+	expect_log(t, "build B", "label_init B", "nav_push B", "covered Root",
+		"nav_pop B -> Root", "nav_release B", "on_pop B", "uncovered Root", "release label B")
+
+	cp := mock_page(&c)
+	b.push = &cp // B's build pushes C: both covers come after their page is shown
+	callback_enter()
+	push(mock_page(&b))
+	callback_exit()
+	expect_log(t, "build B", "label_init B", "nav_push B", "covered Root", "build C", "label_init C", "nav_push C", "covered B")
+
+	callback_enter() // the user swiped C away
+	nav_system_pop()
+	callback_exit()
+	expect_log(t, "nav_release C", "on_pop C", "uncovered B", "release label C")
+
+	callback_enter()
+	push(cp)
+	nav_system_pop_page(b.handle) // iOS: B went from under C, which stays on top
+	callback_exit()
+	expect_log(t, "build C", "label_init C", "nav_push C", "covered B", "nav_release B", "on_pop B", "release label B")
+	testing.expect(t, len(g_nav) == 2 && g_nav[0].covered && !g_nav[1].covered)
+}
+
+// Dialog.build makes the content in the dialog's scope: its widgets go when the dialog closes,
+// shown from a page's build (pending) and from a click alike; `content` stays the page's.
+@(test)
+test_dialog_build_belongs_to_dialog :: proc(t: ^testing.T) {
+	mock_begin(t)
+	defer mock_end(t)
+	d := Mock_Dialog{name = "D", build = true, buttons = {{title = "OK", on_click = mock_close_clicked}}}
+	root := Mock_Page{name = "Root", dialog = &d}
+	run(mock_page(&root))
+	expect_log(t, "theme_apply_mode System", "build Root", "label_init Root", "nav_push Root",
+		"label_init built", "label_init D", "button_init OK", "flex_create Horizontal 1", "flex_create Vertical 3", "dialog_show D")
+	testing.expect_value(t, mock.views, 6)
+	button_notify(d.handle.buttons[0].handle)
+	expect_log(t, "dialog_close D", "on_close D", "release flex", "release flex", "release button OK", "release label D", "release label built")
+	testing.expect_value(t, mock.views, 1)
+
+	e := Mock_Dialog{name = "E", build = true, light = true}
+	callback_enter()
+	mock_show(&e)
+	testing.expect(t, e.handle.title.label.style.color == DIALOG_LIGHT_TEXT && e.built.label.text == "built")
+	dialog_close(e.handle)
+	callback_exit()
+	expect_log(t, "label_init built", "label_init E", "flex_create Vertical 2", "dialog_show E", "dialog_close E", "on_close E",
+		"release flex", "release label E", "release label built")
+	testing.expect_value(t, mock.views, 1)
+}
+
+// A tap on a dismissible dialog's scrim closes it; not on another modal one's, a hidden one's or a
+// closed one's, and a non-modal one has no scrim.
+@(test)
+test_dismissible_dialog :: proc(t: ^testing.T) {
+	mock_begin(t)
+	defer mock_end(t)
+	root, b := Mock_Page{name = "Root"}, Mock_Page{name = "B"}
+	n := Mock_Dialog{name = "N", dismissible = true}
+	e := Mock_Dialog{name = "E", modal = true}
+	d := Mock_Dialog{name = "D", modal = true, dismissible = true}
+	mock_launch(&root)
+	callback_enter()
+	mock_show(&n)
+	mock_show(&e)
+	callback_exit()
+	testing.expect(t, n.handle.scrim == nil && e.handle.scrim != nil)
+	mock_log_clear()
+	dialog_scrim_notify(e.handle.scrim)
+	dialog_scrim_notify(nil)
+	expect_log(t)
+
+	callback_enter()
+	mock_show(&d)
+	push(mock_page(&b))
+	callback_exit()
+	scrim := d.handle.scrim
+	mock_log_clear()
+	dialog_scrim_notify(scrim) // hidden under B
+	expect_log(t)
+
+	callback_enter()
+	pop()
+	callback_exit()
+	mock_log_clear()
+	dialog_scrim_notify(scrim)
+	expect_log(t, "dialog_close D", "on_close D", "release flex", "release label D")
+	testing.expect(t, len(g_dialogs) == 2 && dialog_top_modal() == e.handle && g_callback_depth == 0)
+	dialog_scrim_notify(scrim) // closed
+	expect_log(t)
+}
+
+@(test)
+test_dialog_card_defaults :: proc(t: ^testing.T) {
+	h: Dialog_Handle
+	testing.expect(t, dialog_width(&h) == 320 && dialog_radius(&h, 12) == 12 && dialog_scrim(&h) == DIALOG_SCRIM)
+	h.dialog = {width = 400, radius = 20, scrim = {0, 0, 0, 0.6}}
+	testing.expect(t, dialog_width(&h) == 400 && dialog_radius(&h, 12) == 20 && dialog_scrim(&h) == {0, 0, 0, 0.6})
 }

@@ -1,4 +1,5 @@
 #+build js
+#+private
 package nv
 
 // Web font backend: a FontFace from the bytes, added to document.fonts under a family of its own

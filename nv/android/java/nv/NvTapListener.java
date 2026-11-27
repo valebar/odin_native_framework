@@ -4,7 +4,7 @@ import android.view.View;
 
 // Forwards clicks on the scaffold's pieces to Odin (scaffold_android.odin): `kind` says what
 // `handle` is: 0 = a scrim (^Overlay_Handle), 1 = a FAB (^Fab_Handle), 2 + i = tab i of a tab bar
-// (^Tabbar_Handle).
+// (^Tabbar_Handle), -1 = a dialog's scrim (its global ref).
 public final class NvTapListener implements View.OnClickListener {
     private final long handle;
     private final int kind;

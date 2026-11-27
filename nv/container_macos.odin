@@ -1,4 +1,5 @@
 #+build darwin:default
+#+private
 package nv
 
 // macOS container backend: the root is an NSView subclass, NVContainerView, registered at runtime
@@ -60,6 +61,7 @@ _container_set_color :: proc(h: ^Container_Handle) {
 // root's intrinsic size decides and a required hugging on the child would conflict with it.
 @(private)
 container_forward_hugging :: proc "c" (v: ^AK.View, priority: f32, axis: Axis) {
+	if layout_forward_hugging(v, priority, axis) do return
 	if container_class == nil || OBJC.object_getClass(NS.id(v)) != container_class do return
 	h := objc_handle(NS.id(v), Container_Handle)
 	if h.container.child == nil do return
@@ -73,4 +75,21 @@ container_forward_hugging :: proc "c" (v: ^AK.View, priority: f32, axis: Axis) {
 container_intrinsic_size :: proc "c" (self: NS.id, _: NS.SEL) -> NS.Size {
 	h := objc_handle(self, Container_Handle)
 	return container_intrinsic(h)
+}
+
+// A fixed axis holds at LAYOUT_PRIORITY_FIXED and leaves the stretching to the root's intrinsic
+// size; a free one passes the root's hugging on to the child again (container_forward_hugging).
+@(private)
+_container_set_size :: proc(h: ^Container_Handle) {
+	root := (^AK.View)(h.root)
+	c := &h.container
+	for axis in Axis {
+		fixed := (axis == .Horizontal ? c.width : c.height) > 0
+		view_set_content_compression_resistance_priority(root, fixed ? LAYOUT_PRIORITY_FIXED : 750, NS.Integer(axis))
+		if c.child == nil do continue
+		child := (^AK.View)(c.child)
+		if fixed do view_set_content_hugging_priority(child, 250, NS.Integer(axis))
+		else do container_forward_hugging(child, send(f32, root, "contentHuggingPriorityForOrientation:", NS.Integer(axis)), axis)
+	}
+	send(nil, root, "invalidateIntrinsicContentSize")
 }

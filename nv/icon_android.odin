@@ -1,4 +1,5 @@
 #+build linux:android
+#+private
 package nv
 
 // Icons drawn from Material's 24-unit SVG paths (nv.js has every icon's) into a ShapeDrawable, where

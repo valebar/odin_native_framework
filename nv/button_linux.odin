@@ -1,4 +1,5 @@
 #+build linux:default
+#+private
 package nv
 
 // Linux button backend: a GtkButton with a text label and its "clicked" signal; the style is a

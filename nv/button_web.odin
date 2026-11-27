@@ -1,4 +1,5 @@
 #+build js
+#+private
 package nv
 
 // Web button backend: a <button>, in the accent color when the theme sets one (as on GTK).

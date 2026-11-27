@@ -1,9 +1,10 @@
 #+build linux:android
+#+private
 package nv
 
 // Android scaffold backend: the overlay is a FrameLayout (the base MATCH_PARENT, the children
 // placed by FrameLayout.LayoutParams gravity, size and margins), the scrim a clickable translucent
-// View, the FAB an ImageButton (or a Button when it has a label) on an accent GradientDrawable, the
+// View, the FAB an ImageButton (or a Button when it has a title) on an accent GradientDrawable, the
 // tab bar a LinearLayout of clickable icon + title items (the platform has no BottomNavigationView;
 // that is Material Components), and the timer nv.NvTimer (Handler.postDelayed). Every child of the
 // overlay is clickable, so a touch on it stops there instead of reaching the views under it (a
@@ -23,6 +24,7 @@ import "core:sys/posix"
 @(private) TAP_SCRIM :: 0
 @(private) TAP_FAB   :: 1
 @(private) TAP_TAB   :: 2 // + the tab index
+@(private) TAP_DIALOG :: -1 // a dialog's scrim; the handle is its global ref (dialog_android.odin)
 
 @(private)
 _view_set_hidden :: proc(v: View, hidden: bool) {
@@ -113,11 +115,11 @@ _fab_init :: proc(h: ^Fab_Handle) {
 	activity := g_android.activity
 	accent := android_argb(theme_palette().accent)
 	icon := android_icon_res(env, h.fab.icon)
-	if icon == 0 && h.fab.label == "" do icon = android_icon_res(env, .Add) // no image for it here
+	if icon == 0 && h.fab.title == "" do icon = android_icon_res(env, .Add) // no image for it here
 	bg := gradient_drawable_new(env)
 	gradient_drawable_set_color(env, bg, accent)
 	b: jobject
-	if h.fab.label == "" && icon != 0 {
+	if h.fab.title == "" && icon != 0 {
 		b = image_button_new(env, activity)
 		gradient_drawable_set_shape(env, bg, ANDROID_SHAPE_OVAL)
 		image_view_set_image_resource(env, b, icon)
@@ -125,10 +127,10 @@ _fab_init :: proc(h: ^Fab_Handle) {
 		pad := android_dp(16) // a 24dp icon in the 56dp circle
 		view_set_padding(env, b, pad, pad, pad, pad)
 		view_set_minimum_width(env, b, android_dp(56))
-	} else { // extended: the label, with the icon before it
+	} else { // extended: the title, with the icon before it
 		b = button_new(env, activity)
 		gradient_drawable_set_corner_radius(env, bg, f32(android_dp(28)))
-		text_view_set_text(env, b, h.fab.label)
+		text_view_set_text(env, b, h.fab.title)
 		text_view_set_text_color(env, b, android_argb({1, 1, 1, 1}))
 		if icon != 0 {
 			text_view_set_compound_drawables_relative_with_intrinsic_bounds(env, b, icon, 0, 0, 0)
@@ -292,6 +294,8 @@ android_on_tap :: proc(env: JNI_Env, v: jobject, handle: rawptr, kind: int) -> j
 jni_on_tap :: proc "c" (env: JNI_Env, _: jclass, handle: jlong, kind: jint) {
 	g_android.env = env
 	switch {
+	case kind == TAP_DIALOG:
+		dialog_scrim_notify(rawptr(uintptr(handle)))
 	case kind == TAP_SCRIM:
 		h := (^Overlay_Handle)(uintptr(handle))
 		context = h.ctx

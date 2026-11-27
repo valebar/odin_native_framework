@@ -1,4 +1,5 @@
 #+build darwin
+#+private
 package nv
 
 // Objective-C helpers shared by the macOS and iOS backends: `send`, `ns_string`, runtime classes
@@ -10,6 +11,8 @@ import NS "core:sys/darwin/Foundation"
 import OBJC "core:sys/darwin/ObjectiveC"
 
 @(private) send :: intrinsics.objc_send
+
+ROW_ID :: "nv_row" // list cell reuse identifier
 
 // Copies bytes, so the Odin string may be freed afterwards. Autoreleased.
 ns_string :: proc "c" (s: string) -> ^NS.String {
@@ -38,6 +41,12 @@ objc_class :: proc(cls: ^NS.Class, name, super: cstring, methods: []Objc_Method,
 	OBJC.objc_registerClassPair(c)
 	cls^ = c
 	return c
+}
+
+// [super cmd] for a no-argument, void method of `cls` (an objc_class subclass), from its IMP.
+objc_send_super :: proc "c" (self: NS.id, cls: NS.Class, cmd: NS.SEL) {
+	sup := OBJC.objc_super{receiver = self, super_class = OBJC.class_getSuperclass(cls)}
+	(proc "c" (^OBJC.objc_super, NS.SEL))(rawptr(OBJC.objc_msgSendSuper))(&sup, cmd)
 }
 
 // class_createInstance with room for one pointer in the indexed ivars, set to `h`. Owned, like
@@ -207,6 +216,20 @@ layout_pin_edges :: proc "c" (child, parent: ^NS.Object) {
 	layout_anchor_equal(anchor_bottom(child), anchor_bottom(parent))
 	layout_anchor_equal(anchor_leading(child), anchor_leading(parent))
 	layout_anchor_equal(anchor_trailing(child), anchor_trailing(parent))
+}
+
+// Pins a Layout's child (layout_macos.odin / layout_ios.odin): top and leading required, trailing
+// and bottom at LAYOUT_PRIORITY_CHILD, below everything that sizes a view from outside (a stack's
+// cross-axis fill, the page's 499, the window's), so the Layout takes the size its parent gives it,
+// whatever the child's natural size (Flutter's LayoutBuilder); the child, whose hugging the
+// backends drop to 1, still stretches to it, and on_layout resizes what is fixed inside.
+LAYOUT_PRIORITY_CHILD :: f32(100)
+
+layout_pin_child :: proc "c" (child, parent: ^NS.Object) {
+	layout_anchor_equal(anchor_top(child), anchor_top(parent))
+	layout_anchor_equal(anchor_leading(child), anchor_leading(parent))
+	layout_anchor_equal_priority(anchor_bottom(child), anchor_bottom(parent), LAYOUT_PRIORITY_CHILD)
+	layout_anchor_equal_priority(anchor_trailing(child), anchor_trailing(parent), LAYOUT_PRIORITY_CHILD)
 }
 
 // Pins `child` inside `parent` (both already in the same hierarchy) at the given distances from

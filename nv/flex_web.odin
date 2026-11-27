@@ -1,4 +1,5 @@
 #+build js
+#+private
 package nv
 
 // Web Row / Column backend: a flexbox (.nv-row / .nv-col in nv.css) whose cross axis stretches. A

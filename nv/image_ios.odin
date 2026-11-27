@@ -1,4 +1,5 @@
 #+build darwin:ios
+#+private
 package nv
 
 // iOS image backend: a UIImageView subclass, NVImageView, registered at runtime only to report the

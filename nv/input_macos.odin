@@ -1,9 +1,11 @@
 #+build darwin:default
+#+private
 package nv
 
-// macOS input backend: an editable NSTextField. Its delegate (NVInputDelegate) gets
-// controlTextDidChange: for every edit and control:textView:doCommandBySelector: for Return
-// (insertNewline:). setStringValue: sends no change notification.
+// macOS input backend: an editable NSTextField (an NSSecureTextField for `secure`; the keyboard
+// kind does not apply). Its delegate (NVInputDelegate) gets controlTextDidChange: for every edit
+// and control:textView:doCommandBySelector: for Return (insertNewline:). setStringValue: sends no
+// change notification.
 
 import "base:intrinsics"
 import "core:strings"
@@ -14,7 +16,8 @@ import AK "vendor:darwin/AppKit"
 
 @(private)
 _input_init :: proc(h: ^Input_Handle) {
-	field := text_field_editable(ns_string(h.input.text)) // autoreleased; *_create returns owned views
+	text := ns_string(h.input.text)
+	field := h.input.secure ? secure_text_field_editable(text) : text_field_editable(text) // autoreleased; *_create returns owned views
 	objc_own(field)->retain()
 	if h.input.placeholder != "" do text_field_set_placeholder(field, ns_string(h.input.placeholder))
 	s := h.input.style
@@ -63,4 +66,17 @@ input_do_command :: proc "c" (self: NS.id, _: NS.SEL, _: NS.id, _: NS.id, comman
 	context = h.ctx
 	if command == intrinsics.objc_find_selector("insertNewline:") do input_notify(h, h.input.on_submit)
 	return false
+}
+
+// Becoming first responder selects the whole text (NSTextField's own behaviour), so without
+// select_all the field editor's caret goes to the end.
+@(private)
+_input_focus :: proc(h: ^Input_Handle, select_all: bool) {
+	field := (^NS.Object)(h.field)
+	window := send(^NS.Object, field, "window")
+	if window == nil || !send(NS.BOOL, window, "makeFirstResponder:", field) do return
+	editor := send(^NS.Object, field, "currentEditor")
+	if editor == nil do return
+	n := send(NS.UInteger, send(^NS.Object, editor, "string"), "length")
+	send(nil, editor, "setSelectedRange:", select_all ? NS.Range{0, n} : NS.Range{n, 0})
 }

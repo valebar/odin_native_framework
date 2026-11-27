@@ -1,4 +1,5 @@
 #+build linux:default
+#+private
 package nv
 
 // Linux scaffold backend: the overlay is a GtkOverlay (its child the base, the rest overlay
@@ -81,8 +82,8 @@ _fab_init :: proc(h: ^Fab_Handle) {
 	f := &h.fab
 	icon := gtk_icon_names[f.icon]
 	b: ^GtkWidget
-	if f.label == "" && icon == "" do icon = gtk_icon_names[.Add] // no image for it here
-	if f.label == "" {
+	if f.title == "" && icon == "" do icon = gtk_icon_names[.Add] // no image for it here
+	if f.title == "" {
 		b = gtk_button_new()
 		gtk_button_set_child(b, fab_icon(icon))
 	} else {
@@ -90,7 +91,7 @@ _fab_init :: proc(h: ^Fab_Handle) {
 		gtk_widget_add_css_class(b, "nv-extended")
 		box := gtk_box_new(.Horizontal, 8)
 		if icon != "" do gtk_box_append(box, fab_icon(icon))
-		gtk_box_append(box, gtk_label_new(strings.clone_to_cstring(f.label, context.temp_allocator)))
+		gtk_box_append(box, gtk_label_new(strings.clone_to_cstring(f.title, context.temp_allocator)))
 		gtk_widget_set_halign(box, .Center)
 		gtk_button_set_child(b, box)
 	}

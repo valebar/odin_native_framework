@@ -1,4 +1,5 @@
 #+build linux:android
+#+private
 package nv
 
 // Android list backend: ListView + nv.NvListAdapter (Java shim), rows reused via convertView.

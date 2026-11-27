@@ -1,10 +1,13 @@
 #+build windows
+#+private
 package nv
 
 // Windows input backend: a single-line "Edit" control inside an "NVInput" container window.
 // Edit caches its parent at creation and sends EN_CHANGE there, so like the list it needs a
 // parent that Row / Column never re-parents. Enter produces no notification in a single-line
-// Edit, so the control is subclassed to catch it (and to swallow the beep).
+// Edit, so the control is subclassed to catch it (and to swallow the beep). `secure` is
+// ES_PASSWORD (comctl32 v6 masks with a bullet), Keyboard.Number ES_NUMBER (digits only); the other
+// keyboards have no desktop meaning.
 
 import win "core:sys/windows"
 
@@ -13,8 +16,10 @@ _input_init :: proc(h: ^Input_Handle) {
 	container := win.CreateWindowExW(0, wstr(CLASS_INPUT), nil, win.WS_CHILD | win.WS_VISIBLE | win.WS_CLIPCHILDREN,
 		0, 0, 0, 0, g_windows.parking, nil, g_windows.hinstance, h)
 
-	edit := win.CreateWindowExW(win.WS_EX_CLIENTEDGE, wstr("Edit"), wstr(h.input.text),
-		win.WS_CHILD | win.WS_VISIBLE | win.WS_TABSTOP | win.ES_AUTOHSCROLL,
+	style := win.WS_CHILD | win.WS_VISIBLE | win.WS_TABSTOP | win.ES_AUTOHSCROLL
+	if h.input.secure do style |= win.ES_PASSWORD
+	if h.input.keyboard == .Number do style |= win.ES_NUMBER
+	edit := win.CreateWindowExW(win.WS_EX_CLIENTEDGE, wstr("Edit"), wstr(h.input.text), style,
 		0, 0, 0, 0, container, nil, g_windows.hinstance, nil)
 	win.SendMessageW(edit, win.WM_SETFONT, win.WPARAM(uintptr(style_font(h.input.style, g_windows.font))), 0)
 	theme_control(edit)
@@ -63,12 +68,13 @@ input_proc :: proc "system" (hwnd: win.HWND, msg: win.UINT, wparam: win.WPARAM, 
 		win.GetClientRect(hwnd, &rc)
 		win.MoveWindow(win.HWND(h.field), 0, 0, rc.right, rc.bottom, true)
 		return 0
-	case win.WM_CTLCOLOREDIT: // the text on the palette's surface
-		p := theme_palette()
+	case win.WM_CTLCOLOREDIT: // the text on the palette's surface; on white in a light dialog
+		light := in_light_dialog(hwnd)
+		p := light ? PALETTE_LIGHT : theme_palette()
 		dc := win.HDC(wparam)
 		win.SetTextColor(dc, colorref(h.input.style.color.a > 0 ? h.input.style.color : p.text))
-		win.SetBkColor(dc, colorref(p.surface))
-		return win.LRESULT(uintptr(g_theme_windows.surface))
+		win.SetBkColor(dc, colorref(light ? DIALOG_LIGHT : p.surface))
+		return win.LRESULT(uintptr(light ? g_theme_windows.light : g_theme_windows.surface))
 	case win.WM_COMMAND:
 		if win.HWND(uintptr(lparam)) == win.HWND(h.field) && win.HIWORD(u32(wparam)) == win.EN_CHANGE {
 			input_notify(h, h.input.on_change)
@@ -92,4 +98,17 @@ edit_subclass_proc :: proc "system" (hwnd: win.HWND, msg: win.UINT, wparam: win.
 		RemoveWindowSubclass(hwnd, edit_subclass_proc, id)
 	}
 	return win.DefSubclassProc(hwnd, msg, wparam, lparam)
+}
+
+// The caret goes to the end unless everything is selected.
+@(private)
+_input_focus :: proc(h: ^Input_Handle, select_all: bool) {
+	edit := win.HWND(h.field)
+	win.SetFocus(edit)
+	if select_all {
+		win.SendMessageW(edit, win.EM_SETSEL, 0, -1)
+	} else {
+		n := win.GetWindowTextLengthW(edit)
+		win.SendMessageW(edit, win.EM_SETSEL, win.WPARAM(n), win.LPARAM(n))
+	}
 }

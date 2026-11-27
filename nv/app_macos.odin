@@ -1,4 +1,5 @@
 #+build darwin:default
+#+private
 package nv
 
 // macOS app backend: one NSWindow whose content view is a container holding the pages
@@ -20,6 +21,7 @@ import AK "vendor:darwin/AppKit"
 	menu:   ^Titlebar_Accessory_View_Controller, // owned for the run; attached on a root page with a drawer (nav_shows_menu)
 	menu_attached: bool,
 	actions: ^Titlebar_Accessory_View_Controller, // trailing; the top page's action buttons, nil when it has none
+	leading: ^Titlebar_Accessory_View_Controller, // the top page's bar_leading after back / menu, nil when it has none
 	nav_target: NS.id, // NVNavTarget: receives the back button's and the actions' clicks
 }
 

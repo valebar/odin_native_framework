@@ -1,4 +1,5 @@
 #+build linux:android
+#+private
 package nv
 
 // Android canvas backend: nv.NvCanvasView (Java shim) forwards onDraw, touches and a mouse's wheel. Drawing goes
@@ -190,4 +191,48 @@ jni_canvas_on_scroll :: proc "c" (env: JNI_Env, _: jclass, handle: jlong, h_axis
 	if h.canvas.on_scroll == nil do return 0
 	canvas_scroll_notify(h, f64(h_axis) * SCROLL_LINE, -f64(v_axis) * SCROLL_LINE)
 	return 1
+}
+
+// The float[] _stroke_polyline hands to Java: a global ref grown on demand (UI thread only).
+@(private) g_android_points: struct {
+	arr: jobject,
+	cap: int,
+}
+
+// The points go over as one float[] (one region copy) and one call: NvCanvasView.strokePolyline
+// draws them as one reused Path with round joins on the stroke Paint, whose join it puts back.
+@(private)
+_stroke_polyline :: proc(p: ^Painter, points: [][2]f64, color: Color, width: f64) {
+	env := g_android.env
+	n := len(points) * 2
+	buf := make([]f32, n, context.temp_allocator)
+	for pt, i in points do buf[2 * i], buf[2 * i + 1] = f32(pt.x), f32(pt.y)
+	pts := &g_android_points
+	if pts.cap < n {
+		c := max(n, 2 * pts.cap, 256)
+		if pts.arr != nil do jni_delete_global_ref(env, pts.arr)
+		pts.arr, pts.cap = nil, 0
+		local := jni_float_array(env, c)
+		if local == nil {
+			jni_check(env)
+			return
+		}
+		pts.arr, pts.cap = jni_new_global_ref(env, local), c
+		jni_delete_local_ref(env, local)
+	}
+	jni_set_floats(env, pts.arr, buf)
+	nv_canvas_view_stroke_polyline(env, jobject(p.native), pts.arr, n, paint(p, color, true, width))
+}
+
+// Canvas.save + clipRect / restore; the Paints are not canvas state, so their cache holds.
+@(private)
+_clip_push :: proc(p: ^Painter, x, y, w, h: f64) {
+	env := g_android.env
+	canvas_save(env, jobject(p.native))
+	canvas_clip_rect(env, jobject(p.native), f32(x), f32(y), f32(x + w), f32(y + h))
+}
+
+@(private)
+_clip_pop :: proc(p: ^Painter) {
+	canvas_restore(g_android.env, jobject(p.native))
 }

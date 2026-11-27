@@ -1,8 +1,9 @@
 #+build js
+#+private
 package nv
 
 // Web app backend. The page (index.html) has #nv-app; _run fills it with the bar (back button,
-// menu button, title, the top page's actions) over the page host, then builds the root page at
+// menu button, the top page's leading view, title, actions) over the page host, then builds the root page at
 // once, since the DOM exists before the wasm starts. `run` returns, and so does main: the app lives
 // on events, like Android's (nv.js never calls the runtime's _end). Assets were all fetched by
 // nv.js before the wasm started, so _asset_read is synchronous like everywhere else.
@@ -19,12 +20,17 @@ _run :: proc() {
 	menu := web_icon_button(i32(Icon.Menu), "Menu")
 	js_listen(menu, .Menu, nil, 0)
 	js_hidden(menu, true)
+	start := js_create("div", "nv-bar-start")
+	leading := js_create("div", "nv-bar-leading")
 	title := js_create("div", "nv-bar-title")
 	actions := js_create("div", "nv-bar-actions")
-	js_append(bar, back)
-	js_append(bar, menu)
+	js_append(start, back)
+	js_append(start, menu)
+	js_append(start, leading)
+	js_append(bar, start)
 	js_append(bar, title)
 	js_append(bar, actions)
+	g_web.leading = leading
 	pages := js_create("main", "nv-pages")
 	js_append(g_web.app, bar)
 	js_append(g_web.app, pages)

@@ -1,4 +1,5 @@
 #+build windows
+#+private
 package nv
 
 // Windows scaffold backend. Win32 has no overlay, FAB or bottom tab bar, so the pieces are windows
@@ -78,10 +79,13 @@ _overlay_add :: proc(h: ^Overlay_Handle, child: View, place: Overlay_Place) {
 	overlay_layout(win.HWND(h.root))
 }
 
+// A `sizes` child (stack_place) may change the overlay's natural size: its ancestors relayout too,
+// the overlay first.
 @(private)
 _overlay_place :: proc(h: ^Overlay_Handle, child: View, place: Overlay_Place) {
 	for &c in (^Windows_Overlay)(h.native).children do if c.view == win.HWND(child) do c.place = place
-	overlay_layout(win.HWND(h.root))
+	if place.sizes do flex_relayout_ancestors(win.HWND(child))
+	else do overlay_layout(win.HWND(h.root))
 }
 
 @(private)
@@ -199,15 +203,15 @@ fab_glyph :: proc "contextless" (h: ^Fab_Handle) -> string {
 	return g_windows.icon_font != nil ? mdl2_glyphs[h.fab.icon] : ""
 }
 
-// Natural size in px: a 56dp circle, or 56dp high around the glyph and the label (extended).
+// Natural size in px: a 56dp circle, or 56dp high around the glyph and the title (extended).
 @(private)
 fab_measure :: proc(hwnd: win.HWND) -> [2]i32 {
 	h := fab_handle_of(hwnd)
 	size := px(FAB_SIZE)
-	if h == nil || h.fab.label == "" do return {size, size}
+	if h == nil || h.fab.title == "" do return {size, size}
 	dc := win.GetDC(hwnd)
 	defer win.ReleaseDC(hwnd, dc)
-	w := text_size(dc, g_windows.font, h.fab.label).cx + 2 * px(20)
+	w := text_size(dc, g_windows.font, h.fab.title).cx + 2 * px(20)
 	if glyph := fab_glyph(h); glyph != "" do w += text_size(dc, g_windows.icon_font, glyph).cx + px(8)
 	return {max(w, size), size}
 }
@@ -234,7 +238,7 @@ fab_paint :: proc(hwnd: win.HWND, h: ^Fab_Handle) {
 	GdipSetSmoothingMode(g, GP_SMOOTHING_ANTIALIAS)
 	brush := with_brush(theme_palette().accent)
 	w, hh := f32(rc.right), f32(rc.bottom)
-	if h.fab.label == "" {
+	if h.fab.title == "" {
 		GdipFillEllipse(g, brush, 0, 0, w - 1, hh - 1)
 	} else {
 		path := rounded_rect_path(0, 0, w - 1, hh - 1, hh / 2)
@@ -249,15 +253,15 @@ fab_paint :: proc(hwnd: win.HWND, h: ^Fab_Handle) {
 	glyph := fab_glyph(h)
 	gw, lw: i32
 	if glyph != "" do gw = text_size(mem, g_windows.icon_font, glyph).cx
-	if h.fab.label != "" do lw = text_size(mem, g_windows.font, h.fab.label).cx
-	gap := glyph != "" && h.fab.label != "" ? px(8) : 0
+	if h.fab.title != "" do lw = text_size(mem, g_windows.font, h.fab.title).cx
+	gap := glyph != "" && h.fab.title != "" ? px(8) : 0
 	x := (rc.right - gw - gap - lw) / 2
 	if glyph != "" {
 		text_out(mem, g_windows.icon_font, glyph, x, (rc.bottom - font_height(g_windows.icon_font)) / 2)
 		x += gw + gap
 	}
-	if h.fab.label != "" {
-		text_out(mem, g_windows.font, h.fab.label, x, (rc.bottom - font_height(g_windows.font)) / 2)
+	if h.fab.title != "" {
+		text_out(mem, g_windows.font, h.fab.title, x, (rc.bottom - font_height(g_windows.font)) / 2)
 	} else if glyph == "" {
 		text_out(mem, g_windows.title, "+", (rc.right - text_size(mem, g_windows.title, "+").cx) / 2, (rc.bottom - font_height(g_windows.title)) / 2)
 	}

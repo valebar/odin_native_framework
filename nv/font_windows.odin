@@ -1,4 +1,5 @@
 #+build windows
+#+private
 package nv
 
 // Windows font backend. AddFontMemResourceEx installs the bytes as a process-private GDI font

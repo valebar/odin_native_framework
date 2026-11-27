@@ -1,8 +1,10 @@
 #+build js
+#+private
 package nv
 
-// Web input backend: an <input type=text>. Its `input` event reports the user's edits only (a
-// value set from code fires nothing, h.silent is moot) and Enter submits.
+// Web input backend: an <input type=text> (password when secure; the keyboard is an inputmode, see
+// js_input_kind in nv.js). Its `input` event reports the user's edits only (a value set from code
+// fires nothing, h.silent is moot) and Enter submits.
 
 import "core:strings"
 
@@ -12,6 +14,7 @@ _input_init :: proc(h: ^Input_Handle) {
 	js_attr(field, "type", "text")
 	js_attr(field, "enterkeyhint", "done")
 	js_attr(field, "autocomplete", "off")
+	if h.input.keyboard != .Text || h.input.secure do js_input_kind(field, h.input.keyboard, b32(h.input.secure))
 	if h.input.placeholder != "" do js_attr(field, "placeholder", h.input.placeholder)
 	js_set_value(field, h.input.text)
 	web_style_text(field, h.input.style)
@@ -35,4 +38,10 @@ _input_text :: proc(h: ^Input_Handle, allocator := context.allocator) -> string 
 @(private)
 _input_set_text :: proc(h: ^Input_Handle, text: string) {
 	js_set_value(Web_Id(uintptr(h.field)), text)
+}
+
+// focus() (the soft keyboard follows when called from a tap), then the selection.
+@(private)
+_input_focus :: proc(h: ^Input_Handle, select_all: bool) {
+	js_input_focus(Web_Id(uintptr(h.field)), b32(select_all))
 }

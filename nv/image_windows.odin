@@ -1,10 +1,12 @@
 #+build windows
+#+private
 package nv
 
 // Windows image backend. GDI+ decodes (GdipCreateBitmapFromStream over an SHCreateMemStream copy
 // of the bytes, which GDI+ keeps reading from, so the stream lives as long as the bitmap) and
 // draws. The widget is an "NVImage" window painted like the canvas. Downloads use WinINet on the
-// worker thread (fetch_thread.odin) and come back as WM_NV_FETCHED to the main window.
+// worker thread (fetch_thread.odin) and come back as WM_NV_FETCHED to the main window. A bitmap
+// from pixels is a 32bppARGB GpBitmap (straight alpha, BGRA in memory) written through LockBits.
 
 import win "core:sys/windows"
 
@@ -16,6 +18,19 @@ foreign import wininet "system:Wininet.lib"
 @(private) HINTERNET :: rawptr
 @(private) INTERNET_OPEN_TYPE_PRECONFIG :: 0
 @(private) INTERNET_FLAG_NO_UI          :: 0x0000_0200
+
+@(private) GP_PIXEL_FORMAT_32BPP_ARGB :: i32(0x0026200A)
+@(private) GP_IMAGE_LOCK_WRITE        :: u32(2)
+
+@(private) GpRect :: struct { x, y, w, h: i32 }
+
+@(private) GpBitmapData :: struct {
+	width, height: u32,
+	stride:        i32,
+	format:        i32,
+	scan0:         [^]u8,
+	reserved:      uintptr,
+}
 
 @(default_calling_convention="system", private)
 foreign shlwapi {
@@ -50,7 +65,41 @@ _bitmap_decode :: proc(b: ^Bitmap, data: []u8) -> bool {
 @(private)
 _bitmap_free :: proc(b: ^Bitmap) {
 	GdipDisposeImage(b.native)
-	(^win.IUnknown)(b.extra)->Release()
+	if b.extra != nil do (^win.IUnknown)(b.extra)->Release() // a bitmap from pixels has no stream
+}
+
+@(private)
+_bitmap_rgba :: proc(b: ^Bitmap, pixels: []u8) -> bool {
+	img: GpImage
+	if GdipCreateBitmapFromScan0(i32(b.width), i32(b.height), 0, GP_PIXEL_FORMAT_32BPP_ARGB, nil, &img) != 0 do return false
+	if !bitmap_write_rgba(img, b.width, b.height, pixels) {
+		GdipDisposeImage(img)
+		return false
+	}
+	b.native = img
+	return true
+}
+
+@(private)
+_bitmap_set_rgba :: proc(b: ^Bitmap, pixels: []u8) -> bool {
+	return bitmap_write_rgba(b.native, b.width, b.height, pixels)
+}
+
+// RGBA rows into the bitmap's BGRA rows (GDI+ keeps 32bppARGB unpremultiplied, so only R and B swap).
+@(private)
+bitmap_write_rgba :: proc "contextless" (img: GpImage, w, h: int, pixels: []u8) -> bool {
+	rect := GpRect{0, 0, i32(w), i32(h)}
+	data: GpBitmapData
+	if GdipBitmapLockBits(img, &rect, GP_IMAGE_LOCK_WRITE, GP_PIXEL_FORMAT_32BPP_ARGB, &data) != 0 do return false
+	for y in 0 ..< h {
+		src := pixels[y * w * 4:][:w * 4]
+		dst := data.scan0[int(data.stride) * y:]
+		for x in 0 ..< w {
+			i := x * 4
+			dst[i], dst[i + 1], dst[i + 2], dst[i + 3] = src[i + 2], src[i + 1], src[i], src[i + 3]
+		}
+	}
+	return GdipBitmapUnlockBits(img, &data) == 0
 }
 
 // The interpolation mode is set once per Graphics (canvas_paint / image_paint). The pixel offset

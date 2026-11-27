@@ -1,4 +1,5 @@
 #+build linux:default
+#+private
 package nv
 
 // Linux list backend: GtkListView inside a GtkScrolledWindow, rows recycled through a

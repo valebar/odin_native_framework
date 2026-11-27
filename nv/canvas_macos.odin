@@ -1,4 +1,5 @@
 #+build darwin:default
+#+private
 package nv
 
 // macOS canvas backend: an NSView subclass, NVCanvasView, registered at runtime. It is flipped

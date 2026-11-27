@@ -1,4 +1,5 @@
 #+build linux:default
+#+private
 package nv
 
 // Linux label backend: a left-aligned GtkLabel, with the "title-4" style class for a heading and

@@ -1,4 +1,5 @@
 #+build js
+#+private
 package nv
 
 // Web canvas backend: a <canvas> filling its view (which has no size from it), at the device pixel
@@ -6,7 +7,8 @@ package nv
 // canvas_redraw from inside on_draw asks for the next frame, which is how a canvas animates (the
 // Bench, Progress) at the display rate; a canvas that isn't shown (a page below, a hidden tab) is
 // drawn when it shows again. The draw procs paint on the canvas being drawn (nv.js's `cur`), so
-// Painter.native is unused; nv.js skips the colour, line width and font a call repeats.
+// Painter.native is unused; nv.js skips the colour, line width and font a call repeats (and forgets
+// them at a clip_pop, whose restore brings back the state saved at its clip_push).
 
 @(private)
 _canvas_init :: proc(h: ^Canvas_Handle) {
@@ -81,4 +83,20 @@ web_text_font :: proc(style: Text_Style) -> (weight: i32, italic: b32, font: i32
 @(private)
 _draw_image :: proc(p: ^Painter, b: ^Bitmap, x, y, w, h: f64) {
 	js_draw_image(i32(uintptr(b.native)), x, y, w, h)
+}
+
+// nv.js reads the points through a fresh view of wasm memory.
+@(private)
+_stroke_polyline :: proc(p: ^Painter, points: [][2]f64, color: Color, width: f64) {
+	js_polyline(raw_data(points), i32(len(points)), color_argb(color), width)
+}
+
+@(private)
+_clip_push :: proc(p: ^Painter, x, y, w, h: f64) {
+	js_clip_push(x, y, w, h)
+}
+
+@(private)
+_clip_pop :: proc(p: ^Painter) {
+	js_clip_pop()
 }

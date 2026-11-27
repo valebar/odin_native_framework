@@ -1,4 +1,5 @@
 #+build windows
+#+private
 package nv
 
 // Windows navigation backend. Win32 has no navigation bar, so an "NVNav" host window fills the
@@ -105,8 +106,34 @@ _nav_actions_changed :: proc(e: ^Page_Handle) {
 }
 
 @(private)
+_nav_leading_changed :: proc(e: ^Page_Handle) {
+	if e != g_nav[len(g_nav) - 1] do return
+	nav_set_leading(e)
+	win.ShowWindow(g_windows.nav_title, nav_bar_shown() ? win.SW_SHOW : win.SW_HIDE)
+	nav_layout(g_windows.root)
+}
+
+// The leading view moves into the bar while its page is on top; otherwise it is parked, hidden,
+// under its page's root, so it is destroyed with the page.
+@(private)
+nav_set_leading :: proc(e: ^Page_Handle) {
+	v := win.HWND(e.bar_leading)
+	if v == g_windows.nav_leading do return
+	if old := g_windows.nav_leading; old != nil {
+		win.ShowWindow(old, win.SW_HIDE)
+		win.SetParent(old, g_windows.nav_leading_home)
+	}
+	g_windows.nav_leading, g_windows.nav_leading_home = v, win.HWND(e.root)
+	if v == nil do return
+	win.SetWindowLongPtrW(v, win.GWL_STYLE, win.GetWindowLongPtrW(v, win.GWL_STYLE) | win.LONG_PTR(win.WS_CLIPSIBLINGS))
+	win.SetParent(v, g_windows.root)
+	win.ShowWindow(v, win.SW_SHOW)
+}
+
+@(private)
 nav_update_chrome :: proc(e: ^Page_Handle) {
 	nav_set_title(e)
+	nav_set_leading(e)
 	nav_rebuild_actions(e)
 	win.ShowWindow(g_windows.nav_back, len(g_nav) > 1 ? win.SW_SHOW : win.SW_HIDE)
 	win.ShowWindow(g_windows.nav_menu, nav_shows_menu(e) ? win.SW_SHOW : win.SW_HIDE)
@@ -150,7 +177,7 @@ nav_rebuild_actions :: proc(e: ^Page_Handle) {
 @(private)
 nav_bar_shown :: proc "contextless" () -> bool {
 	top := g_nav[len(g_nav) - 1]
-	return len(g_nav) > 1 || len(top.actions) > 0 || nav_shows_menu(top)
+	return len(g_nav) > 1 || len(top.actions) > 0 || nav_shows_menu(top) || top.bar_leading != nil
 }
 
 // The bar, when shown, is the title font height plus padding: the back button at the left, the
@@ -164,6 +191,11 @@ nav_layout :: proc(host: win.HWND) {
 	bar: i32 = 0
 	if nav_bar_shown() {
 		bar = g_windows.title_h + px(12)
+		lead: [2]i32
+		if g_windows.nav_leading != nil {
+			lead = measure(g_windows.nav_leading)
+			bar = max(bar, lead.y + px(8))
+		}
 		x := px(8)
 		if len(g_nav) > 1 {
 			back_w := button_ideal_size(g_windows.nav_back).x
@@ -186,7 +218,19 @@ nav_layout :: proc(host: win.HWND) {
 			win.MoveWindow(b, right, px(4), w, bar - px(8), true)
 			right -= px(4)
 		}
-		win.MoveWindow(g_windows.nav_title, x, 0, max(right - x, 0), bar, true)
+		if g_windows.nav_leading != nil {
+			win.MoveWindow(g_windows.nav_leading, x, (bar - lead.y) / 2, lead.x, lead.y, true)
+			x += lead.x + px(8)
+		}
+		// Centred over the whole bar, pushed aside only as far as the sides need.
+		dc := win.GetDC(g_windows.nav_title)
+		buf: [512]u16
+		n := win.GetWindowTextW(g_windows.nav_title, &buf[0], len(buf))
+		text, _ := win.utf16_to_utf8(buf[:n], context.temp_allocator)
+		tw := text_size(dc, g_windows.title, text).cx
+		win.ReleaseDC(g_windows.nav_title, dc)
+		start := clamp((rc.right - tw) / 2, x, max(right - tw, x))
+		win.MoveWindow(g_windows.nav_title, start, 0, max(min(tw + px(2), right - start), 0), bar, true)
 	}
 	win.MoveWindow(win.HWND(g_nav[len(g_nav) - 1].root), 0, bar, rc.right, max(rc.bottom - bar, 0), true)
 	dialog_layout(rc)

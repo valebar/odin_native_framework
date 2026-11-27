@@ -1,12 +1,16 @@
 #+build linux:android
+#+private
 package nv
 
 // Android dialog backend: the card is a FrameLayout with a rounded GradientDrawable background
 // in the theme's colorBackground, some elevation and padding, added to the window's decor view
 // (a FrameLayout covering the ActionBar and the content) with CENTER gravity; a modal dialog first
-// adds a full-size translucent black View. Both are clickable, so a touch on them stops there
-// instead of falling through to the page (a ViewGroup offers a touch to lower siblings when the
-// top child doesn't take it). The Back key closes a modal dialog (nav_android.odin).
+// adds a full-size translucent black View, whose nv.NvTapListener reports a tap for a
+// dismissible dialog. Both are clickable, so a touch on them stops there instead of falling
+// through to the page (a ViewGroup offers a touch to lower siblings when the top child doesn't
+// take it), and a tap on the card never reaches the scrim. The Back key closes a modal dialog
+// (nav_android.odin). A light dialog's card is white and nv.NvDialog.lighten darkens the
+// theme-coloured text in its body, which was made with the Activity's theme.
 
 @(private) ANDROID_VIEW_VISIBLE :: 0
 @(private) ANDROID_VIEW_GONE    :: 8
@@ -23,19 +27,19 @@ _dialog_show :: proc(h: ^Dialog_Handle) {
 
 	if h.dialog.modal {
 		scrim := view_new(env, activity)
-		view_set_background_color(env, scrim, ANDROID_SCRIM_ARGB)
-		view_set_clickable(env, scrim, true)
+		view_set_background_color(env, scrim, android_argb(dialog_scrim(h)))
+		h.scrim = rawptr(jni_new_global_ref(env, scrim))
+		android_on_tap(env, scrim, h.scrim, TAP_DIALOG) // clickable; the listener is the dialog scope's
 		lp := frame_lp_new(env, LAYOUT_MATCH_PARENT, LAYOUT_MATCH_PARENT)
 		view_group_add_view(env, decor, scrim, lp)
 		jni_delete_local_ref(env, lp)
-		h.scrim = rawptr(jni_new_global_ref(env, scrim))
 		jni_delete_local_ref(env, scrim)
 	}
 
 	card := frame_layout_new(env, activity)
 	bg := gradient_drawable_new(env)
-	gradient_drawable_set_color(env, bg, int(android_theme_color("colorBackground", -1)))
-	gradient_drawable_set_corner_radius(env, bg, f32(android_dp(12)))
+	gradient_drawable_set_color(env, bg, h.dialog.light ? android_argb(DIALOG_LIGHT) : int(android_theme_color("colorBackground", -1)))
+	gradient_drawable_set_corner_radius(env, bg, f32(android_dp(dialog_radius(h, 12))))
 	view_set_background(env, card, bg)
 	view_set_elevation(env, card, f32(android_dp(8)))
 	pad := android_dp(16)
@@ -44,15 +48,16 @@ _dialog_show :: proc(h: ^Dialog_Handle) {
 	body_lp := frame_lp_new(env, LAYOUT_MATCH_PARENT, LAYOUT_WRAP_CONTENT)
 	view_group_add_view(env, card, jobject(h.body), body_lp)
 	jni_delete_local_ref(env, body_lp)
+	if h.dialog.light do nv_dialog_lighten(env, jobject(h.body))
 
-	// 320dp, or the screen width less the margins on a narrow screen. The decor view may not be
-	// laid out yet, so the width comes from the display metrics.
+	// The dialog's width (320dp), or the screen width less the margins on a narrow screen. The
+	// decor view may not be laid out yet, so the width comes from the display metrics.
 	res := context_get_resources(env, activity)
 	metrics := resources_get_display_metrics(env, res)
 	screen_w := int(display_metrics_width_pixels(env, metrics))
 	jni_delete_local_ref(env, metrics)
 	jni_delete_local_ref(env, res)
-	width := min(android_dp(320), screen_w - android_dp(32))
+	width := min(android_dp(dialog_width(h)), screen_w - android_dp(32))
 	lp := frame_lp_new_gravity(env, width, LAYOUT_WRAP_CONTENT, ANDROID_GRAVITY_CENTER)
 	view_group_add_view(env, decor, card, lp) // after the scrim: above it
 	jni_delete_local_ref(env, lp)

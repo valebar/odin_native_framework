@@ -1,4 +1,5 @@
 #+build darwin:default
+#+private
 package nv
 
 // macOS navigation backend: the pages are full-size subviews of the window's content view
@@ -50,6 +51,11 @@ _nav_actions_changed :: proc(e: ^Page_Handle) {
 }
 
 @(private)
+_nav_leading_changed :: proc(e: ^Page_Handle) {
+	if e == g_nav[len(g_nav) - 1] do nav_rebuild_leading(e)
+}
+
+@(private)
 nav_update_chrome :: proc(e: ^Page_Handle) {
 	g_macos.window->setTitle(ns_string(e.page.title))
 	// AppKit's accessory `hidden` property only applies to Top/Bottom, not Leading.
@@ -72,7 +78,42 @@ nav_update_chrome :: proc(e: ^Page_Handle) {
 		}
 		g_macos.menu_attached = show_menu
 	}
+	nav_rebuild_leading(e) // after back / menu: leading accessories line up in the order they are added
 	nav_rebuild_actions(e)
+}
+
+// The page's leading view in a container of its natural size, centred vertically in the title bar.
+// Recreated like the actions, so it is always added after back / menu; the view itself belongs to
+// the page's scope and only moves between containers.
+@(private)
+nav_rebuild_leading :: proc(e: ^Page_Handle) {
+	if g_macos.leading != nil {
+		container := send(^AK.View, g_macos.leading, "view")
+		send(nil, container, "retain")
+		send(nil, container, "autorelease")
+		window_remove_titlebar_accessory(g_macos.window, g_macos.leading)
+		g_macos.leading = nil
+	}
+	if e.bar_leading == nil do return
+
+	view := (^AK.View)(e.bar_leading)
+	view_set_translates_autoresizing_mask(view, false)
+	size := send(NS.Size, view, "fittingSize")
+	bar := send(NS.Rect, send(^AK.View, g_macos.back, "view"), "frame").size.height // a title bar's accessory height
+	container := AK.View.alloc()->initWithFrame({{0, 0}, {size.width + 12, bar}})
+	container->addSubview(view)
+	layout_anchor_equal_offset(anchor_leading(view), anchor_leading(container), 6)
+	layout_anchor_equal_offset(anchor_trailing(container), anchor_trailing(view), 6)
+	layout_anchor_equal(anchor_center_y(view), anchor_center_y(container))
+	layout_anchor_at_most(anchor_height(view), anchor_height(container), 0)
+
+	vc := titlebar_accessory_new()
+	titlebar_accessory_set_view(vc, container)
+	container->release()
+	titlebar_accessory_set_layout_attribute(vc, LAYOUT_ATTRIBUTE_LEADING)
+	window_add_titlebar_accessory(g_macos.window, vc)
+	vc->release()
+	g_macos.leading = vc
 }
 
 // The accessory is recreated rather than resized: AppKit sizes it from its view's frame when it

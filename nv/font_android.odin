@@ -1,4 +1,5 @@
 #+build linux:android
+#+private
 package nv
 
 // Android font backend. Typeface has no constructor from bytes below API 29's font builders, so

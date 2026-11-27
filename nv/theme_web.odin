@@ -1,4 +1,5 @@
 #+build js
+#+private
 package nv
 
 // Web theme backend. The palette is a set of CSS custom properties on :root (--nv-bg, --nv-text,

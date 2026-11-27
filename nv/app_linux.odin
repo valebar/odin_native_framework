@@ -1,4 +1,5 @@
 #+build linux:default
+#+private
 package nv
 
 // Linux (GTK4) app backend. GtkApplication emits `activate` once GTK is ready, and that is
@@ -18,6 +19,8 @@ import "core:strings"
 	back:   ^GtkWidget, // header bar back button, visible on pushed pages
 	menu:   ^GtkWidget, // header bar menu button, visible on a root page with a drawer (nav_shows_menu)
 	actions: [dynamic]^GtkWidget, // the top page's action buttons, packed at the end of the header
+	leading: ^GtkWidget, // after back / menu: holds the top page's bar_leading
+	leading_view: ^GtkWidget, // that view, nil for none
 	overlay: ^GtkWidget, // the window child: the stack below, dialogs on top
 	stack:  ^GtkWidget, // one child per page
 	dying:  [dynamic]Linux_Dying, // popped pages waiting for the slide animation to end
@@ -29,6 +32,12 @@ import "core:strings"
 .nv-scrim  { background-color: rgba(0, 0, 0, 0.4); }
 .nv-dialog { background-color: @theme_base_color; color: @theme_fg_color; border: 1px solid @borders;
              border-radius: 12px; padding: 16px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.3); }
+.nv-dialog.nv-light { background-color: #ffffff; color: #000000; border-color: rgba(0, 0, 0, 0.15); }
+.nv-dialog.nv-light entry { background-color: #ffffff; color: #000000; border-color: #c0bfbc; }
+.nv-dialog.nv-light entry > text > placeholder { color: rgba(0, 0, 0, 0.45); }
+.nv-dialog.nv-light button:not(.nv-accent) { background-image: none; background-color: #f0f0f0; color: #000000;
+             border-color: #c0bfbc; }
+.nv-dialog.nv-light button:not(.nv-accent):hover { background-color: #e6e6e6; }
 button.nv-fab { min-width: 56px; min-height: 56px; padding: 0; border-radius: 28px; color: white;
                 background-image: none; background-color: @theme_selected_bg_color;
                 box-shadow: 0 3px 8px rgba(0, 0, 0, 0.35); }
@@ -91,6 +100,10 @@ on_activate :: proc "c" (app: ^GtkApplication, _: gpointer) {
 	g_signal_connect(menu, "clicked", rawptr(on_menu_clicked), nil)
 	gtk_header_bar_pack_start(header, menu)
 	g_linux.menu = menu
+	leading := gtk_box_new(.Horizontal, 0)
+	gtk_widget_set_valign(leading, .Center)
+	gtk_header_bar_pack_start(header, leading)
+	g_linux.leading = leading
 	gtk_window_set_titlebar(wnd, header)
 	g_linux.header = header
 	g_linux.back = back
@@ -100,6 +113,7 @@ on_activate :: proc "c" (app: ^GtkApplication, _: gpointer) {
 	g_signal_connect(stack, "notify::transition-running", rawptr(on_transition_running), nil)
 	overlay := gtk_overlay_new()
 	gtk_overlay_set_child(overlay, stack)
+	g_signal_connect(overlay, "get-child-position", rawptr(on_dialog_position), nil)
 	gtk_window_set_child(wnd, overlay)
 	g_linux.overlay = overlay
 	g_linux.stack = stack

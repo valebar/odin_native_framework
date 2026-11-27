@@ -18,10 +18,10 @@ Mock_Scaffold :: struct {
 }
 
 mock_scaffold_page :: proc(ms: ^Mock_Scaffold, title := "S") -> Page {
-	return {title = title, build = mock_scaffold_build, user_data = ms}
+	return {title = title, build = mock_scaffold_build, user = ms}
 }
 
-mock_scaffold_build :: proc(page: ^Page_Handle, user: rawptr) -> View {
+mock_scaffold_build :: proc(user: rawptr, page: ^Page_Handle) -> View {
 	ms := (^Mock_Scaffold)(user)
 	ms.page = page
 	s := Scaffold{tab = ms.tab, user = ms, on_tab = proc(user: rawptr, index: int) {
@@ -29,15 +29,15 @@ mock_scaffold_build :: proc(page: ^Page_Handle, user: rawptr) -> View {
 	}}
 	if len(ms.tabs) > 0 {
 		tabs := make([]Tab, len(ms.tabs), context.temp_allocator)
-		for title, i in ms.tabs do tabs[i] = {title = title, icon = .Home, body = label_view(label_create({text = title}))}
+		for title, i in ms.tabs do tabs[i] = {title = title, icon = .Home, body = view(label_create({text = title}))}
 		s.tabs = tabs
 	} else {
-		s.body = label_view(label_create({text = "body"}))
+		s.body = view(label_create({text = "body"}))
 	}
 	if ms.fab do s.fab = {icon = .Add, on_click = mock_action_clicked}
-	if ms.drawer do s.drawer = label_view(label_create({text = "drawer"}))
+	if ms.drawer do s.drawer = view(label_create({text = "drawer"}))
 	ms.handle = scaffold_create(s)
-	return scaffold_view(ms.handle)
+	return view(ms.handle)
 }
 
 mock_snack_action :: proc(user: rawptr) {
@@ -84,14 +84,14 @@ test_snackbar_hides_after_its_time :: proc(t: ^testing.T) {
 	h := ms.handle
 
 	callback_enter()
-	snackbar_show(h, {message = "Saved"})
+	scaffold_show_snackbar(h, {message = "Saved"})
 	callback_exit()
 	expect_log(t, "label_set_text Saved", "button_set_title ", "hide button", "post_delayed 4000",
 		"show container", "overlay_place fab bottom 72")
 	mock_fire_timers()
 	expect_log(t, "hide container", "overlay_place fab bottom 16")
 	testing.expect(t, !h.snack_shown && h.snack_timer == nil)
-	snackbar_hide(h) // already hidden
+	scaffold_hide_snackbar(h) // already hidden
 	expect_log(t)
 }
 
@@ -104,8 +104,8 @@ test_snackbar_replaces_the_shown_one :: proc(t: ^testing.T) {
 	mock_log_clear()
 	h := ms.handle
 
-	snackbar_show(h, {message = "One"})
-	snackbar_show(h, {message = "Two", action = "Undo", duration_ms = 1000})
+	scaffold_show_snackbar(h, {message = "One"})
+	scaffold_show_snackbar(h, {message = "Two", action = "Undo", duration_ms = 1000})
 	expect_log(t, "label_set_text One", "button_set_title ", "hide button", "post_delayed 4000", "show container",
 		"label_set_text Two", "button_set_title Undo", "show button Undo", "post_delayed 1000") // no FAB to move
 	testing.expect(t, len(mock.timers) == 2 && mock.timers[0].cancelled && !mock.timers[1].cancelled)
@@ -125,7 +125,7 @@ test_snackbar_action :: proc(t: ^testing.T) {
 	ms := Mock_Scaffold{fab = true}
 	run(mock_scaffold_page(&ms))
 	h := ms.handle
-	snackbar_show(h, {message = "Deleted", action = "Undo", on_action = mock_snack_action, user = &ms})
+	scaffold_show_snackbar(h, {message = "Deleted", action = "Undo", on_action = mock_snack_action, user = &ms})
 	mock_log_clear()
 
 	button_notify(h.snack_button)
@@ -145,7 +145,7 @@ test_snackbar_timer_outlives_page :: proc(t: ^testing.T) {
 	mock_launch(&root)
 	callback_enter()
 	push(mock_scaffold_page(&ms, "S"))
-	snackbar_show(ms.handle, {message = "Hi"})
+	scaffold_show_snackbar(ms.handle, {message = "Hi"})
 	callback_exit()
 	views := mock.views
 
@@ -253,18 +253,68 @@ test_fab_click :: proc(t: ^testing.T) {
 test_stack_create :: proc(t: ^testing.T) {
 	mock_begin(t)
 	defer mock_end(t)
-	Stack_Page :: struct { stack: View }
+	Stack_Page :: struct { stack: ^Stack_Handle }
 	sp: Stack_Page
-	run({title = "S", user_data = &sp, build = proc(_: ^Page_Handle, user: rawptr) -> View {
-		back := label_view(label_create({text = "back"}))
-		badge := label_view(label_create({text = "badge"}))
+	run({title = "S", user = &sp, build = proc(user: rawptr, _: ^Page_Handle) -> View {
+		back := view(label_create({text = "back"}))
+		badge := view(label_create({text = "badge"}))
 		(^Stack_Page)(user).stack = stack_create({
 			{view = back, h = .Fill, v = .Fill},
 			{view = badge, h = .End, v = .Start, margin = {0, 8, 8, 0}, width = 40},
 		})
-		return (^Stack_Page)(user).stack
+		return view((^Stack_Page)(user).stack)
 	}})
 	expect_log(t, "theme_apply_mode System", "label_init back", "label_init badge", "container_init", "overlay_init container",
 		"overlay_add label back Fill Fill sizes", "overlay_add label badge End Start sizes", "nav_push S")
-	testing.expect(t, mock_view_of(sp.stack).kind == "overlay" && mock.views == 4) // two labels, the base, the overlay
+	testing.expect(t, mock_view_of(view(sp.stack)).kind == "overlay" && mock.views == 4) // two labels, the base, the overlay
+
+	// stack_place moves a child through the overlay, as the FAB moves; a centered axis drops its margins.
+	badge := sp.stack.children[1]
+	stack_place(sp.stack, badge, {h = .Center, v = .End, margin = {5, 0, 5, 24}, width = 60})
+	expect_log(t, "overlay_place label badge bottom 24")
+	o := sp.stack.overlay
+	place := stack_overlay_place({h = .Center, v = .End, margin = {5, 0, 5, 24}, width = 60})
+	testing.expect(t, place.margin == {0, 0, 0, 24} && place.width == 60 && place.sizes && o.root == view(sp.stack))
+}
+
+// Each "\n" in the message makes the SnackBar 20 taller and the FAB moves with it; a one-line
+// message brings it back to 48.
+@(test)
+test_snackbar_lines :: proc(t: ^testing.T) {
+	mock_begin(t)
+	defer mock_end(t)
+	ms := Mock_Scaffold{fab = true}
+	run(mock_scaffold_page(&ms))
+	mock_log_clear()
+	h := ms.handle
+
+	scaffold_show_snackbar(h, {message = "Error setting the property\nOut of range"})
+	expect_log(t, "label_set_text Error setting the property\nOut of range", "button_set_title ", "hide button",
+		"container_set_size 0 68", "overlay_place container bottom 8", "post_delayed 4000", "show container", "overlay_place fab bottom 92")
+	scaffold_show_snackbar(h, {message = "Saved"}) // replaces it: one line again, the FAB follows
+	expect_log(t, "label_set_text Saved", "button_set_title ", "hide button",
+		"container_set_size 0 48", "overlay_place container bottom 8", "post_delayed 4000", "overlay_place fab bottom 72")
+	scaffold_show_snackbar(h, {message = "Again"})
+	expect_log(t, "label_set_text Again", "button_set_title ", "hide button", "post_delayed 4000")
+	scaffold_hide_snackbar(h)
+	scaffold_show_snackbar(h, {message = "A\nB\nC"}) // hidden: sized before it shows
+	expect_log(t, "hide container", "overlay_place fab bottom 16", "label_set_text A\nB\nC", "button_set_title ", "hide button",
+		"container_set_size 0 88", "overlay_place container bottom 8", "post_delayed 4000", "show container", "overlay_place fab bottom 112")
+}
+
+// Snackbar.color replaces the background only when it changes; alpha 0 is the default grey.
+@(test)
+test_snackbar_color :: proc(t: ^testing.T) {
+	mock_begin(t)
+	defer mock_end(t)
+	ms := Mock_Scaffold{}
+	run(mock_scaffold_page(&ms))
+	mock_log_clear()
+	h := ms.handle
+	scaffold_show_snackbar(h, {message = "Red", color = {1, 0, 0, 1}})
+	scaffold_show_snackbar(h, {message = "Again", color = {1, 0, 0, 1}})
+	scaffold_show_snackbar(h, {message = "Grey"})
+	expect_log(t, "label_set_text Red", "button_set_title ", "container_set_color [1, 0, 0, 1]", "hide button", "post_delayed 4000", "show container",
+		"label_set_text Again", "button_set_title ", "hide button", "post_delayed 4000",
+		"label_set_text Grey", "button_set_title ", "container_set_color [0.2, 0.2, 0.2, 1]", "hide button", "post_delayed 4000")
 }

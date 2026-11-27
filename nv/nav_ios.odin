@@ -1,4 +1,5 @@
 #+build darwin:ios
+#+private
 package nv
 
 // iOS navigation backend: every page is an NVPageController (a UIViewController) pushed on the
@@ -35,14 +36,55 @@ page_controller_new :: proc(e: ^Page_Handle) -> ^UI_View_Controller {
 	container->release()
 	ui_view_controller_set_title(vc, ns_string(e.page.title))
 	ios_apply_actions(vc, e)
-	if nav_shows_menu(e) { // the root page with a drawer: Flutter's hamburger where a back button would be
-		item := ui_bar_button_item_with_image(ui_image_system(ns_string(sf_symbol_names[.Menu])), g_app.nav_target, intrinsics.objc_find_selector("nvMenu:"))
-		ui_bar_button_item_set_accessibility_label(item, ns_string("Menu"))
-		send(nil, ui_view_controller_navigation_item(vc), "setLeftBarButtonItem:", item)
-		send(nil, item, "release")
-	}
+	ios_apply_leading(vc, e)
 	e.native = vc // owned by the navigation controller
 	return vc
+}
+
+// The left items: the menu button on a root page with a drawer (Flutter's hamburger where a back
+// button would be), then the page's bar_leading in a wrapper of its natural size. Pushed pages keep
+// their back button (leftItemsSupplementBackButton). The old array is autoreleased like the actions'.
+@(private)
+ios_apply_leading :: proc(vc: ^UI_View_Controller, e: ^Page_Handle) {
+	nav_item := ui_view_controller_navigation_item(vc)
+	if old := send(^NS.Object, nav_item, "leftBarButtonItems"); old != nil {
+		send(nil, old, "retain")
+		send(nil, old, "autorelease")
+	}
+	items: [2]^NS.Object
+	n := 0
+	if nav_shows_menu(e) {
+		item := ui_bar_button_item_with_image(ui_image_system(ns_string(sf_symbol_names[.Menu])), g_app.nav_target, intrinsics.objc_find_selector("nvMenu:"))
+		ui_bar_button_item_set_accessibility_label(item, ns_string("Menu"))
+		items[n] = item
+		n += 1
+	}
+	if e.bar_leading != nil {
+		view := (^UI_View)(e.bar_leading)
+		wrapper := ui_view_new()
+		ui_view_set_translates_autoresizing_mask(view, false)
+		ui_view_add_subview(wrapper, view)
+		layout_pin_edges(view, wrapper)
+		at_most := send(^Layout_Constraint, anchor_height(view), "constraintLessThanOrEqualToConstant:", NS.Float(44)) // the bar's height
+		send(nil, at_most, "setActive:", NS.BOOL(true))
+		alloc := send(^NS.Object, objc_class_object("UIBarButtonItem"), "alloc")
+		item := send(^NS.Object, alloc, "initWithCustomView:", wrapper)
+		wrapper->release()
+		if send(bool, item, "respondsToSelector:", intrinsics.objc_find_selector("setHidesSharedBackground:")) {
+			send(nil, item, "setHidesSharedBackground:", NS.BOOL(true)) // iOS 26: no glass capsule around it
+		}
+		items[n] = item
+		n += 1
+	}
+	array := array_with_objects(raw_data(items[:]), n) // retains the items
+	for item in items[:n] do send(nil, item, "release")
+	send(nil, nav_item, "setLeftItemsSupplementBackButton:", NS.BOOL(true))
+	send(nil, nav_item, "setLeftBarButtonItems:", array)
+}
+
+@(private)
+_nav_leading_changed :: proc(e: ^Page_Handle) {
+	if vc := (^UI_View_Controller)(e.native); vc != nil do ios_apply_leading(vc, e)
 }
 
 // rightBarButtonItems lays out from the right, so the declared order goes in reversed. The old

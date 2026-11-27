@@ -35,6 +35,11 @@ public final class NvActivity extends android.app.Activity {
         return super.onOptionsItemSelected(item);
     }
 
+    @Override
+    protected void onActivityResult(int request, int result, android.content.Intent data) {
+        if (!NvFiles.onResult(this, request, result, data)) super.onActivityResult(request, result, data);
+    }
+
     private static native void nativeOnCreate(android.app.Activity activity);
     private static native boolean nativeOnBack();
     private static native boolean nativeOnMenu();

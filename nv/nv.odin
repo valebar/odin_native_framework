@@ -10,21 +10,23 @@ package nv
 // Widgets: a scrolling list (`list_create`), a text label (`label_create`), a text input
 // (`input_create`), a push button (`button_create`), a custom-drawn canvas (`canvas_create`), an
 // image (`image_create`), a circular progress indicator (`progress_create`), Flutter-style Row / Column stacks (`row_create`, `column_create`,
-// `flex_create`), a Stack that layers its children (`stack_create`) and a Container (`container_create`): a box with margin, border, background,
-// rounded corners and padding around one child. Images are decoded into a Bitmap from bytes, a file or a URL (`bitmap_from_bytes`,
+// `flex_create`), a Stack that layers its children (`stack_create`), a Container (`container_create`): a box with margin, border, background,
+// rounded corners and padding around one child, and a Layout (`layout_create`), Flutter's LayoutBuilder: it tells the app its size.
+// Images are decoded into a Bitmap from bytes, a file or a URL (`bitmap_from_bytes`,
 // `bitmap_from_file`, `bitmap_fetch`), which the canvas can draw too (`draw_image`). Pages stack
-// with `push` / `pop`; `run` shows the root page. A page's bar carries its title, a back button
-// and its `actions` (`page_set_title`, `page_set_actions`). A dialog (`dialog_show`,
+// with `push` / `pop`; `run` shows the root page. A page's bar carries its title, a back button,
+// its `actions` and a leading view (`page_set_title`, `page_set_actions`, `page_set_bar_leading`). A dialog (`dialog_show`,
 // `dialog_close`) is a card drawn over the page inside the window, modal or not. A page's body can
 // be a Flutter-style Scaffold (`scaffold_create`, scaffold.odin): bottom tabs, a floating action
-// button, SnackBars (`snackbar_show`) and a drawer opened from the bar. A Font loaded
+// button, SnackBars (`scaffold_show_snackbar`) and a drawer opened from the bar. A Font loaded
 // from bytes or an asset file (`font_from_bytes`, `font_from_file`) can replace the system font in
 // labels, inputs, buttons and canvas text. A worker thread hands its results back to the main
-// thread with `post_main`.
+// thread with `post_main`. The user picks a file to read or a place to save one with `file_open` /
+// `file_save`.
 //
 // Every widget follows one shape: `X :: struct` describes it, `x_create(X) -> ^X_Handle` makes it,
-// `x_view(h)` is the view to embed, `x_set_y(h, ..)` changes it. Row / Column return a plain View:
-// their children are fixed at creation, like Flutter.
+// `view(h)` is the view to embed, `x_set_y(h, ..)` changes it. Row / Column / Stack return a plain
+// View: their children are fixed at creation, like Flutter. Callbacks take `user` first.
 
 import "base:builtin"
 import "base:runtime"
@@ -32,12 +34,12 @@ import "core:slice"
 import "core:strings"
 import "core:time"
 
-IS_IOS     :: ODIN_PLATFORM_SUBTARGET_IOS
-IS_ANDROID :: ODIN_PLATFORM_SUBTARGET == .Android
-
 // Opaque native view: NSView* on macOS, UIView* on iOS, global jobject on Android, GtkWidget* on Linux,
 // HWND on Windows, an element id (nv.js's table) on the web.
 View :: distinct rawptr
+
+// A widget's view, to embed in a Row / Column / Stack / Container / Dialog / Scaffold.
+view :: proc{list_view, label_view, input_view, button_view, canvas_view, image_view, progress_view, container_view, layout_view, stack_view, scaffold_view}
 
 Item :: struct {
 	title:    string,
@@ -93,16 +95,19 @@ callback_exit :: proc() {
 // belong to it, and their handles stay valid through `on_pop`: nv frees them, with their native
 // views, once the page's views are gone. `actions` are the trailing buttons of the page's bar
 // (Flutter's AppBar.actions). Dialogs shown while the page is on top belong to it: they hide under
-// a pushed page and close when the page pops.
+// a pushed page and close when the page pops. `on_covered` tells the page it went under a pushed
+// page (true, once that page is shown) and came back on top after a pop (false), the system's
+// back included; not on the first show, and never for the page that pops.
 Page :: struct {
-	title:   string, // copied
-	build:   Build_Proc,
-	user_data:    rawptr,
-	on_pop:  proc(user: rawptr), // optional
-	actions: []Action,           // copied
+	title:      string, // copied
+	build:      Build_Proc,
+	user:       rawptr,
+	on_pop:     proc(user: rawptr), // optional
+	actions:    []Action,           // copied
+	on_covered: proc(user: rawptr, covered: bool), // optional
 }
 
-Build_Proc :: proc(page: ^Page_Handle, user: rawptr) -> View
+Build_Proc :: proc(user: rawptr, page: ^Page_Handle) -> View
 
 // System icons every platform has (SF Symbols / android.R.drawable / GTK icon names / Segoe MDL2
 // Assets). A platform without a given icon shows the action's title as text instead.
@@ -145,6 +150,8 @@ Page_Handle :: struct {
 	native:  rawptr,                  // backend per-page object: the UIViewController on iOS
 	scope:   ^Scope,                  // the page's widgets; handed to the backend by _nav_release
 	scaffold: ^Scaffold_Handle,       // set by scaffold_create during `build`, nil without one
+	bar_leading: View,                // page_set_bar_leading's view, nil for none
+	covered: bool,                    // a page was pushed over it (on_covered(true) was the last)
 }
 
 // The page stack: g_nav[0] is the root page from `run`, the depth is len(g_nav) - 1. Backends
@@ -168,11 +175,21 @@ Page_Handle :: struct {
 @(private) g_nav_building: int
 @(private) g_nav_pending:  [dynamic]^Page_Handle
 
+// Makes nv take all of its own memory from `allocator` instead of the heap: what outlives a
+// callback (nv_heap), the blocks of the pages' and dialogs' arenas, downloads, timers. Call it
+// before `run` and before loading fonts or bitmaps. Download threads and post_main allocate from
+// other threads, so it must be thread-safe; nv frees into it as before, so an arena that ignores
+// frees will do.
+set_allocator :: proc(allocator: runtime.Allocator) {
+	assert(len(g_nav) == 0, "nv.set_allocator before nv.run")
+	g_heap = allocator
+}
+
 // Opens a window showing the root page and blocks in the platform event loop; on Android it
 // returns at once and the app keeps running (the first Activity builds the page). `build` runs
-// once the platform is ready to create views: before `run` the app calls only `theme_set` /
-// `theme_set_mode` and the font loaders for the theme's fonts (Windows starts GDI+, which decodes
-// bitmaps, in `_run`).
+// once the platform is ready to create views: before `run` the app calls only `set_allocator`,
+// `theme_set` / `theme_set_mode` and the font loaders for the theme's fonts (Windows starts GDI+,
+// which decodes bitmaps, in `_run`).
 run :: proc(p: Page) {
 	assert(len(g_nav) == 0, "nv.run twice")
 	g_main_ctx = context
@@ -229,15 +246,15 @@ nav_transition_done :: proc() {
 	pop()
 }
 
-// Runs `fn(data)` on the main thread from the event loop, soon, in post order; callable from any
+// Runs `fn(user)` on the main thread from the event loop, soon, in post order; callable from any
 // thread, so a worker hands its result back this way. `fn` runs inside a callback bracket like
 // every other callback (its temp memory is freed after it), with the context `run` was called
-// with: the poster's temp allocator belongs to its own thread. `data` stays the app's: nv neither
+// with: the poster's temp allocator belongs to its own thread. `user` stays the app's: nv neither
 // copies nor frees it. Called after `run` only.
-post_main :: proc(fn: proc(data: rawptr), data: rawptr) {
+post_main :: proc(fn: proc(user: rawptr), user: rawptr) {
 	assert(g_main_ctx.allocator.procedure != nil, "nv.post_main before nv.run")
 	t := new(Timer, nv_heap())
-	t^ = {fn = fn, data = data, ctx = g_main_ctx}
+	t^ = {fn = fn, user = user, ctx = g_main_ctx}
 	g_backend.post_timer(t)
 }
 
@@ -259,6 +276,17 @@ page_set_actions :: proc(h: ^Page_Handle, actions: []Action) {
 	if h.root != nil do g_backend.nav_actions_changed(h)
 }
 
+// Puts `view` in the page's bar right after the back / menu button, nil removes it: the leading
+// cluster of a Flutter AppBar's title. Settable any time; the bar shows the top page's. The view is
+// built in this page's scope and embedded nowhere else; it lives until the page is gone, so a page
+// can switch between views it built once and nil. It keeps its natural size, centred vertically; a
+// bar lower than that gives it the bar's height (macOS's title bar: about 24 points). The title stays
+// centred over the whole bar and moves aside only as far as the leading view and the actions need.
+page_set_bar_leading :: proc(h: ^Page_Handle, view: View) {
+	h.bar_leading = view
+	if h.root != nil do g_backend.nav_leading_changed(h) // nil while `build` runs: the _nav_push that follows shows it
+}
+
 @(private)
 nav_page_new :: proc(p: Page) -> ^Page_Handle {
 	h := new(Page_Handle)
@@ -275,7 +303,7 @@ nav_build :: proc(h: ^Page_Handle) {
 	callback_enter()
 	defer callback_exit()
 	g_nav_building += 1
-	h.root = h.page.build(h, h.page.user_data)
+	h.root = h.page.build(h.page.user, h)
 	g_nav_building -= 1
 }
 
@@ -291,9 +319,22 @@ nav_show_root :: proc() {
 // it, and the dialogs its own `build` showed appear over it.
 @(private)
 nav_present :: proc(h: ^Page_Handle) {
-	if len(g_nav) > 1 do dialog_set_page_hidden(g_nav[len(g_nav) - 2], true)
+	below := len(g_nav) > 1 ? g_nav[len(g_nav) - 2] : nil
+	if below != nil do dialog_set_page_hidden(below, true)
 	g_backend.nav_push(h)
 	dialog_flush_pending()
+	if below != nil && !below.covered do nav_covered_notify(below, true)
+}
+
+// Tells a page it went under another page or came back on top; `covered` tracks it, so a page
+// hears each change once.
+@(private)
+nav_covered_notify :: proc(e: ^Page_Handle, covered: bool) {
+	e.covered = covered
+	if e.page.on_covered == nil do return
+	callback_enter()
+	defer callback_exit()
+	e.page.on_covered(e.page.user, covered)
 }
 
 // Also flushes the dialogs of a root page shown without nav_present (iOS builds the root page
@@ -334,6 +375,7 @@ nav_system_pop_page :: proc(e: ^Page_Handle) {
 @(private)
 nav_finish_pop :: proc(top: ^Page_Handle) {
 	dialog_close_page(top)
+	file_detach_page(top)
 	if top.scope != nil do top.scope.detached = true // the app frees in on_pop; the views may still show
 	if g_nav_pop_waiting == top do g_nav_pop_waiting = nil
 	g_backend.nav_release(top) // retires top.scope now or later: the widget handles stay valid through on_pop
@@ -342,12 +384,14 @@ nav_finish_pop :: proc(top: ^Page_Handle) {
 	if top.page.on_pop != nil {
 		callback_enter()
 		defer callback_exit()
-		top.page.on_pop(top.page.user_data)
+		top.page.on_pop(top.page.user)
 	}
 	nav_actions_free(top)
 	delete(top.page.title)
 	free(top)
-	dialog_set_page_hidden(g_nav[len(g_nav) - 1], false)
+	now := g_nav[len(g_nav) - 1]
+	dialog_set_page_hidden(now, false)
+	if now.covered do nav_covered_notify(now, false) // not when a page popped from under the top (iOS)
 }
 
 // The page's scaffold dies with its scope, which may outlive the page's views (and the handle):
@@ -432,6 +476,7 @@ list_create :: proc(l: List) -> ^List_Handle {
 	return h
 }
 
+@(private)
 list_view :: proc(h: ^List_Handle) -> View {
 	return h.root
 }
@@ -439,8 +484,6 @@ list_view :: proc(h: ^List_Handle) -> View {
 list_reload :: proc(h: ^List_Handle) {
 	g_backend.list_reload(h)
 }
-
-ROW_ID :: "nv_row"
 
 // Main axis of a Row / Column. The values match GtkOrientation, NSUserInterfaceLayoutOrientation,
 // UILayoutConstraintAxis and LinearLayout.HORIZONTAL / VERTICAL, so backends cast directly. Windows
@@ -494,17 +537,45 @@ Stack_Child :: struct {
 // the pointer takes it (a plain label too, as in Flutter; an iOS label and a Windows Static, which
 // answers HTTRANSPARENT, let the pointer through). The
 // stack's natural size is the largest child's, margins included; a Row / Column stretches it like
-// any child. Children are fixed at creation, like Row / Column.
-stack_create :: proc(children: []Stack_Child) -> View {
-	o := overlay_new(container_view(container_create({}))) // the base sizes nothing
-	for c in children {
+// any child. Children are fixed at creation, like Row / Column; `stack_place` moves or resizes one.
+stack_create :: proc(children: []Stack_Child) -> ^Stack_Handle {
+	h := scope_new_in(Stack_Handle)
+	h.overlay = overlay_new(view(container_create({}))) // the base sizes nothing
+	h.children = make([]View, len(children), scope_allocator(scope_current()))
+	for c, i in children {
 		assert(c.view != nil, "nv.stack_create: a child is a view")
-		m := c.margin // a centered axis ignores its margins on every backend
-		if c.h == .Center do m.left, m.right = 0, 0
-		if c.v == .Center do m.top, m.bottom = 0, 0
-		g_backend.overlay_add(o, c.view, {h = c.h, v = c.v, margin = m, width = c.width, height = c.height, sizes = true})
+		h.children[i] = c.view
+		g_backend.overlay_add(h.overlay, c.view, stack_overlay_place(c))
 	}
-	return o.root
+	h.root = h.overlay.root
+	return h
+}
+
+Stack_Handle :: struct {
+	root:     View,   // embedded by the app
+	children: []View, // in order (the scope's arena)
+	overlay:  ^Overlay_Handle,
+}
+
+@(private)
+stack_view :: proc(h: ^Stack_Handle) -> View {
+	return h.root
+}
+
+// Gives `child`, one of the stack's children, a new place and size (`place.view` is ignored); its
+// paint order stays.
+stack_place :: proc(h: ^Stack_Handle, child: View, place: Stack_Child) {
+	_, found := slice.linear_search(h.children, child)
+	assert(found, "nv.stack_place: a child of this stack")
+	g_backend.overlay_place(h.overlay, child, stack_overlay_place(place))
+}
+
+@(private)
+stack_overlay_place :: proc "contextless" (c: Stack_Child) -> Overlay_Place {
+	m := c.margin // a centered axis ignores its margins on every backend
+	if c.h == .Center do m.left, m.right = 0, 0
+	if c.v == .Center do m.top, m.bottom = 0, 0
+	return {h = c.h, v = c.v, margin = m, width = c.width, height = c.height, sizes = true}
 }
 
 // Hides or shows any view (Flutter's Visibility / Offstage). A hidden child of a Row / Column
@@ -559,6 +630,7 @@ container_create :: proc(c: Container) -> ^Container_Handle {
 	return h
 }
 
+@(private)
 container_view :: proc(h: ^Container_Handle) -> View {
 	return h.root
 }
@@ -567,6 +639,79 @@ container_view :: proc(h: ^Container_Handle) -> View {
 container_set_color :: proc(h: ^Container_Handle, color: Color) {
 	h.container.color = color
 	g_backend.container_set_color(h)
+}
+
+// Replaces `width` / `height` (0 = from the child), as Container's.
+container_set_size :: proc(h: ^Container_Handle, width, height: f64) {
+	if h.container.width == width && h.container.height == height do return
+	h.container.width, h.container.height = width, height
+	g_backend.container_set_size(h)
+}
+
+// Flutter's LayoutBuilder: `child` fills the view, which fills the slot its parent gives it (give
+// it flex > 0 or a stretched cross axis: its own size must not depend on what on_layout changes).
+// `on_layout` runs when the view first gets a size and whenever that size changes, before the new
+// size is painted where the platform allows, so it can `view_set_hidden` / `container_set_size`
+// inside. Never for 0 × 0 (hidden, not laid out yet): shown again at its last size, it is not told.
+Layout :: struct {
+	child:     View,
+	on_layout: proc(user: rawptr, width, height: f64), // points / dp
+	user:      rawptr,
+}
+
+Layout_Handle :: struct {
+	layout:    Layout,
+	scope:     ^Scope,
+	ctx:       runtime.Context,
+	root:      View,   // embedded by the app
+	native:    rawptr, // backend data
+	size:      [2]f64, // the last size reported; {} before the first
+	notifying: bool,
+	again:     bool,   // a new size arrived during on_layout (Windows re-enters synchronously)
+}
+
+layout_create :: proc(l: Layout) -> ^Layout_Handle {
+	assert(l.child != nil, "nv.layout_create: the child is a view")
+	h := scope_new_in(Layout_Handle)
+	h.layout = l
+	h.ctx = context
+	g_backend.layout_init(h)
+	return h
+}
+
+@(private)
+layout_view :: proc(h: ^Layout_Handle) -> View {
+	return h.root
+}
+
+// The size last reported to on_layout (0, 0 before the first).
+layout_size :: proc(h: ^Layout_Handle) -> (width, height: f64) {
+	return h.size.x, h.size.y
+}
+
+// An answer that keeps resizing the Layout itself stops after this many passes.
+@(private) LAYOUT_MAX_PASSES :: 4
+
+// Called by the backends with the view's size, whenever it may have changed.
+@(private)
+layout_notify :: proc(h: ^Layout_Handle, width, height: f64) {
+	if width <= 0 || height <= 0 do return
+	s := [2]f64{width, height}
+	if s == h.size || h.layout.on_layout == nil || !scope_live(h.scope) do return
+	h.size = s
+	if h.notifying {
+		h.again = true
+		return
+	}
+	h.notifying = true
+	defer h.notifying = false
+	callback_enter()
+	defer callback_exit()
+	for _ in 0 ..< LAYOUT_MAX_PASSES {
+		h.again = false
+		h.layout.on_layout(h.layout.user, h.size.x, h.size.y)
+		if !h.again || !scope_live(h.scope) do break
+	}
 }
 
 // The child's distance from the container's outer edge, per side.
@@ -610,6 +755,7 @@ label_dispose :: proc(data: rawptr) {
 	font_free(h.label.style.font)
 }
 
+@(private)
 label_view :: proc(h: ^Label_Handle) -> View {
 	return h.root
 }
@@ -631,7 +777,13 @@ Input :: struct {
 	on_submit:   proc(user: rawptr, text: string), // optional; Return / Enter / the keyboard's Done key
 	user:        rawptr,
 	style:       Text_Style, // over the theme's body style
+	keyboard:    Keyboard,
+	secure:      bool,       // a password field: the text is masked
 }
+
+// The soft keyboard an Input asks for (iOS, Android, the web's inputmode); the desktops ignore it.
+// Sentences capitalizes the first letter of each sentence.
+Keyboard :: enum { Text, Sentences, Number, Signed_Number, Decimal }
 
 Input_Handle :: struct {
 	input:    Input,
@@ -659,6 +811,7 @@ input_dispose :: proc(data: rawptr) {
 	font_free((^Input_Handle)(data).input.style.font)
 }
 
+@(private)
 input_view :: proc(h: ^Input_Handle) -> View {
 	return h.root
 }
@@ -673,6 +826,14 @@ input_set_text :: proc(h: ^Input_Handle, text: string) {
 	h.silent = true
 	g_backend.input_set_text(h, text)
 	h.silent = false
+}
+
+// Gives the field the keyboard focus (and shows the soft keyboard on iOS / Android), selecting all
+// of its text with `select_all`. Call it once the field is shown: after `build` returned, or after
+// `dialog_show` for a field in the dialog.
+input_focus :: proc(h: ^Input_Handle, select_all := false) {
+	if !scope_live(h.scope) do return
+	g_backend.input_focus(h, select_all)
 }
 
 // Called by the backends when the text changed or was submitted; `cb` is on_change or on_submit.
@@ -720,6 +881,7 @@ button_dispose :: proc(data: rawptr) {
 	font_free(h.button.style.font)
 }
 
+@(private)
 button_view :: proc(h: ^Button_Handle) -> View {
 	return h.root
 }
@@ -786,6 +948,7 @@ Painter :: struct {
 	h:      ^Canvas_Handle,
 	native: rawptr, // CGContextRef / android.graphics.Canvas / cairo_t* / GpGraphics*
 	dc:     rawptr, // Windows: the HDC behind `native`
+	clips:  int,    // clip_push depth; what on_draw leaves pushed is popped after it
 }
 
 canvas_create :: proc(c: Canvas) -> ^Canvas_Handle {
@@ -796,6 +959,7 @@ canvas_create :: proc(c: Canvas) -> ^Canvas_Handle {
 	return h
 }
 
+@(private)
 canvas_view :: proc(h: ^Canvas_Handle) -> View {
 	return h.root
 }
@@ -866,8 +1030,9 @@ canvas_draw_notify :: proc(h: ^Canvas_Handle, native: rawptr, width, height: f64
 	if h.canvas.on_draw == nil || !scope_live(h.scope) do return // a sliding page's canvas stays as it was drawn
 	callback_enter()
 	defer callback_exit()
-	p := Painter{h, native, dc}
+	p := Painter{h = h, native = native, dc = dc}
 	h.canvas.on_draw(h.canvas.user, &p, width, height)
+	for p.clips > 0 do clip_pop(&p)
 }
 
 @(private)
@@ -884,6 +1049,41 @@ draw_image :: proc(p: ^Painter, b: ^Bitmap, x, y, w, h: f64) {
 	_draw_image(p, b, x, y, w, h)
 }
 
+// One stroked path through `points`: round joins, butt ends. Fewer than two points draw nothing.
+stroke_polyline :: proc(p: ^Painter, points: [][2]f64, color: Color, width: f64 = 1) {
+	if len(points) < 2 do return
+	if g_draw_mock != nil {
+		g_draw_mock("stroke_polyline %d %v", len(points), width)
+		return
+	}
+	_stroke_polyline(p, points, color, width)
+}
+
+// Clips what is drawn next to the rect, inside any clip already pushed, until the matching
+// clip_pop; what on_draw leaves pushed is popped after it.
+clip_push :: proc(p: ^Painter, x, y, w, h: f64) {
+	p.clips += 1
+	if g_draw_mock != nil {
+		g_draw_mock("clip_push %v %v %v %v", x, y, w, h)
+		return
+	}
+	_clip_push(p, x, y, w, h)
+}
+
+// Ends the innermost clip_push; without one it does nothing.
+clip_pop :: proc(p: ^Painter) {
+	if p.clips <= 0 do return
+	p.clips -= 1
+	if g_draw_mock != nil {
+		g_draw_mock("clip_pop")
+		return
+	}
+	_clip_pop(p)
+}
+
+// The tests' draw log (mock_test.odin); nil in an app, where the draw procs go to the backend.
+@(private) g_draw_mock: proc(format: string, args: ..any)
+
 // A decoded image in memory, drawn by Image widgets and `draw_image`. Reference counted:
 // `bitmap_free` drops the caller's reference, and a widget showing the bitmap holds its own, so
 // the app can free a bitmap right after handing it to a widget.
@@ -893,6 +1093,7 @@ Bitmap :: struct {
 	width:  int,    // px
 	height: int,
 	refs:   int,
+	rgba:   bool,   // made from pixels (bitmap_from_rgba): bitmap_set_rgba can replace them
 }
 
 // Decodes PNG or JPEG bytes with the platform's decoder; nil if they are not an image. `data` is
@@ -912,6 +1113,35 @@ bitmap_from_bytes :: proc(data: []u8) -> ^Bitmap {
 // build scripts copy next to the executable (desktop), into the app bundle (iOS) or into the APK.
 bitmap_from_file :: proc(path: string) -> ^Bitmap {
 	return bitmap_from_bytes(g_backend.asset_read(path, context.temp_allocator))
+}
+
+// A bitmap of `width` × `height` pixels: RGBA8 with straight alpha, rows top-down, `width * 4`
+// bytes each. nil for an empty size or too few bytes. The pixels are copied, not kept.
+bitmap_from_rgba :: proc(width, height: int, pixels: []u8) -> ^Bitmap {
+	if width <= 0 || height <= 0 || len(pixels) < width * height * 4 do return nil
+	b := new(Bitmap)
+	b^ = {width = width, height = height, refs = 1, rgba = true}
+	if !g_backend.bitmap_rgba(b, pixels[:width * height * 4]) {
+		free(b)
+		return nil
+	}
+	return b
+}
+
+// Replaces the pixels of a bitmap from bitmap_from_rgba, in place, with as many (same layout,
+// copied). False for a decoded bitmap or another size: make a new one then. Canvases draw the new
+// pixels on their next draw (canvas_redraw); an Image widget needs image_set_bitmap again.
+bitmap_set_rgba :: proc(b: ^Bitmap, pixels: []u8) -> bool {
+	if b == nil || !b.rgba || len(pixels) != b.width * b.height * 4 do return false
+	return g_backend.bitmap_set_rgba(b, pixels)
+}
+
+// Reads one of the app's assets whole (a relative path, as for bitmap_from_file) or a file by its
+// absolute path where there is a file system; false when there is none (an empty file may read as
+// none too).
+asset_read :: proc(path: string, allocator := context.allocator) -> ([]u8, bool) {
+	data := g_backend.asset_read(path, allocator)
+	return data, data != nil
 }
 
 // Downloads and decodes an image in the background. `on_load` runs later on the UI thread with
@@ -1013,6 +1243,140 @@ fetch_notify :: proc(f: ^Fetch) {
 	}
 }
 
+// How a file dialog ended.
+File_Status :: enum { Ok, Cancelled, Failed }
+
+// Asks the user for one file and reads it whole. `on_done` runs later on the main thread, never
+// inside file_open; `name` (without a directory) and `data` are valid only during the call. One file
+// dialog at a time: a new one cancels the one still open (its on_done gets .Cancelled first). It
+// belongs to the top page: if that page pops first, on_done gets .Cancelled before its on_pop. On
+// the web, call it from a tap (browsers open the picker only on a user gesture). Not from `build`.
+File_Open :: struct {
+	title:      string,   // the dialog's message, where the platform shows one
+	extensions: []string, // without the dot ("json"); empty for any file
+	on_done:    proc(user: rawptr, status: File_Status, name: string, data: []u8),
+	user:       rawptr,
+}
+
+// Asks where to save `data` (copied) and writes it there; `name` in on_done is the file's name as
+// chosen. On the web it is a download: .Ok at once with `suggested_name`.
+File_Save :: struct {
+	title:          string,
+	suggested_name: string,
+	extensions:     []string, // the first is the default
+	data:           []u8,
+	on_done:        proc(user: rawptr, status: File_Status, name: string), // optional
+	user:           rawptr,
+}
+
+file_open :: proc(o: File_Open) {
+	r := file_request_new(false, o.title, "", o.extensions, nil)
+	r.on_open, r.user = o.on_done, o.user
+	g_backend.file_open(r)
+}
+
+file_save :: proc(s: File_Save) {
+	r := file_request_new(true, s.title, s.suggested_name, s.extensions, s.data)
+	r.on_save, r.user = s.on_done, s.user
+	g_backend.file_save(r)
+}
+
+// A file dialog in flight, in nv_heap. The backend reports it exactly once through file_notify,
+// however it ends; a detached one (replaced, or its page popped) calls nothing then.
+@(private) File_Request :: struct {
+	save:       bool,
+	title:      string,
+	name:       string,   // save: the suggestion in; both: the chosen name out (file_set_result)
+	extensions: []string,
+	data:       []u8,     // save: the bytes to write; open: the bytes read
+	on_open:    proc(user: rawptr, status: File_Status, name: string, data: []u8),
+	on_save:    proc(user: rawptr, status: File_Status, name: string),
+	user:       rawptr,
+	page:       ^Page_Handle, // nil once detached
+	ctx:        runtime.Context,
+	native:     rawptr, // backend: the panel / picker / chooser
+	extra:      rawptr, // backend
+}
+
+@(private) g_file_request: ^File_Request // the attached one
+
+@(private)
+file_request_new :: proc(save: bool, title, name: string, extensions: []string, data: []u8) -> ^File_Request {
+	assert(len(g_nav) > 0 && g_nav_building == 0, "nv.file_open / file_save: after run, not inside build")
+	file_detach(g_file_request)
+	r := new(File_Request, nv_heap())
+	r.save, r.ctx, r.page = save, context, g_nav[len(g_nav) - 1]
+	r.title = strings.clone(title, nv_heap())
+	r.name = strings.clone(name, nv_heap())
+	r.extensions = make([]string, len(extensions), nv_heap())
+	for e, i in extensions do r.extensions[i] = strings.clone(e, nv_heap())
+	r.data = slice.clone(data, nv_heap())
+	g_file_request = r
+	return r
+}
+
+// The chosen file's name (copied; a path keeps only its last part) and, for an open, its bytes
+// (taken: allocated with nv_heap).
+@(private)
+file_set_result :: proc(r: ^File_Request, name: string, data: []u8 = nil) {
+	base := name
+	if i := strings.last_index_any(base, "/\\"); i >= 0 do base = base[i + 1:]
+	delete(r.name, nv_heap())
+	r.name = strings.clone(base, nv_heap())
+	if !r.save {
+		delete(r.data, nv_heap())
+		r.data = data
+	}
+}
+
+// Called by the backends once per request, however it ended; frees it.
+@(private)
+file_notify :: proc(r: ^File_Request, status: File_Status) {
+	if r.page != nil {
+		if g_file_request == r do g_file_request = nil
+		r.page = nil
+		callback_enter()
+		defer callback_exit()
+		file_report(r, status)
+	}
+	file_request_free(r)
+}
+
+// The app hears .Cancelled now; the backend's answer, when it comes, is dropped.
+@(private)
+file_detach :: proc(r: ^File_Request) {
+	if r == nil || r.page == nil do return
+	if g_file_request == r do g_file_request = nil
+	r.page = nil
+	callback_enter()
+	defer callback_exit()
+	file_report(r, .Cancelled)
+}
+
+@(private)
+file_detach_page :: proc(e: ^Page_Handle) {
+	if g_file_request != nil && g_file_request.page == e do file_detach(g_file_request)
+}
+
+@(private)
+file_report :: proc(r: ^File_Request, status: File_Status) {
+	if r.save {
+		if r.on_save != nil do r.on_save(r.user, status, status == .Ok ? r.name : "")
+	} else if r.on_open != nil {
+		r.on_open(r.user, status, status == .Ok ? r.name : "", status == .Ok ? r.data : nil)
+	}
+}
+
+@(private)
+file_request_free :: proc(r: ^File_Request) {
+	delete(r.title, nv_heap())
+	delete(r.name, nv_heap())
+	for e in r.extensions do delete(e, nv_heap())
+	delete(r.extensions, nv_heap())
+	delete(r.data, nv_heap())
+	free(r, nv_heap())
+}
+
 // How an image fills its view (Flutter's BoxFit).
 Fit :: enum {
 	Contain, // the whole image, letterboxed
@@ -1066,6 +1430,7 @@ image_dispose :: proc(data: rawptr) {
 	bitmap_free(h.bitmap)
 }
 
+@(private)
 image_view :: proc(h: ^Image_Handle) -> View {
 	return h.root
 }
@@ -1152,8 +1517,8 @@ progress_create :: proc(p: Progress) -> ^Progress_Handle {
 	h.start = time.tick_now()
 	h.canvas = canvas_create({on_draw = progress_draw, user = h})
 	size := h.progress.size
-	h.container = container_create({child = canvas_view(h.canvas), width = size, height = size})
-	h.root = container_view(h.container)
+	h.container = container_create({child = view(h.canvas), width = size, height = size})
+	h.root = view(h.container)
 	h.next = g_progress
 	if g_progress != nil do g_progress.prev = h
 	g_progress = h
@@ -1169,6 +1534,7 @@ progress_dispose :: proc(data: rawptr) {
 	if h.next != nil do h.next.prev = h.prev
 }
 
+@(private)
 progress_view :: proc(h: ^Progress_Handle) -> View {
 	return h.root
 }
@@ -1235,9 +1601,12 @@ fast_out_slow_in :: proc "contextless" (t: f64) -> f64 {
 // A card over the current page, inside the window (not a separate OS window). A modal dialog dims
 // the page and blocks it; a non-modal one floats over a page that stays usable. `content` is any
 // view the app built from the widgets; it keeps its natural size (a bare list or canvas has none).
+// `content` belongs to the page (its widgets live until the page pops); `build` instead makes the
+// content when the dialog shows, in the dialog's own scope, so its widgets go when it closes.
 // The buttons sit in a row under the content and never close the dialog on their own: a callback
-// gets the handle and calls `dialog_close` when it wants to. The dialog belongs to the page on top
-// when it is shown: it hides under a page pushed later and closes when its page pops.
+// gets the handle and calls `dialog_close` when it wants to; a `dismissible` modal one also closes
+// on a tap on the scrim. The dialog belongs to the page on top when it is shown: it hides under a
+// page pushed later and closes when its page pops.
 Dialog :: struct {
 	title:    string,              // copied; "" for none
 	content:  View,                // optional
@@ -1245,11 +1614,38 @@ Dialog :: struct {
 	modal:    bool,
 	on_close: proc(user: rawptr),  // optional; after the dialog is gone (the last call the handle is valid for)
 	user:     rawptr,
+	build:    proc(user: rawptr, h: ^Dialog_Handle) -> View, // optional; replaces `content`
+	width:    f64,                 // the card's width in points / dp; 0 = 320; at most the window's less 32
+	radius:   f64,                 // the card's corner radius; 0 = the platform's
+	light:    bool,                // a white card in the light appearance (its controls too), whatever the theme
+	scrim:    Color,               // modal: the dimming layer; alpha 0 = black at 40%
+	dismissible: bool,             // modal: a tap on the scrim closes it (dialog_close; Flutter's barrierDismissible)
+}
+
+@(private) DIALOG_WIDTH :: 320.0
+@(private) DIALOG_SCRIM :: Color{0, 0, 0, 0.4}
+@(private) DIALOG_LIGHT :: Color{1, 1, 1, 1} // the light card
+@(private) DIALOG_LIGHT_TEXT :: Color{0, 0, 0, 1}
+
+// The card's width before the window clamps it.
+@(private)
+dialog_width :: proc "contextless" (h: ^Dialog_Handle) -> f64 {
+	return h.dialog.width > 0 ? h.dialog.width : DIALOG_WIDTH
+}
+
+@(private)
+dialog_radius :: proc "contextless" (h: ^Dialog_Handle, platform: f64) -> f64 {
+	return h.dialog.radius > 0 ? h.dialog.radius : platform
+}
+
+@(private)
+dialog_scrim :: proc "contextless" (h: ^Dialog_Handle) -> Color {
+	return h.dialog.scrim.a > 0 ? h.dialog.scrim : DIALOG_SCRIM
 }
 
 Dialog_Button :: struct {
 	title:    string, // copied
-	on_click: proc(dialog: ^Dialog_Handle, user: rawptr), // optional
+	on_click: proc(user: rawptr, dialog: ^Dialog_Handle), // optional
 	user:     rawptr,
 }
 
@@ -1325,24 +1721,29 @@ dialog_close :: proc(h: ^Dialog_Handle) {
 
 // Builds the body from the framework's own widgets, so the backends only add the card and the
 // scrim: a Column of the title (a bold label), the content and a Row of the buttons (equal widths).
-// These belong to the dialog's scope; the app's `content` stays in the page's.
+// These belong to the dialog's scope, as does what `build` makes; the app's `content` stays in the
+// page's.
 @(private)
 dialog_present :: proc(h: ^Dialog_Handle) {
 	h.scope = scope_new()
 	outer := g_scope_override
 	g_scope_override = h.scope
 	defer g_scope_override = outer
+	content := h.dialog.content
+	if h.dialog.build != nil do content = h.dialog.build(h.dialog.user, h)
 	children := make([dynamic]Flex_Child, context.temp_allocator)
 	if h.dialog.title != "" {
-		h.title = label_create({text = h.dialog.title, heading = true})
-		append(&children, Flex_Child{label_view(h.title), 0})
+		style: Text_Style
+		if h.dialog.light do style.color = DIALOG_LIGHT_TEXT
+		h.title = label_create({text = h.dialog.title, heading = true, style = style})
+		append(&children, Flex_Child{view(h.title), 0})
 	}
-	if h.dialog.content != nil do append(&children, Flex_Child{h.dialog.content, 0})
+	if content != nil do append(&children, Flex_Child{content, 0})
 	if len(h.buttons) > 0 {
 		row := make([]Flex_Child, len(h.buttons), context.temp_allocator)
 		for bh, i in h.buttons {
 			bh.handle = button_create({title = bh.button.title, on_click = dialog_button_clicked, user = bh})
-			row[i] = {button_view(bh.handle), 1}
+			row[i] = {view(bh.handle), 1}
 		}
 		append(&children, Flex_Child{row_create(row, spacing = 8), 0})
 	}
@@ -1355,7 +1756,7 @@ dialog_present :: proc(h: ^Dialog_Handle) {
 @(private)
 dialog_button_clicked :: proc(user: rawptr) {
 	bh := (^Dialog_Button_Handle)(user)
-	if bh.button.on_click != nil do bh.button.on_click(bh.dialog, bh.button.user)
+	if bh.button.on_click != nil do bh.button.on_click(bh.button.user, bh.dialog)
 }
 
 @(private)
@@ -1367,6 +1768,22 @@ dialog_free :: proc(h: ^Dialog_Handle) {
 	delete(h.buttons)
 	delete(h.dialog.title)
 	free(h)
+}
+
+// Called by the backends when a modal dialog's scrim (`h.scrim`) was tapped: a dismissible dialog
+// closes. It finds the dialog by its scrim, so a late tap on a closed one does nothing.
+@(private)
+dialog_scrim_notify :: proc "contextless" (scrim: rawptr) {
+	if scrim == nil do return
+	for d in g_dialogs {
+		if d.scrim != scrim do continue
+		if !d.dialog.dismissible || d.hidden do return
+		context = d.ctx
+		callback_enter()
+		defer callback_exit()
+		dialog_close(d)
+		return
+	}
 }
 
 // The visible modal dialog of the top page, or nil. Contextless for the Win32 layout code.

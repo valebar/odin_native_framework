@@ -1,4 +1,5 @@
 #+build !js
+#+private
 package nv
 
 // A scope's arena (see Scope): growing, in address space reserved up front; or, once the app set

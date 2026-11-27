@@ -1,4 +1,5 @@
 #+build darwin:ios
+#+private
 package nv
 
 // iOS container backend: like macOS, a UIView subclass (NVContainerView) for the intrinsic size
@@ -51,6 +52,7 @@ _container_set_color :: proc(h: ^Container_Handle) {
 // See container_macos.odin.
 @(private)
 container_forward_hugging :: proc "c" (v: ^UI_View, priority: f32, axis: Axis) {
+	if layout_forward_hugging(v, priority, axis) do return
 	if container_class == nil || OBJC.object_getClass(NS.id(v)) != container_class do return
 	h := objc_handle(NS.id(v), Container_Handle)
 	if h.container.child == nil do return
@@ -64,4 +66,20 @@ container_forward_hugging :: proc "c" (v: ^UI_View, priority: f32, axis: Axis) {
 container_intrinsic_size :: proc "c" (self: NS.id, _: NS.SEL) -> NS.Size {
 	h := objc_handle(self, Container_Handle)
 	return container_intrinsic(h)
+}
+
+// See container_macos.odin.
+@(private)
+_container_set_size :: proc(h: ^Container_Handle) {
+	root := (^UI_View)(h.root)
+	c := &h.container
+	for axis in Axis {
+		fixed := (axis == .Horizontal ? c.width : c.height) > 0
+		ui_view_set_content_compression_resistance_priority(root, fixed ? LAYOUT_PRIORITY_FIXED : 750, NS.Integer(axis))
+		if c.child == nil do continue
+		child := (^UI_View)(c.child)
+		if fixed do ui_view_set_content_hugging_priority(child, 250, NS.Integer(axis))
+		else do container_forward_hugging(child, send(f32, root, "contentHuggingPriorityForAxis:", NS.Integer(axis)), axis)
+	}
+	send(nil, root, "invalidateIntrinsicContentSize")
 }

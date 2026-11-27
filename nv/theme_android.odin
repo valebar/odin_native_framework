@@ -1,4 +1,5 @@
 #+build linux:android
+#+private
 package nv
 
 // Android theme backend. The manifest's Theme.DeviceDefault.DayNight follows the system, and

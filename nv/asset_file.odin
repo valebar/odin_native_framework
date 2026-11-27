@@ -1,4 +1,5 @@
 #+build !js
+#+private
 package nv
 
 // The file system side of the assets, for every backend that has one (not the web, whose assets
