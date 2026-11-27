@@ -59,6 +59,7 @@ _bitmap_free :: proc(b: ^Bitmap) {
 
 @(private)
 _draw_image :: proc(p: ^Painter, b: ^Bitmap, x, y, w, h: f64) {
+	if gl_of(p) != nil { gl_draw_image(p, b, x, y, w, h); return }
 	cr := (^cairo_t)(p.native)
 	cairo_save(cr)
 	cairo_translate(cr, x, y)

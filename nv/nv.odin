@@ -926,6 +926,9 @@ Canvas :: struct {
 	on_pointer: proc(user: rawptr, kind: Pointer, x, y: f64), // optional; Move only while pressed
 	on_scroll:  proc(user: rawptr, dx, dy: f64),             // optional
 	user:       rawptr,
+	// Drawn on the GPU where the backend can (Linux: OpenGL through nanovg); elsewhere a plain
+	// canvas. Without on_pointer / on_scroll it is not a pointer target: what is under it gets them.
+	gpu:        bool,
 }
 
 // Points per wheel notch, for the backends whose wheel reports notches (GTK, Windows, a web page

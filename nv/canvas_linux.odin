@@ -11,11 +11,28 @@ import "core:strings"
 
 @(private)
 _canvas_init :: proc(h: ^Canvas_Handle) {
+	if h.canvas.gpu {
+		gl_canvas_init(h)
+		return
+	}
 	area := gtk_drawing_area_new()
 	gtk_widget_set_hexpand(area, true)
 	gtk_widget_set_vexpand(area, true)
 	gtk_drawing_area_set_draw_func(area, rawptr(on_canvas_draw), h, nil)
+	canvas_add_controllers(h, area)
 
+	// The canvas holds its own reference, so a pending tick can still be removed when the scope dies.
+	g_object_ref_sink(area)
+	h.extra = scope_new_in(Linux_Canvas)
+	scope_on_dispose(canvas_dispose, h)
+
+	h.root = View(area)
+	h.view = area
+}
+
+// The drag (pointer) and scroll (wheel) controllers, for the cairo and the GL canvas.
+@(private)
+canvas_add_controllers :: proc(h: ^Canvas_Handle, area: ^GtkWidget) {
 	drag := gtk_gesture_drag_new()
 	g_signal_connect(drag, "drag-begin", rawptr(on_canvas_drag_begin), h)
 	g_signal_connect(drag, "drag-update", rawptr(on_canvas_drag_update), h)
@@ -25,14 +42,6 @@ _canvas_init :: proc(h: ^Canvas_Handle) {
 	scroll := gtk_event_controller_scroll_new(GTK_EVENT_CONTROLLER_SCROLL_BOTH_AXES)
 	g_signal_connect(scroll, "scroll", rawptr(on_canvas_scroll), h)
 	gtk_widget_add_controller(area, scroll)
-
-	// The canvas holds its own reference, so a pending tick can still be removed when the scope dies.
-	g_object_ref_sink(area)
-	h.extra = scope_new_in(Linux_Canvas)
-	scope_on_dispose(canvas_dispose, h)
-
-	h.root = View(area)
-	h.view = area
 }
 
 // Per-canvas redraw state (Canvas_Handle.extra, in the page's arena).
@@ -80,6 +89,7 @@ cairo_of :: #force_inline proc "contextless" (p: ^Painter, c: Color) -> ^cairo_t
 
 @(private)
 _fill_rect :: proc(p: ^Painter, x, y, w, h: f64, color: Color) {
+	if vg := gl_of(p); vg != nil { gl_fill_rect(vg, x, y, w, h, color); return }
 	cr := cairo_of(p, color)
 	cairo_rectangle(cr, x, y, w, h)
 	cairo_fill(cr)
@@ -87,6 +97,7 @@ _fill_rect :: proc(p: ^Painter, x, y, w, h: f64, color: Color) {
 
 @(private)
 _stroke_rect :: proc(p: ^Painter, x, y, w, h: f64, color: Color, width: f64) {
+	if vg := gl_of(p); vg != nil { gl_stroke_rect(vg, x, y, w, h, color, width); return }
 	cr := cairo_of(p, color)
 	cairo_set_line_width(cr, width)
 	cairo_rectangle(cr, x, y, w, h)
@@ -95,6 +106,7 @@ _stroke_rect :: proc(p: ^Painter, x, y, w, h: f64, color: Color, width: f64) {
 
 @(private)
 _draw_line :: proc(p: ^Painter, x0, y0, x1, y1: f64, color: Color, width: f64) {
+	if vg := gl_of(p); vg != nil { gl_draw_line(vg, x0, y0, x1, y1, color, width); return }
 	cr := cairo_of(p, color)
 	cairo_set_line_width(cr, width)
 	cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND)
@@ -115,6 +127,11 @@ ellipse_path :: proc "contextless" (cr: ^cairo_t, x, y, w, h: f64) {
 
 @(private)
 _fill_ellipse :: proc(p: ^Painter, x, y, w, h: f64, color: Color) {
+	if vg := gl_of(p); vg != nil {
+		gl_ellipse(vg, x, y, w, h)
+		nvg_fill(vg, color)
+		return
+	}
 	cr := cairo_of(p, color)
 	ellipse_path(cr, x, y, w, h)
 	cairo_fill(cr)
@@ -122,6 +139,11 @@ _fill_ellipse :: proc(p: ^Painter, x, y, w, h: f64, color: Color) {
 
 @(private)
 _stroke_ellipse :: proc(p: ^Painter, x, y, w, h: f64, color: Color, width: f64) {
+	if vg := gl_of(p); vg != nil {
+		gl_ellipse(vg, x, y, w, h)
+		gl_stroke(vg, color, width)
+		return
+	}
 	cr := cairo_of(p, color)
 	cairo_set_line_width(cr, width)
 	ellipse_path(cr, x, y, w, h)
@@ -132,6 +154,7 @@ _stroke_ellipse :: proc(p: ^Painter, x, y, w, h: f64, color: Color, width: f64) 
 // The cap is butt, since _draw_line leaves it round.
 @(private)
 _stroke_arc :: proc(p: ^Painter, cx, cy, radius, start, sweep: f64, color: Color, width: f64) {
+	if vg := gl_of(p); vg != nil { gl_stroke_arc(vg, cx, cy, radius, start, sweep, color, width); return }
 	cr := cairo_of(p, color)
 	cairo_set_line_width(cr, width)
 	cairo_set_line_cap(cr, CAIRO_LINE_CAP_BUTT)
@@ -145,6 +168,7 @@ _stroke_arc :: proc(p: ^Painter, cx, cy, radius, start, sweep: f64, color: Color
 // The API only knows normal and bold, so Semibold is bold too.
 @(private)
 _draw_text :: proc(p: ^Painter, text: string, x, y: f64, style: Text_Style) {
+	if gl_of(p) != nil { gl_draw_text(p, text, x, y, style); return }
 	cr := cairo_of(p, style.color)
 	ext := canvas_font(cr, style)
 	cairo_move_to(cr, x, y + ext.ascent)
@@ -153,6 +177,7 @@ _draw_text :: proc(p: ^Painter, text: string, x, y: f64, style: Text_Style) {
 
 @(private)
 _measure_text :: proc(p: ^Painter, text: string, style: Text_Style) -> (width, height: f64) {
+	if gl_of(p) != nil do return gl_measure_text(p, text, style)
 	cr := (^cairo_t)(p.native)
 	ext := canvas_font(cr, style)
 	te: cairo_text_extents_t
@@ -226,6 +251,7 @@ on_canvas_scroll :: proc "c" (c: ^GtkEventController, dx, dy: f64, user: gpointe
 // One path, butt ends and round joins; the join goes back to miter, which the rects stroke with.
 @(private)
 _stroke_polyline :: proc(p: ^Painter, points: [][2]f64, color: Color, width: f64) {
+	if vg := gl_of(p); vg != nil { gl_stroke_polyline(vg, points, color, width); return }
 	cr := cairo_of(p, color)
 	cairo_set_line_width(cr, width)
 	cairo_set_line_cap(cr, CAIRO_LINE_CAP_BUTT)
@@ -240,6 +266,7 @@ _stroke_polyline :: proc(p: ^Painter, points: [][2]f64, color: Color, width: f64
 // colour, width and font a restore brings back are set again by the next call anyway.
 @(private)
 _clip_push :: proc(p: ^Painter, x, y, w, h: f64) {
+	if vg := gl_of(p); vg != nil { gl_clip_push(vg, x, y, w, h); return }
 	cr := (^cairo_t)(p.native)
 	cairo_save(cr)
 	cairo_new_path(cr)
@@ -249,5 +276,6 @@ _clip_push :: proc(p: ^Painter, x, y, w, h: f64) {
 
 @(private)
 _clip_pop :: proc(p: ^Painter) {
+	if vg := gl_of(p); vg != nil { gl_clip_pop(vg); return }
 	cairo_restore((^cairo_t)(p.native))
 }

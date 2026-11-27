@@ -27,9 +27,24 @@ _font_load :: proc(f: ^Font, data: []u8) -> bool {
 		return false
 	}
 	pango_fc_font_map_config_changed(pango_cairo_font_map_get_default())
+	// The bytes stay for a gpu canvas's fontstash (canvas_gl_linux.odin).
+	bytes := new([]u8)
+	bytes^ = make([]u8, len(data))
+	copy(bytes^, data)
+	f.extra = bytes
+	append(&g_gl_font_list, f)
 	return true
 }
 
 @(private)
 _font_free :: proc(f: ^Font) {
+	for o, i in g_gl_font_list do if o == f {
+		unordered_remove(&g_gl_font_list, i)
+		break
+	}
+	if bytes := (^[]u8)(f.extra); bytes != nil {
+		delete(bytes^)
+		free(bytes)
+		f.extra = nil
+	}
 }
