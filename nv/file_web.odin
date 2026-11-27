@@ -20,3 +20,9 @@ _file_save :: proc(r: ^File_Request) {
 	if name == "" do name = len(r.extensions) > 0 ? strings.concatenate({"file.", r.extensions[0]}, context.temp_allocator) : "file"
 	js_file_save(r, name, r.data)
 }
+
+// No folder dialog here: .Failed, after the call.
+@(private)
+_folder_open :: proc(r: ^File_Request) {
+	post_main(proc(data: rawptr) { file_notify((^File_Request)(data), .Failed) }, r)
+}

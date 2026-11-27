@@ -39,6 +39,27 @@ test_file_open_delivers_bytes :: proc(t: ^testing.T) {
 	testing.expect(t, g_file_request == nil)
 }
 
+// A folder comes back whole: its full path, inside a callback bracket.
+@(test)
+test_folder_open_delivers_path :: proc(t: ^testing.T) {
+	mock_begin(t)
+	defer mock_end(t)
+	f: Mock_Files
+	defer delete(f.log)
+	run(mock_files_page(&f))
+	mock_log_clear()
+	folder_open({title = "Setups", user = &f, on_done = proc(user: rawptr, status: File_Status, path: string) {
+		f := (^Mock_Files)(user)
+		append(&f.log, fmt.aprintf("folder %v %s depth %d", status, path, g_callback_depth, allocator = mock_allocator()))
+	}})
+	expect_log(t, "folder_open Setups")
+	testing.expect_value(t, len(f.log), 0)
+	mock_file_finish(0, .Ok, "/tmp/dir/setups")
+	testing.expect_value(t, len(f.log), 1)
+	testing.expect_value(t, f.log[0], "folder Ok /tmp/dir/setups depth 1")
+	testing.expect(t, g_file_request == nil)
+}
+
 // The data is copied at the call: the app may change or free its slice right after.
 @(test)
 test_file_save_copies_data :: proc(t: ^testing.T) {

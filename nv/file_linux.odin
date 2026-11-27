@@ -11,6 +11,7 @@ import "core:strings"
 
 @(private) GTK_FILE_CHOOSER_ACTION_OPEN :: i32(0)
 @(private) GTK_FILE_CHOOSER_ACTION_SAVE :: i32(1)
+@(private) GTK_FILE_CHOOSER_ACTION_SELECT_FOLDER :: i32(2)
 @(private) GTK_RESPONSE_ACCEPT          :: i32(-3)
 
 @(private)
@@ -21,6 +22,11 @@ _file_open :: proc(r: ^File_Request) {
 @(private)
 _file_save :: proc(r: ^File_Request) {
 	file_chooser_show(r, GTK_FILE_CHOOSER_ACTION_SAVE)
+}
+
+@(private)
+_folder_open :: proc(r: ^File_Request) {
+	file_chooser_show(r, GTK_FILE_CHOOSER_ACTION_SELECT_FOLDER)
 }
 
 @(private)
@@ -50,7 +56,10 @@ file_chooser_response :: proc "c" (dialog: rawptr, response: i32, user: gpointer
 		if file := gtk_file_chooser_get_file(dialog); file != nil {
 			if p := g_file_get_path(file); p != nil {
 				path := string(p)
-				if r.save {
+				if r.folder {
+					file_set_result(r, path)
+					status = .Ok
+				} else if r.save {
 					if os.write_entire_file(path, r.data) == nil {
 						file_set_result(r, path)
 						status = .Ok

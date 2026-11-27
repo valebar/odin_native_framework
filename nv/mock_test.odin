@@ -96,6 +96,7 @@ mock_backend := Backend{
 	fetch_start         = mock_fetch_start,
 	file_open           = mock_file_open,
 	file_save           = mock_file_save,
+	folder_open         = mock_folder_open,
 	dialog_show         = mock_dialog_show,
 	dialog_close        = mock_dialog_close,
 	dialog_set_hidden   = mock_dialog_set_hidden,
@@ -332,6 +333,12 @@ mock_nav_actions_changed :: proc(e: ^Page_Handle) {
 mock_nav_leading_changed :: proc(e: ^Page_Handle) {
 	mock_require(e.root != nil, "_nav_leading_changed gets a shown page")
 	mock_log("nav_leading_changed %s %s", e.page.title, e.bar_leading == nil ? "none" : mock_view_name(e.bar_leading))
+}
+
+mock_folder_open :: proc(r: ^File_Request) {
+	mock_require(r.page != nil && r.folder, "_folder_open gets an attached folder request")
+	append(&mock.files, r)
+	mock_log("folder_open %s", r.title)
 }
 
 mock_file_open :: proc(r: ^File_Request) {

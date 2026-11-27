@@ -58,6 +58,7 @@ package nv
 	fetch_start:         proc(f: ^Fetch),
 	file_open:           proc(r: ^File_Request), // see File_Request
 	file_save:           proc(r: ^File_Request),
+	folder_open:         proc(r: ^File_Request), // File_Request.folder: report the full path in `name`
 
 	// Dialogs (see Dialog)
 	dialog_show:         proc(h: ^Dialog_Handle),
@@ -122,6 +123,7 @@ package nv
 	fetch_start         = _fetch_start,
 	file_open           = _file_open,
 	file_save           = _file_save,
+	folder_open         = _folder_open,
 	dialog_show         = _dialog_show,
 	dialog_close        = _dialog_close,
 	dialog_set_hidden   = _dialog_set_hidden,

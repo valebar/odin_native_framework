@@ -18,6 +18,17 @@ _file_open :: proc(r: ^File_Request) {
 	file_begin_sheet(r, panel)
 }
 
+// Folders only; the panel may make a new one.
+@(private)
+_folder_open :: proc(r: ^File_Request) {
+	panel := send(^NS.Object, objc_class_object("NSOpenPanel"), "openPanel")
+	send(nil, panel, "setCanChooseFiles:", NS.BOOL(false))
+	send(nil, panel, "setCanChooseDirectories:", NS.BOOL(true))
+	send(nil, panel, "setCanCreateDirectories:", NS.BOOL(true))
+	send(nil, panel, "setAllowsMultipleSelection:", NS.BOOL(false))
+	file_begin_sheet(r, panel)
+}
+
 @(private)
 _file_save :: proc(r: ^File_Request) {
 	panel := send(^NS.Object, objc_class_object("NSSavePanel"), "savePanel")
@@ -50,7 +61,10 @@ file_sheet_done :: proc "c" (user: rawptr, response: NS.Integer) {
 		url := send(^NS.Object, panel, "URL")
 		path := string(send(cstring, send(^NS.Object, url, "path"), "UTF8String"))
 		status = .Failed
-		if r.save {
+		if r.folder {
+			file_set_result(r, path)
+			status = .Ok
+		} else if r.save {
 			if os.write_entire_file(path, r.data) == nil {
 				file_set_result(r, path)
 				status = .Ok

@@ -115,3 +115,9 @@ file_picker_done :: proc(r: ^File_Request, status: File_Status) {
 	send(nil, (^NS.Object)(r.native), "autorelease") // UIKit is still inside its call
 	file_notify(r, status)
 }
+
+// No folder dialog here: .Failed, after the call.
+@(private)
+_folder_open :: proc(r: ^File_Request) {
+	post_main(proc(data: rawptr) { file_notify((^File_Request)(data), .Failed) }, r)
+}

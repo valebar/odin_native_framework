@@ -1272,6 +1272,22 @@ File_Save :: struct {
 	user:           rawptr,
 }
 
+// Asks the user for a folder. `on_done` runs later on the main thread, never inside folder_open,
+// with the folder's full path (valid only during the call). Where the platform has no folder dialog
+// (iOS, Android, the web) it reports .Failed. One file dialog at a time, as file_open. Not from `build`.
+Folder_Open :: struct {
+	title:   string, // the dialog's message, where the platform shows one
+	on_done: proc(user: rawptr, status: File_Status, path: string),
+	user:    rawptr,
+}
+
+folder_open :: proc(o: Folder_Open) {
+	r := file_request_new(false, o.title, "", nil, nil)
+	r.folder = true
+	r.on_folder, r.user = o.on_done, o.user
+	g_backend.folder_open(r)
+}
+
 file_open :: proc(o: File_Open) {
 	r := file_request_new(false, o.title, "", o.extensions, nil)
 	r.on_open, r.user = o.on_done, o.user
@@ -1288,12 +1304,14 @@ file_save :: proc(s: File_Save) {
 // however it ends; a detached one (replaced, or its page popped) calls nothing then.
 @(private) File_Request :: struct {
 	save:       bool,
+	folder:     bool,     // folder_open's: `name` is the chosen folder's full path
 	title:      string,
 	name:       string,   // save: the suggestion in; both: the chosen name out (file_set_result)
 	extensions: []string,
 	data:       []u8,     // save: the bytes to write; open: the bytes read
 	on_open:    proc(user: rawptr, status: File_Status, name: string, data: []u8),
 	on_save:    proc(user: rawptr, status: File_Status, name: string),
+	on_folder:  proc(user: rawptr, status: File_Status, path: string),
 	user:       rawptr,
 	page:       ^Page_Handle, // nil once detached
 	ctx:        runtime.Context,
@@ -1318,12 +1336,12 @@ file_request_new :: proc(save: bool, title, name: string, extensions: []string, 
 	return r
 }
 
-// The chosen file's name (copied; a path keeps only its last part) and, for an open, its bytes
-// (taken: allocated with nv_heap).
+// The chosen file's name (copied; a path keeps only its last part, a folder all of it) and, for an
+// open, its bytes (taken: allocated with nv_heap).
 @(private)
 file_set_result :: proc(r: ^File_Request, name: string, data: []u8 = nil) {
 	base := name
-	if i := strings.last_index_any(base, "/\\"); i >= 0 do base = base[i + 1:]
+	if i := strings.last_index_any(base, "/\\"); i >= 0 && !r.folder do base = base[i + 1:]
 	delete(r.name, nv_heap())
 	r.name = strings.clone(base, nv_heap())
 	if !r.save {
@@ -1363,7 +1381,9 @@ file_detach_page :: proc(e: ^Page_Handle) {
 
 @(private)
 file_report :: proc(r: ^File_Request, status: File_Status) {
-	if r.save {
+	if r.folder {
+		if r.on_folder != nil do r.on_folder(r.user, status, status == .Ok ? r.name : "")
+	} else if r.save {
 		if r.on_save != nil do r.on_save(r.user, status, status == .Ok ? r.name : "")
 	} else if r.on_open != nil {
 		r.on_open(r.user, status, status == .Ok ? r.name : "", status == .Ok ? r.data : nil)

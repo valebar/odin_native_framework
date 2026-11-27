@@ -32,3 +32,9 @@ jni_files_on_done :: proc "c" (env: JNI_Env, _: jclass, req: jlong, status: jint
 	}
 	file_notify(r, s)
 }
+
+// No folder dialog here: .Failed, after the call.
+@(private)
+_folder_open :: proc(r: ^File_Request) {
+	post_main(proc(data: rawptr) { file_notify((^File_Request)(data), .Failed) }, r)
+}

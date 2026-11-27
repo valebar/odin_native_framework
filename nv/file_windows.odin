@@ -20,6 +20,45 @@ _file_save :: proc(r: ^File_Request) {
 	post_main(file_dialog_run, r)
 }
 
+// The Vista folder picker (IFileOpenDialog with FOS_PICKFOLDERS): GetOpenFileNameW picks files
+// only. Run from a posted timer too, owned by the window.
+@(private)
+_folder_open :: proc(r: ^File_Request) {
+	post_main(folder_dialog_run, r)
+}
+
+@(private)
+folder_dialog_run :: proc(user: rawptr) {
+	r := (^File_Request)(user)
+	status := File_Status.Failed
+	win.CoInitializeEx(nil, .APARTMENTTHREADED) // S_FALSE when the thread already has it
+	dialog: ^win.IFileOpenDialog
+	if win.CoCreateInstance(win.CLSID_FileOpenDialog, nil, win.CLSCTX_INPROC_SERVER, win.IID_IFileOpenDialog, (^win.LPVOID)(&dialog)) >= 0 {
+		options: win.FILEOPENDIALOGOPTIONS
+		dialog->GetOptions(&options)
+		dialog->SetOptions(options | win.FOS_PICKFOLDERS | win.FOS_FORCEFILESYSTEM)
+		if r.title != "" do dialog->SetTitle(wstr(r.title))
+		hr := dialog->Show(g_windows.parking)
+		if hr >= 0 {
+			item: ^win.IShellItem
+			if dialog->GetResult(&item) >= 0 {
+				path: win.LPWSTR
+				if item->GetDisplayName(.FILESYSPATH, &path) >= 0 {
+					chosen, _ := win.wstring_to_utf8(win.wstring(path), -1, context.temp_allocator)
+					file_set_result(r, chosen)
+					status = .Ok
+					win.CoTaskMemFree(path)
+				}
+				item->Release()
+			}
+		} else if u32(hr) == 0x800704C7 { // HRESULT_FROM_WIN32(ERROR_CANCELLED)
+			status = .Cancelled
+		}
+		dialog->Release()
+	}
+	file_notify(r, status)
+}
+
 @(private)
 file_dialog_run :: proc(user: rawptr) {
 	r := (^File_Request)(user)
