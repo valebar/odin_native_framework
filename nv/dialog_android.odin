@@ -71,6 +71,7 @@ _dialog_show :: proc(h: ^Dialog_Handle) {
 @(private)
 _dialog_close :: proc(h: ^Dialog_Handle) {
 	env := g_android.env
+	if h.card != nil do nv_input_listener_blur(env, jobject(h.card)) // a field's keyboard goes with it
 	for v in ([]rawptr{h.card, h.scrim}) {
 		if v == nil do continue
 		parent := view_get_parent(env, jobject(v)) // the decor view, a ViewGroup

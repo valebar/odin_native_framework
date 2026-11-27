@@ -1018,6 +1018,12 @@ nv_input_listener_focus :: proc "contextless" (env: JNI_Env, et: jobject, select
 	jni_call_void(env, nil, &jm_nv_input_listener_focus, jv_obj(et), jv_bool(select_all))
 }
 
+// static nv.NvInputListener.blur(android.view.View)
+jm_nv_input_listener_blur := Jni_Method{cls = &jc_nv_input_listener, name = "blur", sig = "(Landroid/view/View;)V", static = true}
+nv_input_listener_blur :: proc "contextless" (env: JNI_Env, v: jobject) {
+	jni_call_void(env, nil, &jm_nv_input_listener_blur, jv_obj(v))
+}
+
 // static nv.NvDialog.lighten(android.view.View)
 jm_nv_dialog_lighten := Jni_Method{cls = &jc_nv_dialog, name = "lighten", sig = "(Landroid/view/View;)V", static = true}
 nv_dialog_lighten :: proc "contextless" (env: JNI_Env, v: jobject) {
