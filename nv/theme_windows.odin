@@ -94,15 +94,11 @@ theme_windows_brushes :: proc() {
 	if g_theme_windows.light == nil do g_theme_windows.light = win.CreateSolidBrush(colorref(DIALOG_LIGHT))
 }
 
-// The main window's title bar, and its border in the accent color when the app set one (Win11).
+// The main window's title bar, light or dark; its border stays the system's.
 @(private)
 theme_window_frame :: proc(wnd: win.HWND) {
 	dark := win.BOOL(g_dark)
 	win.DwmSetWindowAttribute(wnd, win.DWORD(win.DWMWINDOWATTRIBUTE.DWMWA_USE_IMMERSIVE_DARK_MODE), &dark, size_of(dark))
-	if g_theme.accent.a > 0 {
-		border := colorref(g_theme.accent)
-		win.DwmSetWindowAttribute(wnd, win.DWORD(win.DWMWINDOWATTRIBUTE.DWMWA_BORDER_COLOR), &border, size_of(border))
-	}
 }
 
 // The visual style of a common control for the current light / dark (light inside a light

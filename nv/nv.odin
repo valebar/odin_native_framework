@@ -1860,7 +1860,7 @@ Theme :: struct {
 	accent:    Color,      // alpha 0 = the platform's accent: buttons, the caret, list selection, the bar
 	body:      Text_Style, // labels, inputs, buttons and canvas text
 	heading:   Text_Style, // heading labels and dialog titles
-	bar_title: Text_Style, // the page title in the bar on iOS and Android (centred); zero: `heading`
+	bar_title: Text_Style, // the page title in the bar on iOS, Android and Windows (centred); zero: `heading`
 	on_change: proc(user: rawptr), // optional
 	user:      rawptr,
 }

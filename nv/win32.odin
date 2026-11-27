@@ -55,6 +55,25 @@ foreign gdi32 {
 	title_h:    i32,
 }
 
+// Owner-drawn controls (WM_DRAWITEM): the bar's buttons (nav_windows.odin).
+@(private) ODT_BUTTON      :: 4
+@(private) ODS_SELECTED    :: 0x0001
+@(private) ODS_DISABLED    :: 0x0004
+@(private) ODS_FOCUS       :: 0x0010
+@(private) ODS_NOFOCUSRECT :: 0x0200
+
+@(private) DRAWITEMSTRUCT :: struct {
+	CtlType:    win.UINT,
+	CtlID:      win.UINT,
+	itemID:     win.UINT,
+	itemAction: win.UINT,
+	itemState:  win.UINT,
+	hwndItem:   win.HWND,
+	hDC:        win.HDC,
+	rcItem:     win.RECT,
+	itemData:   win.ULONG_PTR,
+}
+
 @(private) CLASS_WINDOW :: "NVWindow"
 @(private) CLASS_FLEX   :: "NVFlex"
 @(private) CLASS_LIST   :: "NVList"

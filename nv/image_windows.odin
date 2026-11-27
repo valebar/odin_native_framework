@@ -102,14 +102,11 @@ bitmap_write_rgba :: proc "contextless" (img: GpImage, w, h: int, pixels: []u8) 
 	return GdipBitmapUnlockBits(img, &data) == 0
 }
 
-// The interpolation mode is set once per Graphics (canvas_paint / image_paint). The pixel offset
-// mode is bracketed: HighQuality removes the half-pixel seam at the image's edges but would
-// shift every later primitive by half a pixel.
+// The interpolation and pixel offset modes are set once per Graphics (canvas_paint /
+// image_paint); the half-pixel offset also keeps a seam off the image's edges.
 @(private)
 _draw_image :: proc(p: ^Painter, b: ^Bitmap, x, y, w, h: f64) {
-	GdipSetPixelOffsetMode(p.native, GP_PIXEL_OFFSET_HIGH_QUALITY)
 	GdipDrawImageRect(p.native, b.native, f32(x), f32(y), f32(w), f32(h))
-	GdipSetPixelOffsetMode(p.native, GP_PIXEL_OFFSET_DEFAULT)
 }
 
 @(private)
@@ -157,6 +154,7 @@ image_paint :: proc(hwnd: win.HWND, h: ^Image_Handle) {
 	if h.bitmap != nil {
 		g: GpGraphics
 		GdipCreateFromHDC(mem, &g)
+		GdipSetPixelOffsetMode(g, GP_PIXEL_OFFSET_HALF)
 		GdipSetInterpolationMode(g, GP_INTERPOLATION_HIGH_QUALITY_BICUBIC)
 		scale := f32(g_windows.dpi) / 96
 		GdipScaleWorldTransform(g, scale, scale, GP_MATRIX_ORDER_PREPEND)

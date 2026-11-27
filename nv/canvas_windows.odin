@@ -11,8 +11,11 @@ package nv
 // clip_push saves the Graphics state (GdipSaveGraphics) and intersects its clip; GDI text, which
 // ignores the GDI+ clip, gets the same rect (in px) on its DC.
 // The left mouse button is captured while pressed, so a drag keeps reporting outside the window.
+// Pixels are offset by half (PixelOffsetModeHalf): pixel i covers [i, i + 1], as in CoreGraphics,
+// cairo and Skia, so whole-dp edges fall between pixels instead of across them.
 
 import "base:builtin"
+import "core:math"
 import win "core:sys/windows"
 
 foreign import gdiplus "system:gdiplus.lib"
@@ -32,13 +35,13 @@ foreign import gdiplus "system:gdiplus.lib"
 }
 
 @(private) GP_SMOOTHING_ANTIALIAS :: i32(4)
+@(private) GP_FILL_MODE_WINDING   :: i32(1)
 @(private) GP_UNIT_WORLD          :: i32(0)
 @(private) GP_MATRIX_ORDER_PREPEND :: i32(0)
 @(private) GP_LINE_CAP_FLAT       :: i32(0)
 @(private) GP_LINE_CAP_ROUND      :: i32(2)
 @(private) GP_INTERPOLATION_HIGH_QUALITY_BICUBIC :: i32(7)
-@(private) GP_PIXEL_OFFSET_DEFAULT               :: i32(0)
-@(private) GP_PIXEL_OFFSET_HIGH_QUALITY          :: i32(2)
+@(private) GP_PIXEL_OFFSET_HALF                  :: i32(4)
 @(private) GP_LINE_JOIN_MITER     :: i32(0)
 @(private) GP_LINE_JOIN_ROUND     :: i32(2)
 @(private) GP_COMBINE_INTERSECT   :: i32(1)
@@ -66,7 +69,11 @@ foreign import gdiplus "system:gdiplus.lib"
 	bmp:        win.HBITMAP,
 	old:        win.HGDIOBJ,
 	size:       [2]i32,
+	painting:   bool, // inside canvas_paint (an on_draw asking for its next frame: _canvas_redraw)
 }
+
+// canvas_proc's timer for the next frame of a canvas that asked for it from its own on_draw.
+@(private) CANVAS_FRAME_TIMER :: 1
 
 @(default_calling_convention="system", private)
 foreign gdiplus {
@@ -101,6 +108,9 @@ foreign gdiplus {
 	GdipDeletePath          :: proc(path: GpPath) -> i32 ---
 	GdipAddPathArc          :: proc(path: GpPath, x, y, w, h, start, sweep: f32) -> i32 ---
 	GdipClosePathFigure     :: proc(path: GpPath) -> i32 ---
+	GdipStartPathFigure     :: proc(path: GpPath) -> i32 ---
+	GdipAddPathLine         :: proc(path: GpPath, x1, y1, x2, y2: f32) -> i32 ---
+	GdipAddPathBezier       :: proc(path: GpPath, x1, y1, x2, y2, x3, y3, x4, y4: f32) -> i32 ---
 	GdipFillPath            :: proc(graphics: GpGraphics, brush: GpBrush, path: GpPath) -> i32 ---
 	GdipDrawPath            :: proc(graphics: GpGraphics, pen: GpPen, path: GpPath) -> i32 ---
 	GdipCreateBitmapFromStream :: proc(stream: ^win.IStream, bitmap: ^GpImage) -> i32 ---
@@ -174,6 +184,14 @@ canvas_buffer_free :: proc "contextless" (c: ^Windows_Canvas) {
 
 @(private)
 _canvas_redraw :: proc(h: ^Canvas_Handle) {
+	// From its own on_draw (an animation: a spinner) the next frame comes from a timer, which
+	// Windows delivers only once no window waits for WM_PAINT. Invalidated at once, the canvas
+	// would again be the first window needing a paint, ahead of every window after it in Z order
+	// (the bar's title and buttons), which then never painted while it animated.
+	if c := (^Windows_Canvas)(h.extra); c != nil && c.painting {
+		win.SetTimer(win.HWND(h.view), CANVAS_FRAME_TIMER, 16, nil)
+		return
+	}
 	win.InvalidateRect(win.HWND(h.view), nil, false)
 }
 
@@ -228,9 +246,19 @@ pen_for :: proc "contextless" (p: ^Painter, color: Color, width: f64, ends: Mayb
 	return c.pen
 }
 
+// The edges on whole pixels: anti-aliased, a fractional edge half-covers its pixel, and where two
+// fills meet (a card drawn in pieces, stacked rows) the background shows through as a dark seam.
+// A side thinner than a pixel keeps its fractional edges (a hairline stays faint).
 @(private)
 _fill_rect :: proc(p: ^Painter, x, y, w, h: f64, color: Color) {
-	GdipFillRectangle(p.native, brush_for(p, color), f32(x), f32(y), f32(w), f32(h))
+	snap :: proc(v, size: f64) -> (start, length: f64) {
+		s := f64(g_windows.dpi) / 96
+		a, b := math.round(v * s) / s, math.round((v + size) * s) / s
+		return b > a ? a : v, b > a ? b - a : size
+	}
+	sx, sw := snap(x, w)
+	sy, sh := snap(y, h)
+	GdipFillRectangle(p.native, brush_for(p, color), f32(sx), f32(sy), f32(sw), f32(sh))
 }
 
 @(private)
@@ -325,10 +353,13 @@ canvas_paint :: proc(hwnd: win.HWND, h: ^Canvas_Handle) {
 	g: GpGraphics
 	GdipCreateFromHDC(c.mem, &g)
 	GdipSetSmoothingMode(g, GP_SMOOTHING_ANTIALIAS)
+	GdipSetPixelOffsetMode(g, GP_PIXEL_OFFSET_HALF)
 	GdipSetInterpolationMode(g, GP_INTERPOLATION_HIGH_QUALITY_BICUBIC)
 	scale := f32(g_windows.dpi) / 96
 	GdipScaleWorldTransform(g, scale, scale, GP_MATRIX_ORDER_PREPEND)
+	c.painting = true
 	canvas_draw_notify(h, g, dp(rc.right), dp(rc.bottom), c.mem)
+	c.painting = false
 	GdipDeleteGraphics(g)
 
 	win.BitBlt(dc, 0, 0, rc.right, rc.bottom, c.mem, 0, 0, win.SRCCOPY)
@@ -351,6 +382,12 @@ canvas_proc :: proc "system" (hwnd: win.HWND, msg: win.UINT, wparam: win.WPARAM,
 		return 0
 	case win.WM_ERASEBKGND:
 		return 1 // WM_PAINT covers every pixel
+	case win.WM_TIMER:
+		if wparam == CANVAS_FRAME_TIMER {
+			win.KillTimer(hwnd, CANVAS_FRAME_TIMER)
+			win.InvalidateRect(hwnd, nil, false)
+			return 0
+		}
 	case win.WM_SIZE:
 		win.InvalidateRect(hwnd, nil, false)
 		return 0
