@@ -71,6 +71,7 @@ foreign nv_js {
 	js_stroke_ellipse :: proc(x, y, w, h: f64, argb: u32, width: f64) ---
 	js_arc            :: proc(cx, cy, r, start, sweep: f64, argb: u32, width: f64) ---
 	js_polyline       :: proc(points: rawptr, n: i32, argb: u32, width: f64) --- // n [2]f64 points
+	js_fill_polygon   :: proc(points: rawptr, n: i32, argb: u32) --- // n [2]f64 points
 	js_clip_push      :: proc(x, y, w, h: f64) ---
 	js_clip_pop       :: proc() ---
 	js_draw_text      :: proc(text: string, x, y, size: f64, weight: i32, italic: b32, font: i32, argb: u32) ---
@@ -269,18 +270,25 @@ nv_web_layout :: proc "c" (h: ^Layout_Handle, width, height: f64) {
 }
 
 @(private, export)
-nv_web_pointer :: proc "c" (h: ^Canvas_Handle, kind: i32, x, y: f64) {
+nv_web_pointer :: proc "c" (h: ^Canvas_Handle, kind: i32, x, y: f64, mods: i32) {
 	context = h.ctx
-	canvas_pointer_notify(h, Pointer(kind), x, y)
+	canvas_pointer_notify(h, Pointer(kind), x, y, transmute(Modifiers)u8(mods))
 }
 
-// A wheel event in points; false without on_scroll, so the page scrolls instead.
+// A wheel event in points at (x, y); false without on_scroll, so the page scrolls instead.
 @(private, export)
-nv_web_scroll :: proc "c" (h: ^Canvas_Handle, dx, dy: f64) -> b32 {
+nv_web_scroll :: proc "c" (h: ^Canvas_Handle, dx, dy, x, y: f64, pixels, mods: i32) -> b32 {
 	context = h.ctx
 	if h.canvas.on_scroll == nil do return false
-	canvas_scroll_notify(h, dx, dy)
+	canvas_scroll_notify(h, dx, dy, {x, y, true, pixels != 0}, transmute(Modifiers)u8(mods))
 	return true
+}
+
+// Two touches' pinch: kind 0 begin, 1 change, 2 end.
+@(private, export)
+nv_web_scale :: proc "c" (h: ^Canvas_Handle, kind: i32, scale, vscale, fx, fy: f64, mods: i32) {
+	context = h.ctx
+	canvas_scale_notify(h, Pointer(kind), scale, vscale, fx, fy, transmute(Modifiers)u8(mods))
 }
 
 // A buffer for bytes nv.js hands over (a download), on the heap like Fetch.data.

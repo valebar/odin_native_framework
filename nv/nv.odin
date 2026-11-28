@@ -915,6 +915,18 @@ color_argb :: proc "contextless" (c: Color) -> u32 {
 
 Pointer :: enum { Down, Move, Up }
 
+// The modifier keys.
+Modifier :: enum { Shift, Ctrl, Alt, Cmd }
+Modifiers :: bit_set[Modifier; u8]
+
+@(private) g_modifiers: Modifiers
+
+// The modifier keys held during the canvas callback that runs (on_pointer, on_scroll, on_scale);
+// empty outside one and where the platform has no keyboard to read them from (iOS).
+modifiers :: proc "contextless" () -> Modifiers {
+	return g_modifiers
+}
+
 // Custom-drawn view. `on_draw` runs whenever the platform repaints; call `canvas_redraw` after
 // the state it draws changed. Units are points / dp with the origin top-left. The canvas has no
 // natural size, so give it `flex` > 0 in a Row / Column. `on_scroll` reports the mouse wheel and
@@ -929,6 +941,19 @@ Canvas :: struct {
 	// Drawn on the GPU where the backend can (Linux: OpenGL through nanovg); elsewhere a plain
 	// canvas. Without on_pointer / on_scroll it is not a pointer target: what is under it gets them.
 	gpu:        bool,
+	// Optional: a pinch, two fingers on a touch screen or a touchpad's magnify. Down as it starts,
+	// Move as it changes, Up when it ends; `scale` and `vscale` (the fingers' vertical span, 1 when
+	// the platform has none) since Down, (fx, fy) the focal point. A press it interrupts gets no
+	// Up (the app ends it at the pinch's Down), and on_pointer waits until the pinch ends.
+	on_scale:   proc(user: rawptr, kind: Pointer, scale, vscale, fx, fy: f64),
+}
+
+// Where on_scroll's scroll comes from: the pointer's place over the canvas, when the platform
+// reports it, and whether a touchpad (or a pen) sent it in pixels rather than a wheel in notches.
+Scroll_Source :: struct {
+	x, y:         f64,
+	has_position: bool,
+	touchpad:     bool,
 }
 
 // Points per wheel notch, for the backends whose wheel reports notches (GTK, Windows, a web page
@@ -943,6 +968,9 @@ Canvas_Handle :: struct {
 	view:   rawptr, // NVCanvasView* / NvCanvasView / GtkDrawingArea* / NVCanvas HWND
 	fill:   rawptr, // Android: fill and stroke Paint global refs
 	stroke: rawptr,
+	scroll: Scroll_Source, // the last on_scroll's
+	scaling: bool,         // a pinch runs: on_pointer waits
+	scale_from: [2]f64,    // the backend's spans when the pinch started (its own use)
 	extra:  rawptr, // per-backend draw state (Android_Canvas / Apple_Canvas / Linux_Canvas / Windows_Canvas)
 }
 
@@ -1018,13 +1046,39 @@ measure_text :: proc(p: ^Painter, text: string, style: Text_Style = {}) -> (widt
 	return _measure_text(p, text, s)
 }
 
-// Called by the backends for the wheel / touchpad (see Canvas.on_scroll).
+// Where the scroll on_scroll is reporting comes from (valid during on_scroll).
+canvas_scroll_source :: proc(h: ^Canvas_Handle) -> Scroll_Source {
+	return h.scroll
+}
+
+// Called by the backends for the wheel / touchpad (see Canvas.on_scroll); `source` as far as the
+// platform tells.
 @(private)
-canvas_scroll_notify :: proc(h: ^Canvas_Handle, dx, dy: f64) {
+canvas_scroll_notify :: proc(h: ^Canvas_Handle, dx, dy: f64, source := Scroll_Source{}, mods := Modifiers{}) {
 	if h.canvas.on_scroll == nil || (dx == 0 && dy == 0) || !scope_live(h.scope) do return
 	callback_enter()
 	defer callback_exit()
+	h.scroll = source
+	was := g_modifiers
+	g_modifiers = mods
+	defer g_modifiers = was
 	h.canvas.on_scroll(h.canvas.user, dx, dy)
+}
+
+// Called by the backends for a pinch (see Canvas.on_scale): Down sets `scaling`, which holds the
+// pointer back until the Up.
+@(private)
+canvas_scale_notify :: proc(h: ^Canvas_Handle, kind: Pointer, scale, vscale, fx, fy: f64, mods := Modifiers{}) {
+	if h.canvas.on_scale == nil || !scope_live(h.scope) do return
+	if kind == .Down do h.scaling = true
+	else if !h.scaling do return
+	if kind == .Up do h.scaling = false
+	callback_enter()
+	defer callback_exit()
+	was := g_modifiers
+	g_modifiers = mods
+	defer g_modifiers = was
+	h.canvas.on_scale(h.canvas.user, kind, scale, vscale, fx, fy)
 }
 
 // Called by the backends on repaint; `native` / `dc` as in Painter.
@@ -1039,10 +1093,13 @@ canvas_draw_notify :: proc(h: ^Canvas_Handle, native: rawptr, width, height: f64
 }
 
 @(private)
-canvas_pointer_notify :: proc(h: ^Canvas_Handle, kind: Pointer, x, y: f64) {
-	if h.canvas.on_pointer == nil || !scope_live(h.scope) do return
+canvas_pointer_notify :: proc(h: ^Canvas_Handle, kind: Pointer, x, y: f64, mods := Modifiers{}) {
+	if h.canvas.on_pointer == nil || h.scaling || !scope_live(h.scope) do return
 	callback_enter()
 	defer callback_exit()
+	was := g_modifiers
+	g_modifiers = mods
+	defer g_modifiers = was
 	h.canvas.on_pointer(h.canvas.user, kind, x, y)
 }
 
@@ -1060,6 +1117,17 @@ stroke_polyline :: proc(p: ^Painter, points: [][2]f64, color: Color, width: f64 
 		return
 	}
 	_stroke_polyline(p, points, color, width)
+}
+
+// The closed polygon through `points`, filled (non-zero rule, antialiased). Fewer than three points
+// draw nothing.
+fill_polygon :: proc(p: ^Painter, points: [][2]f64, color: Color) {
+	if len(points) < 3 do return
+	if g_draw_mock != nil {
+		g_draw_mock("fill_polygon %d", len(points))
+		return
+	}
+	_fill_polygon(p, points, color)
 }
 
 // Clips what is drawn next to the rect, inside any clip already pushed, until the matching

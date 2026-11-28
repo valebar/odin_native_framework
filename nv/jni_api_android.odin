@@ -1012,6 +1012,12 @@ nv_canvas_view_stroke_polyline :: proc "contextless" (env: JNI_Env, c: jobject, 
 	jni_call_void(env, nil, &jm_nv_canvas_view_stroke_polyline, jv_obj(c), jv_obj(pts), jv_int(n), jv_obj(paint))
 }
 
+// static nv.NvCanvasView.fillPolygon(android.graphics.Canvas, float[], int, android.graphics.Paint)
+jm_nv_canvas_view_fill_polygon := Jni_Method{cls = &jc_nv_canvas_view, name = "fillPolygon", sig = "(Landroid/graphics/Canvas;[FILandroid/graphics/Paint;)V", static = true}
+nv_canvas_view_fill_polygon :: proc "contextless" (env: JNI_Env, c: jobject, pts: jobject, n: int, paint: jobject) {
+	jni_call_void(env, nil, &jm_nv_canvas_view_fill_polygon, jv_obj(c), jv_obj(pts), jv_int(n), jv_obj(paint))
+}
+
 // static nv.NvInputListener.focus(android.widget.EditText, boolean)
 jm_nv_input_listener_focus := Jni_Method{cls = &jc_nv_input_listener, name = "focus", sig = "(Landroid/widget/EditText;Z)V", static = true}
 nv_input_listener_focus :: proc "contextless" (env: JNI_Env, et: jobject, select_all: bool) {

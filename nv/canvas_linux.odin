@@ -42,12 +42,29 @@ canvas_add_controllers :: proc(h: ^Canvas_Handle, area: ^GtkWidget) {
 	scroll := gtk_event_controller_scroll_new(GTK_EVENT_CONTROLLER_SCROLL_BOTH_AXES)
 	g_signal_connect(scroll, "scroll", rawptr(on_canvas_scroll), h)
 	gtk_widget_add_controller(area, scroll)
+
+	// Where the pointer hovers, for on_scroll's source.
+	motion := gtk_event_controller_motion_new()
+	g_signal_connect(motion, "motion", rawptr(on_canvas_motion), h)
+	g_signal_connect(motion, "leave", rawptr(on_canvas_leave), h)
+	gtk_widget_add_controller(area, motion)
+
+	// Two fingers' or a touchpad's pinch.
+	if h.canvas.on_scale != nil {
+		zoom := gtk_gesture_zoom_new()
+		g_signal_connect(zoom, "begin", rawptr(on_canvas_zoom_begin), h)
+		g_signal_connect(zoom, "scale-changed", rawptr(on_canvas_zoom_changed), h)
+		g_signal_connect(zoom, "end", rawptr(on_canvas_zoom_end), h)
+		gtk_widget_add_controller(area, zoom)
+	}
 }
 
 // Per-canvas redraw state (Canvas_Handle.extra, in the page's arena).
 @(private) Linux_Canvas :: struct {
 	drawing: bool,  // inside the draw func
 	tick:    guint, // the pending tick callback (canvas_tick), 0 when none
+	hover:   [2]f64, // the pointer over the canvas (motion), while `hovering`
+	hovering: bool,
 }
 
 @(private)
@@ -211,11 +228,23 @@ on_canvas_draw :: proc "c" (_: ^GtkWidget, cr: ^cairo_t, width, height: i32, use
 	canvas_draw_notify(h, cr, f64(width), f64(height))
 }
 
+// GdkModifierType: Shift, Control, Alt, Super / Meta.
 @(private)
-on_canvas_drag_begin :: proc "c" (_: ^GtkEventController, x, y: f64, user: gpointer) {
+canvas_mods :: proc "c" (c: ^GtkEventController) -> Modifiers {
+	f := gtk_event_controller_get_current_event_state(c)
+	m: Modifiers
+	if f & (1 << 0) != 0 do m += {.Shift}
+	if f & (1 << 2) != 0 do m += {.Ctrl}
+	if f & (1 << 3) != 0 do m += {.Alt}
+	if f & (1 << 26 | 1 << 28) != 0 do m += {.Cmd}
+	return m
+}
+
+@(private)
+on_canvas_drag_begin :: proc "c" (g: ^GtkEventController, x, y: f64, user: gpointer) {
 	h := (^Canvas_Handle)(user)
 	context = h.ctx
-	canvas_pointer_notify(h, .Down, x, y)
+	canvas_pointer_notify(h, .Down, x, y, canvas_mods(g))
 }
 
 @(private)
@@ -223,7 +252,47 @@ canvas_drag :: proc "c" (g: ^GtkEventController, dx, dy: f64, h: ^Canvas_Handle,
 	context = h.ctx
 	x, y: f64
 	gtk_gesture_drag_get_start_point(g, &x, &y)
-	canvas_pointer_notify(h, kind, x + dx, y + dy)
+	canvas_pointer_notify(h, kind, x + dx, y + dy, canvas_mods(g))
+}
+
+@(private)
+on_canvas_motion :: proc "c" (_: ^GtkEventController, x, y: f64, user: gpointer) {
+	c := (^Linux_Canvas)((^Canvas_Handle)(user).extra)
+	c.hover, c.hovering = {x, y}, true
+}
+
+@(private)
+on_canvas_leave :: proc "c" (_: ^GtkEventController, user: gpointer) {
+	(^Linux_Canvas)((^Canvas_Handle)(user).extra).hovering = false
+}
+
+// GtkGestureZoom's scale is since its begin; the focal point is the touches' bounding box's centre.
+@(private)
+canvas_zoom :: proc "c" (g: ^GtkEventController, h: ^Canvas_Handle, kind: Pointer, scale: f64) {
+	context = h.ctx
+	x, y: f64
+	gtk_gesture_get_bounding_box_center(g, &x, &y)
+	canvas_scale_notify(h, kind, scale, scale, x, y, canvas_mods(g))
+}
+
+@(private)
+on_canvas_zoom_begin :: proc "c" (g: ^GtkEventController, _: rawptr, user: gpointer) {
+	h := (^Canvas_Handle)(user)
+	h.scale_from.x = 1
+	canvas_zoom(g, h, .Down, 1)
+}
+
+@(private)
+on_canvas_zoom_changed :: proc "c" (g: ^GtkEventController, scale: f64, user: gpointer) {
+	h := (^Canvas_Handle)(user)
+	h.scale_from.x = scale
+	canvas_zoom(g, h, .Move, scale)
+}
+
+@(private)
+on_canvas_zoom_end :: proc "c" (g: ^GtkEventController, _: rawptr, user: gpointer) {
+	h := (^Canvas_Handle)(user)
+	canvas_zoom(g, h, .Up, h.scale_from.x)
 }
 
 @(private)
@@ -243,8 +312,10 @@ on_canvas_scroll :: proc "c" (c: ^GtkEventController, dx, dy: f64, user: gpointe
 	h := (^Canvas_Handle)(user)
 	context = h.ctx
 	if h.canvas.on_scroll == nil do return false
-	k := gtk_event_controller_scroll_get_unit(c) == GDK_SCROLL_UNIT_WHEEL ? f64(SCROLL_LINE) : 1
-	canvas_scroll_notify(h, dx * k, dy * k)
+	wheel := gtk_event_controller_scroll_get_unit(c) == GDK_SCROLL_UNIT_WHEEL
+	k := wheel ? f64(SCROLL_LINE) : 1
+	lc := (^Linux_Canvas)(h.extra)
+	canvas_scroll_notify(h, dx * k, dy * k, {lc.hover.x, lc.hover.y, lc.hovering, !wheel}, canvas_mods(c))
 	return true
 }
 
@@ -260,6 +331,17 @@ _stroke_polyline :: proc(p: ^Painter, points: [][2]f64, color: Color, width: f64
 	for pt in points[1:] do cairo_line_to(cr, pt.x, pt.y)
 	cairo_stroke(cr)
 	cairo_set_line_join(cr, CAIRO_LINE_JOIN_MITER)
+}
+
+// cairo's default fill rule is non-zero winding.
+@(private)
+_fill_polygon :: proc(p: ^Painter, points: [][2]f64, color: Color) {
+	if vg := gl_of(p); vg != nil { gl_fill_polygon(vg, points, color); return }
+	cr := cairo_of(p, color)
+	cairo_move_to(cr, points[0].x, points[0].y)
+	for pt in points[1:] do cairo_line_to(cr, pt.x, pt.y)
+	cairo_close_path(cr)
+	cairo_fill(cr)
 }
 
 // The clip is gstate: save / restore bracket it. Nothing is cached across draw calls, so the

@@ -42,6 +42,8 @@ foreign cg {
 	CGContextAddLineToPoint    :: proc(c: CGContextRef, x, y: NS.Float) ---
 	CGContextAddArc            :: proc(c: CGContextRef, x, y, radius, start_angle, end_angle: NS.Float, clockwise: i32) ---
 	CGContextStrokePath        :: proc(c: CGContextRef) ---
+	CGContextClosePath         :: proc(c: CGContextRef) ---
+	CGContextFillPath          :: proc(c: CGContextRef) --- // non-zero winding
 	CGContextSaveGState        :: proc(c: CGContextRef) ---
 	CGContextRestoreGState     :: proc(c: CGContextRef) ---
 	CGContextTranslateCTM      :: proc(c: CGContextRef, tx, ty: NS.Float) ---
@@ -319,6 +321,7 @@ _stroke_arc :: proc(p: ^Painter, cx, cy, radius, start, sweep: f64, color: Color
 	redraw_queued: bool,       // canvas_redraw was called while drawing
 	pending:       ^Apple_Canvas_Redraw, // macOS: the main-queue hop in flight, nil when none
 	link:          ^NS.Object,           // iOS: the CADisplayLink (canvas_link_resume), nil until needed
+	touch:         ^NS.Object,           // iOS: the touch on_pointer follows (a pinch's second is the recognizer's)
 }
 
 // A redraw asked for during drawRect:. CoreAnimation drops a setNeedsDisplay issued while the
@@ -494,6 +497,15 @@ _stroke_polyline :: proc(p: ^Painter, points: [][2]f64, color: Color, width: f64
 	CGContextAddLines(ctx, raw_data(points), uint(len(points)))
 	CGContextStrokePath(ctx)
 	CGContextSetLineJoin(ctx, CG_LINE_JOIN_MITER)
+}
+
+@(private)
+_fill_polygon :: proc(p: ^Painter, points: [][2]f64, color: Color) {
+	ctx := cg_fill(p, color)
+	CGContextBeginPath(ctx)
+	CGContextAddLines(ctx, raw_data(points), uint(len(points)))
+	CGContextClosePath(ctx)
+	CGContextFillPath(ctx)
 }
 
 // The clip is gstate: saved and restored around it. Every primitive sets its own colour, width

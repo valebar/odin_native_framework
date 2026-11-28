@@ -251,21 +251,61 @@ function canvasCreate(h) {
 	canvases.add(s);
 	resizeObserver.observe(wrap);
 	const pos = (e) => { const r = c.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+	// nv.Modifiers' bits: Shift, Ctrl, Alt, Cmd.
+	const mods = (e) => (e.shiftKey ? 1 : 0) | (e.ctrlKey ? 2 : 0) | (e.altKey ? 4 : 0) | (e.metaKey ? 8 : 0);
+	// The first pointer down is on_pointer's; two touches make a pinch (on_scale), the scales from
+	// their spans against the ones it began with.
+	s.touches = new Map();
+	s.pinch = null;
+	const pinch = () => {
+		const [a, b] = [...s.touches.values()];
+		return {span: Math.hypot(b[0] - a[0], b[1] - a[1]), spanY: Math.abs(b[1] - a[1]), fx: (a[0] + b[0]) / 2, fy: (a[1] + b[1]) / 2};
+	};
+	const pinchSend = (kind, e) => {
+		const p = pinch(), q = s.pinch;
+		const scale = q.span > 0 ? p.span / q.span : 1, vscale = q.spanY > 0 && p.spanY > 0 ? p.spanY / q.spanY : 1;
+		ex.nv_web_scale(s.h, kind, scale, vscale, p.fx, p.fy, mods(e));
+	};
 	c.addEventListener("pointerdown", (e) => {
 		if (e.button !== 0) return;
+		if (e.pointerType === "touch") s.touches.set(e.pointerId, pos(e));
+		if (s.down) {
+			if (s.touches.size === 2 && !s.pinch) {
+				c.setPointerCapture(e.pointerId);
+				s.pinch = pinch();
+				ex.nv_web_scale(s.h, 0, 1, 1, s.pinch.fx, s.pinch.fy, mods(e));
+			}
+			return;
+		}
 		s.down = true;
+		s.pid = e.pointerId;
 		c.setPointerCapture(e.pointerId);
-		ex.nv_web_pointer(s.h, 0, ...pos(e));
+		ex.nv_web_pointer(s.h, 0, ...pos(e), mods(e));
 	});
-	c.addEventListener("pointermove", (e) => { if (s.down) ex.nv_web_pointer(s.h, 1, ...pos(e)); });
-	const up = (e) => { if (!s.down) return; s.down = false; ex.nv_web_pointer(s.h, 2, ...pos(e)); };
+	c.addEventListener("pointermove", (e) => {
+		if (s.touches.has(e.pointerId)) {
+			s.touches.set(e.pointerId, pos(e));
+			if (s.pinch && s.touches.size === 2) pinchSend(1, e);
+		}
+		if (s.down && e.pointerId === s.pid) ex.nv_web_pointer(s.h, 1, ...pos(e), mods(e));
+	});
+	const up = (e) => {
+		const touch = s.touches.has(e.pointerId);
+		if (s.pinch && touch && s.touches.size === 2) { pinchSend(2, e); s.pinch = null; }
+		s.touches.delete(e.pointerId);
+		if (!s.down || e.pointerId !== s.pid) return;
+		s.down = false;
+		ex.nv_web_pointer(s.h, 2, ...pos(e), mods(e));
+	};
 	c.addEventListener("pointerup", up);
 	c.addEventListener("pointercancel", up);
-	// deltaMode: 0 pixels, 1 lines (SCROLL_LINE points each), 2 pages. Positive is down / right,
-	// as on_scroll wants; prevented only when Odin took it.
+	// deltaMode: 0 pixels (a touchpad's, though browsers report a mouse wheel in pixels too),
+	// 1 lines (SCROLL_LINE points each), 2 pages. Positive is down / right, as on_scroll wants;
+	// prevented only when Odin took it (a touchpad's pinch is a wheel with ctrlKey, which would zoom
+	// the page).
 	c.addEventListener("wheel", (e) => {
 		const k = e.deltaMode === 1 ? SCROLL_LINE : e.deltaMode === 2 ? c.clientHeight : 1;
-		if (ex.nv_web_scroll(s.h, e.deltaX * k, e.deltaY * k)) e.preventDefault();
+		if (ex.nv_web_scroll(s.h, e.deltaX * k, e.deltaY * k, ...pos(e), e.deltaMode === 0 ? 1 : 0, mods(e))) e.preventDefault();
 	}, {passive: false});
 	return put(wrap);
 }
@@ -535,6 +575,15 @@ const imports = {
 		ctx.moveTo(pts[0], pts[1]);
 		for (let i = 2; i < pts.length; i += 2) ctx.lineTo(pts[i], pts[i + 1]);
 		ctx.stroke();
+	},
+	js_fill_polygon: (p, n, c) => {
+		const pts = mem.loadF64Array(p, n * 2);
+		const ctx = fillStyle(c);
+		ctx.beginPath();
+		ctx.moveTo(pts[0], pts[1]);
+		for (let i = 2; i < pts.length; i += 2) ctx.lineTo(pts[i], pts[i + 1]);
+		ctx.closePath();
+		ctx.fill(); // non-zero
 	},
 	js_clip_push: (x, y, w, h) => {
 		const ctx = cur.ctx;

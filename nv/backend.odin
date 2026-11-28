@@ -11,7 +11,7 @@ package nv
 // backend comment above g_theme.
 //
 // The draw procs (_fill_rect, _stroke_rect, _draw_line, _fill_ellipse, _stroke_ellipse,
-// _stroke_arc, _stroke_polyline, _clip_push, _clip_pop, _draw_text, _measure_text, _draw_image)
+// _stroke_arc, _stroke_polyline, _fill_polygon, _clip_push, _clip_pop, _draw_text, _measure_text, _draw_image)
 // belong to the contract too, but the core calls them directly: they are the canvas's hot path and
 // only run inside on_draw with a Painter the backend made, so no test replaces them (the tests log
 // the newer ones through g_draw_mock). A missing one fails at its call in nv.odin. _clip_push /

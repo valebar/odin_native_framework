@@ -3,7 +3,8 @@
 package nv
 
 // iOS canvas backend: a UIView subclass, NVCanvasView, registered at runtime. It draws in
-// drawRect: through cg.odin and reports a single touch (UIView ignores extra touches by default).
+// drawRect: through cg.odin and reports a single touch: the first one down (with on_scale the view
+// takes several, and a UIPinchGestureRecognizer reports the pinch, leaving the touches to the view).
 // There is no wheel: on_scroll is never called, and a list drags through on_pointer.
 
 import "base:intrinsics"
@@ -20,6 +21,7 @@ _canvas_init :: proc(h: ^Canvas_Handle) {
 		{"touchesMoved:withEvent:", auto_cast canvas_touches_moved, "v@:@@"},
 		{"touchesEnded:withEvent:", auto_cast canvas_touches_ended, "v@:@@"},
 		{"touchesCancelled:withEvent:", auto_cast canvas_touches_ended, "v@:@@"},
+		{"nvPinch:", auto_cast canvas_pinch, "v@:@"},
 	})
 	obj := objc_alloc_with_handle(cls, h)
 	view := objc_own(send(^UI_View, (^UI_View)(obj), "initWithFrame:", NS.Rect{}))
@@ -33,6 +35,14 @@ _canvas_init :: proc(h: ^Canvas_Handle) {
 	h.root = View(view)
 	h.view = view
 	apple_canvas_init(h)
+	if h.canvas.on_scale != nil {
+		send(nil, view, "setMultipleTouchEnabled:", NS.BOOL(true))
+		pinch := send(^NS.Object, objc_class_object("UIPinchGestureRecognizer"), "alloc")
+		pinch = send(^NS.Object, pinch, "initWithTarget:action:", (^NS.Object)(view), intrinsics.objc_find_selector("nvPinch:"))
+		send(nil, pinch, "setCancelsTouchesInView:", NS.BOOL(false))
+		send(nil, view, "addGestureRecognizer:", pinch)
+		pinch->release() // the view owns it
+	}
 }
 
 @(private)
@@ -82,13 +92,53 @@ canvas_draw_rect :: proc "c" (self: NS.id, _: NS.SEL, _: NS.Rect) {
 	apple_canvas_draw(h, rawptr(UIGraphicsGetCurrentContext()), f64(bounds.size.width), f64(bounds.size.height))
 }
 
+// The first touch down is the pointer; the others are a pinch's.
 @(private)
 canvas_touch :: proc "c" (self: NS.id, touches: NS.id, kind: Pointer) {
 	h := objc_handle(self, Canvas_Handle)
 	context = h.ctx
-	touch := send(^NS.Object, (^NS.Object)(touches), "anyObject")
+	c := (^Apple_Canvas)(h.extra)
+	set := (^NS.Object)(touches)
+	touch: ^NS.Object
+	if kind == .Down {
+		if c.touch != nil do return
+		touch = send(^NS.Object, set, "anyObject")
+		c.touch = touch
+	} else {
+		if c.touch == nil || !bool(send(NS.BOOL, set, "containsObject:", c.touch)) do return
+		touch = c.touch
+		if kind == .Up do c.touch = nil
+	}
 	p := send(NS.Point, touch, "locationInView:", self)
 	canvas_pointer_notify(h, kind, f64(p.x), f64(p.y))
+}
+
+// UIPinchGestureRecognizer: state Began 1, Changed 2, Ended 3, Cancelled 4; the vertical scale
+// from its two touches' span against the one it began with.
+@(private)
+canvas_pinch :: proc "c" (self: NS.id, _: NS.SEL, rec: NS.id) {
+	h := objc_handle(self, Canvas_Handle)
+	context = h.ctx
+	r := (^NS.Object)(rec)
+	state := send(NS.Integer, r, "state")
+	scale := f64(send(NS.Float, r, "scale"))
+	p := send(NS.Point, r, "locationInView:", self)
+	span := 0.0
+	if send(NS.UInteger, r, "numberOfTouches") >= 2 {
+		a := send(NS.Point, r, "locationOfTouch:inView:", NS.UInteger(0), self)
+		b := send(NS.Point, r, "locationOfTouch:inView:", NS.UInteger(1), self)
+		span = abs(f64(b.y - a.y))
+	}
+	switch state {
+	case 1:
+		h.scale_from = {span, 0}
+		canvas_scale_notify(h, .Down, 1, 1, f64(p.x), f64(p.y))
+	case 2:
+		v := h.scale_from.x > 0 && span > 0 ? span / h.scale_from.x : 1
+		canvas_scale_notify(h, .Move, scale, v, f64(p.x), f64(p.y))
+	case 3, 4, 5:
+		canvas_scale_notify(h, .Up, scale, 1, f64(p.x), f64(p.y))
+	}
 }
 
 @(private) canvas_touches_began :: proc "c" (self: NS.id, _: NS.SEL, t: NS.id, _: NS.id) { canvas_touch(self, t, .Down) }

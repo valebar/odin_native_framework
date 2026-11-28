@@ -283,6 +283,10 @@ foreign gtk {
 	gtk_event_controller_scroll_new      :: proc(flags: u32) -> ^GtkEventController ---
 	gtk_event_controller_scroll_get_unit :: proc(controller: ^GtkEventController) -> i32 --- // GTK 4.8
 	gtk_gesture_drag_get_start_point :: proc(gesture: ^GtkEventController, x, y: ^f64) -> gboolean ---
+	gtk_gesture_zoom_new           :: proc() -> ^GtkEventController ---
+	gtk_gesture_get_bounding_box_center :: proc(gesture: ^GtkEventController, x, y: ^f64) -> gboolean ---
+	gtk_event_controller_motion_new :: proc() -> ^GtkEventController ---
+	gtk_event_controller_get_current_event_state :: proc(controller: ^GtkEventController) -> u32 --- // GdkModifierType
 	gtk_gesture_click_new          :: proc() -> ^GtkEventController ---
 
 	gtk_box_set_homogeneous         :: proc(box: ^GtkWidget, homogeneous: gboolean) ---
@@ -309,6 +313,7 @@ foreign cairo {
 	cairo_new_path         :: proc(cr: ^cairo_t) ---
 	cairo_move_to          :: proc(cr: ^cairo_t, x, y: f64) ---
 	cairo_line_to          :: proc(cr: ^cairo_t, x, y: f64) ---
+	cairo_close_path       :: proc(cr: ^cairo_t) ---
 	cairo_rectangle        :: proc(cr: ^cairo_t, x, y, w, h: f64) ---
 	cairo_arc              :: proc(cr: ^cairo_t, xc, yc, radius, angle1, angle2: f64) ---
 	cairo_fill             :: proc(cr: ^cairo_t) ---

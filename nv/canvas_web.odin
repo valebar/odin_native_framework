@@ -92,6 +92,11 @@ _stroke_polyline :: proc(p: ^Painter, points: [][2]f64, color: Color, width: f64
 }
 
 @(private)
+_fill_polygon :: proc(p: ^Painter, points: [][2]f64, color: Color) {
+	js_fill_polygon(raw_data(points), i32(len(points)), color_argb(color))
+}
+
+@(private)
 _clip_push :: proc(p: ^Painter, x, y, w, h: f64) {
 	js_clip_push(x, y, w, h)
 }

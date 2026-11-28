@@ -19,7 +19,27 @@ foreign import gdi32 "system:Gdi32.lib"
 @(default_calling_convention="system")
 foreign user32 {
 	SystemParametersInfoForDpi :: proc(uiAction, uiParam: win.UINT, pvParam: win.PVOID, fWinIni, dpi: win.UINT) -> win.BOOL ---
+	GetGestureInfo :: proc(hGestureInfo: win.HANDLE, pGestureInfo: ^GESTUREINFO) -> win.BOOL ---
+	CloseGestureInfoHandle :: proc(hGestureInfo: win.HANDLE) -> win.BOOL ---
 }
+
+// winuser.h's GESTUREINFO (WM_GESTURE).
+@(private) GESTUREINFO :: struct {
+	cbSize:       win.UINT,
+	dwFlags:      win.DWORD,
+	dwID:         win.DWORD,
+	hwndTarget:   win.HWND,
+	ptsLocation:  [2]i16, // POINTS, screen pixels
+	dwInstanceID: win.DWORD,
+	dwSequenceID: win.DWORD,
+	ullArguments: u64,    // GID_ZOOM: the fingers' distance
+	cbExtraArgs:  win.UINT,
+}
+#assert(size_of(GESTUREINFO) == 56 || size_of(uintptr) == 4)
+@(private) WM_GESTURE :: 0x0119
+@(private) GID_ZOOM   :: 3
+@(private) GF_BEGIN   :: 1
+@(private) GF_END     :: 4
 
 @(default_calling_convention="system")
 foreign comctl32 {

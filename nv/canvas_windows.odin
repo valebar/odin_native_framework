@@ -95,6 +95,7 @@ foreign gdiplus {
 	GdipSetPenEndCap        :: proc(pen: GpPen, cap: i32) -> i32 ---
 	GdipSetPenLineJoin      :: proc(pen: GpPen, join: i32) -> i32 ---
 	GdipDrawLines           :: proc(graphics: GpGraphics, pen: GpPen, points: [^]GpPointF, count: i32) -> i32 ---
+	GdipFillPolygon         :: proc(graphics: GpGraphics, brush: GpBrush, points: [^]GpPointF, count: i32, fill_mode: i32) -> i32 ---
 	GdipSaveGraphics        :: proc(graphics: GpGraphics, state: ^u32) -> i32 ---
 	GdipRestoreGraphics     :: proc(graphics: GpGraphics, state: u32) -> i32 ---
 	GdipSetClipRect         :: proc(graphics: GpGraphics, x, y, w, h: f32, combine: i32) -> i32 ---
@@ -324,6 +325,17 @@ _measure_text :: proc(p: ^Painter, text: string, style: Text_Style) -> (width, h
 }
 
 // px → dp, the inverse of `px`.
+// The keyboard's Shift, Ctrl, Alt and Windows keys now.
+@(private)
+canvas_mods :: proc "contextless" () -> Modifiers {
+	m: Modifiers
+	if win.GetKeyState(win.VK_SHIFT) < 0 do m += {.Shift}
+	if win.GetKeyState(win.VK_CONTROL) < 0 do m += {.Ctrl}
+	if win.GetKeyState(win.VK_MENU) < 0 do m += {.Alt}
+	if win.GetKeyState(win.VK_LWIN) < 0 || win.GetKeyState(win.VK_RWIN) < 0 do m += {.Cmd}
+	return m
+}
+
 @(private)
 dp :: proc "contextless" (v: i32) -> f64 {
 	return f64(v) * 96 / f64(g_windows.dpi)
@@ -393,25 +405,46 @@ canvas_proc :: proc "system" (hwnd: win.HWND, msg: win.UINT, wparam: win.WPARAM,
 		return 0
 	case win.WM_LBUTTONDOWN:
 		win.SetCapture(hwnd)
-		canvas_pointer_notify(h, .Down, x, y)
+		canvas_pointer_notify(h, .Down, x, y, canvas_mods())
 		return 0
 	case win.WM_MOUSEMOVE:
-		if win.GetCapture() == hwnd do canvas_pointer_notify(h, .Move, x, y)
+		if win.GetCapture() == hwnd do canvas_pointer_notify(h, .Move, x, y, canvas_mods())
 		return 0
 	case win.WM_LBUTTONUP:
 		if win.GetCapture() == hwnd {
 			win.ReleaseCapture()
-			canvas_pointer_notify(h, .Up, x, y)
+			canvas_pointer_notify(h, .Up, x, y, canvas_mods())
 		}
 		return 0
 	case win.WM_MOUSEWHEEL, win.WM_MOUSEHWHEEL:
 		// WHEEL_DELTA (120) per notch; the vertical wheel is positive away from the user (towards
-		// the top), the horizontal one positive to the right. Without on_scroll, DefWindowProc
-		// hands it to the parent.
+		// the top), the horizontal one positive to the right; lparam is the pointer on the screen.
+		// A precision touchpad sends these too, so they count as a wheel's. Without on_scroll,
+		// DefWindowProc hands it to the parent.
 		if h.canvas.on_scroll == nil do break
 		d := f64(win.GET_WHEEL_DELTA_WPARAM(wparam)) / 120 * SCROLL_LINE
-		if msg == win.WM_MOUSEWHEEL do canvas_scroll_notify(h, 0, -d)
-		else do canvas_scroll_notify(h, d, 0)
+		pt := win.POINT{win.GET_X_LPARAM(lparam), win.GET_Y_LPARAM(lparam)}
+		win.ScreenToClient(hwnd, &pt)
+		src := Scroll_Source{dp(pt.x), dp(pt.y), true, false}
+		if msg == win.WM_MOUSEWHEEL do canvas_scroll_notify(h, 0, -d, src, canvas_mods())
+		else do canvas_scroll_notify(h, d, 0, src, canvas_mods())
+		return 0
+	case WM_GESTURE:
+		// A touch screen's zoom: the scale from the fingers' distance against the first.
+		if h.canvas.on_scale == nil do break
+		gi := GESTUREINFO{cbSize = size_of(GESTUREINFO)}
+		if !GetGestureInfo(win.HANDLE(uintptr(lparam)), &gi) || gi.dwID != GID_ZOOM do break
+		pt := win.POINT{i32(gi.ptsLocation[0]), i32(gi.ptsLocation[1])}
+		win.ScreenToClient(hwnd, &pt)
+		dist := f64(gi.ullArguments & 0xFFFFFFFF)
+		if gi.dwFlags & GF_BEGIN != 0 {
+			h.scale_from = {dist, 1}
+			canvas_scale_notify(h, .Down, 1, 1, dp(pt.x), dp(pt.y), canvas_mods())
+		} else if h.scale_from.x > 0 {
+			h.scale_from.y = dist / h.scale_from.x
+			canvas_scale_notify(h, gi.dwFlags & GF_END != 0 ? .Up : .Move, h.scale_from.y, h.scale_from.y, dp(pt.x), dp(pt.y), canvas_mods())
+		}
+		CloseGestureInfoHandle(win.HANDLE(uintptr(lparam)))
 		return 0
 	}
 	return win.DefWindowProcW(hwnd, msg, wparam, lparam)
@@ -424,6 +457,13 @@ _stroke_polyline :: proc(p: ^Painter, points: [][2]f64, color: Color, width: f64
 	for q, i in points do pts[i] = {f32(q.x), f32(q.y)}
 	pen := pen_for(p, color, width, GP_LINE_CAP_FLAT, GP_LINE_JOIN_ROUND)
 	GdipDrawLines(p.native, pen, raw_data(pts), i32(len(pts)))
+}
+
+@(private)
+_fill_polygon :: proc(p: ^Painter, points: [][2]f64, color: Color) {
+	pts := make([]GpPointF, len(points), context.temp_allocator)
+	for q, i in points do pts[i] = {f32(q.x), f32(q.y)}
+	GdipFillPolygon(p.native, brush_for(p, color), raw_data(pts), i32(len(pts)), GP_FILL_MODE_WINDING)
 }
 
 // The clip rect is in world units (dp), so the transform applies; the px copy clips GDI text.

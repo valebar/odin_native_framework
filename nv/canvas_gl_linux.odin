@@ -220,6 +220,15 @@ gl_stroke_polyline :: proc(vg: ^nvg.Context, points: [][2]f64, color: Color, wid
 	gl_stroke(vg, color, width, .BUTT, .ROUND)
 }
 
+// nanovg makes a single path's winding solid whichever way the points go.
+gl_fill_polygon :: proc(vg: ^nvg.Context, points: [][2]f64, color: Color) {
+	nvg.BeginPath(vg)
+	nvg.MoveTo(vg, f32(points[0].x), f32(points[0].y))
+	for pt in points[1:] do nvg.LineTo(vg, f32(pt.x), f32(pt.y))
+	nvg.ClosePath(vg)
+	nvg_fill(vg, color)
+}
+
 gl_clip_push :: proc(vg: ^nvg.Context, x, y, w, h: f64) {
 	nvg.Save(vg)
 	nvg.IntersectScissor(vg, f32(x), f32(y), f32(w), f32(h))
