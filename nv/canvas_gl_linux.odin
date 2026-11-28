@@ -316,6 +316,15 @@ gl_draw_text :: proc(p: ^Painter, text: string, x, y: f64, style: Text_Style) {
 	nvg.Text(c.vg, f32(x), f32(y) + asc, text)
 }
 
+gl_draw_text_rotated :: proc(p: ^Painter, text: string, x, y, angle: f64, style: Text_Style) {
+	c := (^Gl_Canvas)(p.native)
+	nvg.Save(c.vg)
+	nvg.Translate(c.vg, f32(x), f32(y))
+	nvg.Rotate(c.vg, f32(angle))
+	gl_draw_text(p, text, 0, 0, style)
+	nvg.Restore(c.vg)
+}
+
 gl_measure_text :: proc(p: ^Painter, text: string, style: Text_Style) -> (width, height: f64) {
 	c := (^Gl_Canvas)(p.native)
 	if !gl_font(c, style) do return 0, 0

@@ -304,6 +304,7 @@ foreign cairo {
 	cairo_save             :: proc(cr: ^cairo_t) ---
 	cairo_restore          :: proc(cr: ^cairo_t) ---
 	cairo_translate        :: proc(cr: ^cairo_t, tx, ty: f64) ---
+	cairo_rotate           :: proc(cr: ^cairo_t, angle: f64) ---
 	cairo_scale            :: proc(cr: ^cairo_t, sx, sy: f64) ---
 	cairo_set_source_rgba  :: proc(cr: ^cairo_t, r, g, b, a: f64) ---
 	cairo_set_line_width   :: proc(cr: ^cairo_t, width: f64) ---

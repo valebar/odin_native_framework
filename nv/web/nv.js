@@ -603,6 +603,16 @@ const imports = {
 		ctx.textBaseline = "alphabetic";
 		ctx.fillText(S(p, n), x, y + ascent);
 	},
+	js_draw_text_rotated: (p, n, x, y, angle, size, weight, italic, font, c) => {
+		const ctx = fillStyle(c);
+		const ascent = textFont(ctx, size, weight, italic, font).ascent;
+		ctx.save(); // the transform only; fill and font stay what the cache says
+		ctx.translate(x, y);
+		ctx.rotate(angle);
+		ctx.textBaseline = "alphabetic";
+		ctx.fillText(S(p, n), 0, ascent);
+		ctx.restore();
+	},
 	js_measure_text: (p, n, size, weight, italic, font) => {
 		textFont(cur.ctx, size, weight, italic, font);
 		return cur.ctx.measureText(S(p, n)).width;

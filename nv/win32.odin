@@ -42,6 +42,13 @@ foreign user32 {
 @(private) GF_END     :: 4
 
 @(default_calling_convention="system")
+foreign user32 {
+	MsgWaitForMultipleObjectsEx :: proc(count: win.DWORD, handles: ^win.HANDLE, ms: win.DWORD, wake_mask: win.DWORD, flags: win.DWORD) -> win.DWORD ---
+}
+
+MWMO_INPUTAVAILABLE :: 0x0004
+
+@(default_calling_convention="system")
 foreign comctl32 {
 	RemoveWindowSubclass :: proc(hWnd: win.HWND, pfnSubclass: win.SUBCLASSPROC, uIdSubclass: win.UINT_PTR) -> win.BOOL ---
 }

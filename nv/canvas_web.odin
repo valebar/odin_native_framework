@@ -60,6 +60,12 @@ _draw_text :: proc(p: ^Painter, text: string, x, y: f64, style: Text_Style) {
 	js_draw_text(text, x, y, style.size, weight, italic, font, color_argb(style.color))
 }
 
+@(private)
+_draw_text_rotated :: proc(p: ^Painter, text: string, x, y, angle: f64, style: Text_Style) {
+	weight, italic, font := web_text_font(style)
+	js_draw_text_rotated(text, x, y, angle, style.size, weight, italic, font, color_argb(style.color))
+}
+
 // measureText's advance; the line box is the font's ascent and descent (fontBoundingBox).
 @(private)
 _measure_text :: proc(p: ^Painter, text: string, style: Text_Style) -> (width, height: f64) {

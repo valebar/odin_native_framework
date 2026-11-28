@@ -192,6 +192,18 @@ _draw_text :: proc(p: ^Painter, text: string, x, y: f64, style: Text_Style) {
 	cairo_show_text(cr, strings.clone_to_cstring(text, context.temp_allocator))
 }
 
+// Around a turned matrix (cairo's gstate, nanovg's state), which the clips save and restore too.
+@(private)
+_draw_text_rotated :: proc(p: ^Painter, text: string, x, y, angle: f64, style: Text_Style) {
+	if gl_of(p) != nil { gl_draw_text_rotated(p, text, x, y, angle, style); return }
+	cr := (^cairo_t)(p.native)
+	cairo_save(cr)
+	cairo_translate(cr, x, y)
+	cairo_rotate(cr, angle)
+	_draw_text(p, text, 0, 0, style)
+	cairo_restore(cr)
+}
+
 @(private)
 _measure_text :: proc(p: ^Painter, text: string, style: Text_Style) -> (width, height: f64) {
 	if gl_of(p) != nil do return gl_measure_text(p, text, style)

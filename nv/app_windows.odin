@@ -20,6 +20,7 @@ _run :: proc() {
 	theme_windows_brushes()
 	register_classes()
 	gdiplus_init()
+	timers_start()
 
 	style := win.WS_OVERLAPPEDWINDOW | win.WS_CLIPCHILDREN
 	wnd := win.CreateWindowExW(0, wstr(CLASS_WINDOW), wstr(g_nav[0].page.title), style,
@@ -42,8 +43,22 @@ _run :: proc() {
 	layout_root(wnd)
 	win.ShowWindow(wnd, win.SW_SHOW)
 
+	// With a short timer queued the loop also waits on its high-resolution timer (scaffold_windows.odin).
 	msg: win.MSG
-	for win.GetMessageW(&msg, nil, 0, 0) > 0 {
+	for {
+		if hires_waiting() {
+			if MsgWaitForMultipleObjectsEx(1, &g_timers.hires, win.INFINITE, win.QS_ALLINPUT, MWMO_INPUTAVAILABLE) == win.WAIT_OBJECT_0 {
+				hires_fire()
+				continue
+			}
+			for win.PeekMessageW(&msg, nil, 0, 0, win.PM_REMOVE) {
+				if msg.message == win.WM_QUIT do return
+				win.TranslateMessage(&msg)
+				win.DispatchMessageW(&msg)
+			}
+			continue
+		}
+		if win.GetMessageW(&msg, nil, 0, 0) <= 0 do return
 		win.TranslateMessage(&msg)
 		win.DispatchMessageW(&msg)
 	}
@@ -70,9 +85,9 @@ window_proc :: proc "system" (hwnd: win.HWND, msg: win.UINT, wparam: win.WPARAM,
 		return ctlcolor_button(lparam)
 	case win.WM_ERASEBKGND:
 		return erase_background(hwnd, win.HDC(wparam))
-	case win.WM_TIMER: // a scaffold timer, whose id is its ^Timer (scaffold_windows.odin)
+	case win.WM_TIMER: // a scaffold timer, by its id (scaffold_windows.odin)
 		win.KillTimer(hwnd, win.UINT_PTR(wparam))
-		timer_fire((^Timer)(rawptr(uintptr(wparam))))
+		timer_fire_id(uintptr(wparam))
 		return 0
 	case WM_NV_POSTED: // post_main from any thread (scaffold_windows.odin)
 		timer_fire((^Timer)(rawptr(uintptr(lparam))))

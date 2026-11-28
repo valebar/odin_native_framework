@@ -2,6 +2,8 @@
 #+private
 package nv
 
+import "core:math"
+
 // Android canvas backend: nv.NvCanvasView (Java shim) forwards onDraw, touches and a mouse's wheel. Drawing goes
 // through android.graphics.Canvas, scaled by the display density so units are dp. Two
 // anti-aliased Paints (fill, stroke) are kept per canvas; Android_Canvas remembers what they were
@@ -127,6 +129,18 @@ _draw_text :: proc(p: ^Painter, text: string, x, y: f64, style: Text_Style) {
 	pt := text_paint(p, style)
 	c := (^Android_Canvas)(p.h.extra)
 	canvas_draw_text(g_android.env, jobject(p.native), text, f32(x), f32(y) - c.ascent, pt)
+}
+
+// Canvas.save, translate and rotate (degrees) around it, then restore.
+@(private)
+_draw_text_rotated :: proc(p: ^Painter, text: string, x, y, angle: f64, style: Text_Style) {
+	env := g_android.env
+	cv := jobject(p.native)
+	canvas_save(env, cv)
+	canvas_translate(env, cv, f32(x), f32(y))
+	canvas_rotate(env, cv, f32(angle * 180 / math.PI))
+	_draw_text(p, text, 0, 0, style)
+	canvas_restore(env, cv)
 }
 
 // The fill Paint's advance for `text`; the line box is ascent (negative) to descent.

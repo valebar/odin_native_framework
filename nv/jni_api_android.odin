@@ -824,6 +824,18 @@ canvas_scale :: proc "contextless" (env: JNI_Env, self: jobject, sx: f32, sy: f3
 	jni_call_void(env, self, &jm_canvas_scale, jv_float(sx), jv_float(sy))
 }
 
+// android.graphics.Canvas.translate(float, float)
+jm_canvas_translate := Jni_Method{cls = &jc_canvas, name = "translate", sig = "(FF)V"}
+canvas_translate :: proc "contextless" (env: JNI_Env, self: jobject, dx: f32, dy: f32) {
+	jni_call_void(env, self, &jm_canvas_translate, jv_float(dx), jv_float(dy))
+}
+
+// android.graphics.Canvas.rotate(float)
+jm_canvas_rotate := Jni_Method{cls = &jc_canvas, name = "rotate", sig = "(F)V"}
+canvas_rotate :: proc "contextless" (env: JNI_Env, self: jobject, degrees: f32) {
+	jni_call_void(env, self, &jm_canvas_rotate, jv_float(degrees))
+}
+
 // android.graphics.Canvas.save()
 jm_canvas_save := Jni_Method{cls = &jc_canvas, name = "save", sig = "()I"}
 canvas_save :: proc "contextless" (env: JNI_Env, self: jobject) -> jint {

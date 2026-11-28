@@ -141,6 +141,8 @@ android.graphics.Canvas           drawArc(float left, float top, float right, fl
 android.graphics.Canvas           drawText(java.lang.String text, float x, float y, android.graphics.Paint paint)
 android.graphics.Canvas           drawBitmap(android.graphics.Bitmap bitmap, android.graphics.Rect src, android.graphics.RectF dst, android.graphics.Paint paint)
 android.graphics.Canvas           scale(float sx, float sy)
+android.graphics.Canvas           translate(float dx, float dy)
+android.graphics.Canvas           rotate(float degrees)
 android.graphics.Canvas           save()
 android.graphics.Canvas           restore()
 android.graphics.Canvas           clipRect(float left, float top, float right, float bottom)

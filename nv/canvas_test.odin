@@ -162,3 +162,20 @@ test_fill_polygon :: proc(t: ^testing.T) {
 	canvas_draw_notify(h, nil, 100, 50)
 	expect_log(t, "fill_polygon 3")
 }
+
+// Rotated text keeps its origin and angle.
+@(test)
+test_draw_text_rotated :: proc(t: ^testing.T) {
+	mock_begin(t)
+	defer mock_end(t)
+	h: ^Canvas_Handle
+	run({title = "R", user = &h, build = proc(user: rawptr, _: ^Page_Handle) -> View {
+		(^^Canvas_Handle)(user)^ = canvas_create({on_draw = proc(_: rawptr, p: ^Painter, w, h: f64) {
+			draw_text_rotated(p, "Y", 3, 40, -1.5)
+		}})
+		return view((^^Canvas_Handle)(user)^)
+	}})
+	mock_log_clear()
+	canvas_draw_notify(h, nil, 100, 50)
+	expect_log(t, "draw_text_rotated Y 3 40 -1.5")
+}

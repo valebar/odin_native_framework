@@ -186,7 +186,7 @@ style_font :: proc(s: Text_Style, base: win.HFONT) -> win.HFONT {
 	}
 	lf.lfItalic = s.italic ? 1 : lf.lfItalic
 	key := Font_Key{lf.lfHeight, lf.lfWeight, lf.lfItalic != 0}
-	cache := s.font != nil ? (^map[Font_Key]win.HFONT)(s.font.extra) : &g_theme_windows.fonts
+	cache := s.font != nil ? font_hfonts(s.font) : &g_theme_windows.fonts
 	if f, ok := cache[key]; ok do return f
 	f := win.CreateFontIndirectW(&lf)
 	cache[key] = f

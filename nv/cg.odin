@@ -48,6 +48,7 @@ foreign cg {
 	CGContextRestoreGState     :: proc(c: CGContextRef) ---
 	CGContextTranslateCTM      :: proc(c: CGContextRef, tx, ty: NS.Float) ---
 	CGContextScaleCTM          :: proc(c: CGContextRef, sx, sy: NS.Float) ---
+	CGContextRotateCTM         :: proc(c: CGContextRef, angle: NS.Float) ---
 	CGContextSetInterpolationQuality :: proc(c: CGContextRef, quality: i32) ---
 	CGContextDrawImage         :: proc(c: CGContextRef, rect: NS.Rect, image: CGImageRef) ---
 	CGImageGetWidth            :: proc(image: CGImageRef) -> uint ---
@@ -404,6 +405,17 @@ apple_canvas_redraw_main :: proc "c" (data: rawptr) {
 @(private)
 _draw_text :: proc(p: ^Painter, text: string, x, y: f64, style: Text_Style) {
 	send(nil, ns_string(text), "drawAtPoint:withAttributes:", NS.Point{NS.Float(x), NS.Float(y)}, apple_text_attrs(p, style))
+}
+
+// The same, in a turned CTM (gstate, like the clips).
+@(private)
+_draw_text_rotated :: proc(p: ^Painter, text: string, x, y, angle: f64, style: Text_Style) {
+	ctx := CGContextRef(p.native)
+	CGContextSaveGState(ctx)
+	CGContextTranslateCTM(ctx, NS.Float(x), NS.Float(y))
+	CGContextRotateCTM(ctx, NS.Float(angle))
+	_draw_text(p, text, 0, 0, style)
+	CGContextRestoreGState(ctx)
 }
 
 // sizeWithAttributes: is the box drawAtPoint:withAttributes: fills: the advance and the line height.

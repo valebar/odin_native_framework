@@ -1037,6 +1037,19 @@ draw_text :: proc(p: ^Painter, text: string, x, y: f64, style: Text_Style = {}) 
 	_draw_text(p, text, x, y, s)
 }
 
+// draw_text turned by `angle` radians about (x, y), the top-left of its line box: clockwise on
+// screen for a positive angle, as Flutter's canvas.rotate, so -π/2 reads bottom to top.
+draw_text_rotated :: proc(p: ^Painter, text: string, x, y, angle: f64, style: Text_Style = {}) {
+	s := text_style_merge(style, g_theme.body)
+	if s.size <= 0 do s.size = 15
+	if s.color.a == 0 do s.color = theme_palette().text
+	if g_draw_mock != nil {
+		g_draw_mock("draw_text_rotated %s %v %v %v", text, x, y, angle)
+		return
+	}
+	_draw_text_rotated(p, text, x, y, angle, s)
+}
+
 // The size `draw_text` gives `text` in the same style: its advance width and the height of its
 // line box (from the top-left draw_text takes to the bottom of the descent), in points. Only
 // inside `on_draw`, like the draw procs.

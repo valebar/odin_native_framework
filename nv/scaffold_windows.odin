@@ -10,6 +10,7 @@ package nv
 // bar ("NVTabbar") are painted with GDI+ (shapes) and GDI (the MDL2 glyphs and the text). The
 // timer is SetTimer on the main window, whose WM_TIMER (app_windows.odin) fires it.
 
+import "core:time"
 import win "core:sys/windows"
 
 @(private) CLASS_OVERLAY :: "NVOverlay"
@@ -435,8 +436,106 @@ _post_timer :: proc(t: ^Timer) {
 	win.PostMessageW(g_windows.parking, WM_NV_POSTED, 0, win.LPARAM(uintptr(t)))
 }
 
-// The timer's pointer is its id on the main window (window_proc's WM_TIMER).
+// A timer is SetTimer on the main window (window_proc's WM_TIMER) under an id never reused, so a
+// WM_TIMER still queued after a KillTimer finds nothing. SetTimer fires on the system tick (about
+// 16 ms, and timeBeginPeriod does not change it), so an 18 ms timer took 33 and animations ran at
+// 30 fps: a short one also waits on a high-resolution waitable timer in the message loop
+// (app_windows.odin). The SetTimer stays for modal loops (a window drag), which don't run ours;
+// whichever comes first fires the timer and cancels the other.
 @(private)
 _post_delayed :: proc(ms: int, t: ^Timer) {
-	win.SetTimer(g_windows.parking, win.UINT_PTR(uintptr(t)), win.UINT(max(ms, 1)), nil)
+	if g_timers.pending == nil do g_timers.pending = make(map[uintptr]^Timer, nv_heap())
+	g_timers.next += 1
+	id := g_timers.next
+	g_timers.pending[id] = t
+	win.SetTimer(g_windows.parking, id, win.UINT(max(ms, 1)), nil)
+	if ms < HIRES_SHORT do hires_add(ms, {id = id})
+}
+
+@(private) HIRES_SHORT :: 32 // ms: a timer under two ticks
+
+// A short timer's or a canvas's next frame (canvas_windows.odin), when it is due.
+@(private) Hires_Due :: struct {
+	at:     time.Tick,
+	id:     uintptr,  // a pending timer's
+	canvas: win.HWND, // or a canvas to invalidate
+}
+
+@(private) g_timers: struct {
+	next:    uintptr,
+	pending: map[uintptr]^Timer,
+	hires:   win.HANDLE, // nil before Windows 10 1803: SetTimer alone
+	due:     [dynamic]Hires_Due,
+}
+
+@(private)
+timers_start :: proc() {
+	g_timers.hires = win.CreateWaitableTimerExW(nil, nil, win.CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, win.TIMER_ALL_ACCESS)
+	g_timers.due = make([dynamic]Hires_Due, nv_heap())
+}
+
+// The pending timer `id` fires (its SetTimer or its waitable time came).
+@(private)
+timer_fire_id :: proc(id: uintptr) {
+	t, ok := g_timers.pending[id]
+	if !ok do return
+	delete_key(&g_timers.pending, id)
+	win.KillTimer(g_windows.parking, id)
+	for d, i in g_timers.due do if d.id == id {
+		ordered_remove(&g_timers.due, i)
+		break
+	}
+	timer_fire(t)
+}
+
+@(private)
+hires_add :: proc(ms: int, d: Hires_Due) {
+	if g_timers.hires == nil do return
+	d := d
+	d.at = time.tick_add(time.tick_now(), time.Duration(ms) * time.Millisecond)
+	append(&g_timers.due, d)
+	hires_arm()
+}
+
+// A canvas's frame timer fired by SetTimer, or the canvas went.
+@(private)
+hires_drop_canvas :: proc(hwnd: win.HWND) {
+	#reverse for d, i in g_timers.due do if d.canvas == hwnd do ordered_remove(&g_timers.due, i)
+}
+
+// The waitable timer at the earliest due.
+@(private)
+hires_arm :: proc() {
+	if len(g_timers.due) == 0 do return
+	first := g_timers.due[0].at
+	for d in g_timers.due do if time.tick_diff(d.at, first) > 0 do first = d.at
+	wait := max(time.tick_diff(time.tick_now(), first), 0)
+	due := win.LARGE_INTEGER(-max(i64(wait) / 100, 1)) // relative, in 100 ns
+	win.SetWaitableTimerEx(g_timers.hires, &due, 0, nil, nil, nil, 0)
+}
+
+// The message loop's wait: true while a short timer is queued on the waitable timer.
+@(private)
+hires_waiting :: proc() -> bool {
+	return g_timers.hires != nil && len(g_timers.due) > 0
+}
+
+// The waitable timer signalled: what is due (within a millisecond) fires, the rest waits again.
+@(private)
+hires_fire :: proc() {
+	limit := time.tick_add(time.tick_now(), time.Millisecond)
+	ready := make([dynamic]Hires_Due, context.temp_allocator)
+	#reverse for d, i in g_timers.due do if time.tick_diff(d.at, limit) >= 0 {
+		append(&ready, d)
+		ordered_remove(&g_timers.due, i)
+	}
+	#reverse for d in ready {
+		if d.canvas != nil {
+			win.KillTimer(d.canvas, CANVAS_FRAME_TIMER)
+			if win.IsWindow(d.canvas) do win.InvalidateRect(d.canvas, nil, false)
+		} else {
+			timer_fire_id(d.id)
+		}
+	}
+	hires_arm()
 }

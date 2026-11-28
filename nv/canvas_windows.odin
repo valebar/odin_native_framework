@@ -2,19 +2,21 @@
 #+private
 package nv
 
-// Windows canvas backend: an "NVCanvas" window painted with GDI+ (plain GDI has no
-// anti-aliasing) into an off-screen bitmap, then blitted. The GDI+ world transform scales dp to
-// px; text goes through GDI on the same bitmap in the message font, or a loaded one, at the
-// requested size. The canvas keeps one brush and one pen (Windows_Canvas, in Canvas_Handle.extra)
-// and recolors them per primitive: creating a GDI+ object per call costs more than the drawing.
-// The back buffer is kept across paints too, recreated only when the client size changes.
-// clip_push saves the Graphics state (GdipSaveGraphics) and intersects its clip; GDI text, which
-// ignores the GDI+ clip, gets the same rect (in px) on its DC.
+// Windows canvas backend: an "NVCanvas" window drawn with Direct2D into its back buffer (a DIB
+// section) through one shared ID2D1DCRenderTarget, then blitted in WM_PAINT, in DIPs at the
+// window's DPI, so dp are DIPs; text is DirectWrite's, in the theme's font or a loaded one
+// (font_windows.odin keeps its collection). Not an ID2D1HwndRenderTarget per window: that one
+// presents after EndDraw, on the GPU, clipped as its window was when the frame was queued, so a
+// window shown over an animating canvas (any dialog over a settings page) got a stale frame over
+// it that nothing painted again (6 of 24 real clicks on the VM); the blit is GDI's, in order. The
+// frame costs more than the window target's (14 ms against 5 at 2560x1257 on the VM, the copy
+// back included) and less than GDI+'s (18; GDI text had no alpha either). Shared: the factories,
+// the target with its brush and the bitmaps uploaded to it (all made again after a device loss,
+// D2DERR_RECREATE_TARGET), the stroke styles and the text formats.
+// The GDI+ declarations below stay for the widgets that still paint with it (containers, the
+// bar, the scaffold, the Image widget).
 // The left mouse button is captured while pressed, so a drag keeps reporting outside the window.
-// Pixels are offset by half (PixelOffsetModeHalf): pixel i covers [i, i + 1], as in CoreGraphics,
-// cairo and Skia, so whole-dp edges fall between pixels instead of across them.
 
-import "base:builtin"
 import "core:math"
 import win "core:sys/windows"
 
@@ -48,28 +50,23 @@ foreign import gdiplus "system:gdiplus.lib"
 
 @(private) GpPointF :: struct { x, y: f32 }
 
-// One clip_push: the Graphics state to restore and the clip so far in px (for GDI text).
-@(private) Windows_Clip :: struct {
-	state: u32, // GraphicsState
-	rect:  win.RECT,
+
+// Per-canvas state (Canvas_Handle.extra, in the page's arena): the back buffer, kept across paints
+// and made again when the client size changes.
+@(private) Windows_Canvas :: struct {
+	mem:      win.HDC, // nil until the first paint
+	bmp:      win.HBITMAP,
+	old:      win.HGDIOBJ,
+	size:     [2]i32,
+	painting: bool, // inside canvas_paint (an on_draw asking for its next frame: _canvas_redraw)
 }
 
-// Per-canvas GDI+ state (Canvas_Handle.extra, in the page's arena): the brush and pen every
-// primitive draws with, the colour / width they were last set to, and the back buffer.
-@(private) Windows_Canvas :: struct {
-	brush:      GpBrush,
-	pen:        GpPen,
-	brush_argb: u32,
-	pen_argb:   u32,
-	pen_width:  f32,
-	pen_cap:    i32, // of both ends: round for lines, flat for arcs
-	pen_join:   i32, // miter for rects, round for polylines
-	clips:      [dynamic]Windows_Clip, // clip_push's, innermost last (the scope's arena); empty between paints
-	mem:        win.HDC, // back buffer of `size` px; nil until the first paint
-	bmp:        win.HBITMAP,
-	old:        win.HGDIOBJ,
-	size:       [2]i32,
-	painting:   bool, // inside canvas_paint (an on_draw asking for its next frame: _canvas_redraw)
+// A bitmap uploaded to the shared target, as of its generation, last drawn at paint `used`.
+@(private) Canvas_Bitmap :: struct {
+	bitmap: ^ID2D1Bitmap,
+	gen:    u64,
+	used:   u64,
+	size:   [2]int,
 }
 
 // canvas_proc's timer for the next frame of a canvas that asked for it from its own on_draw.
@@ -133,6 +130,143 @@ gdiplus_init :: proc() {
 	GdiplusStartup(&token, &input, nil) // never shut down: lives as long as the process
 }
 
+
+// The device-independent objects, made with the first canvas.
+@(private) g_d2d: struct {
+	factory:    ^ID2D1Factory,
+	dwrite:     ^IDWriteFactory5, // an IDWriteFactory before Windows 10 1703: only its first part is called
+	dwrite5:    bool,
+	loader:     ^IDWriteInMemoryFontFileLoader, // loaded fonts (font_windows.odin)
+	line:       ^ID2D1StrokeStyle, // round caps: draw_line
+	open:       ^ID2D1StrokeStyle, // butt ends, round joins: stroke_polyline
+	formats:    map[Text_Key]Text_Format,
+	system:     [32]u16, // the theme's font family (the message font's face name), NUL-terminated
+	tried:      bool,
+	// The target every canvas draws through (bound to its back buffer per paint) and what lives on it.
+	target:     ^ID2D1DCRenderTarget,
+	dc:         ^ID2D1DeviceContext, // the same target, for DrawBitmap's cubic filter; nil before Windows 8
+	brush:      ^ID2D1SolidColorBrush,
+	brush_argb: u32,
+	dpi:        u32,
+	bitmaps:    map[u64]Canvas_Bitmap, // by bitmap id (image_windows.odin)
+	paints:     u64,
+	drawing:    bool, // between BeginDraw and EndDraw: a paint inside a paint waits for the next
+}
+
+// A text format per font, size, weight and slant, with the face's ascent and descent: a line box is
+// ascent + descent high and its baseline the ascent below its top, as GDI's.
+@(private) Text_Key :: struct {
+	font:   ^Font,
+	size:   f32,
+	weight: u32,
+	italic: bool,
+}
+
+@(private) Text_Format :: struct {
+	format:  ^IDWriteTextFormat,
+	ascent:  f32,
+	descent: f32,
+}
+
+// The factories (DirectWrite may already exist for a font loaded before the first canvas).
+@(private)
+d2d_start :: proc() -> bool {
+	if g_d2d.factory != nil do return true
+	if g_d2d.tried do return false
+	g_d2d.tried = true
+	if !dwrite_start() do return false
+	if D2D1CreateFactory(0, &IID_ID2D1Factory, nil, (^rawptr)(&g_d2d.factory)) < 0 do return false
+	stroke :: proc(caps, join: u32) -> ^ID2D1StrokeStyle {
+		props := D2D1_STROKE_STYLE_PROPERTIES{start_cap = caps, end_cap = caps, dash_cap = caps, line_join = join, miter_limit = 10}
+		s: ^ID2D1StrokeStyle
+		g_d2d.factory->CreateStrokeStyle(&props, nil, 0, &s)
+		return s
+	}
+	g_d2d.line = stroke(D2D1_CAP_STYLE_ROUND, D2D1_LINE_JOIN_MITER)
+	g_d2d.open = stroke(D2D1_CAP_STYLE_FLAT, D2D1_LINE_JOIN_ROUND)
+	g_d2d.formats = make(map[Text_Key]Text_Format, nv_heap())
+	lf: win.LOGFONTW
+	win.GetObjectW(win.HANDLE(g_windows.font), size_of(lf), &lf)
+	copy(g_d2d.system[:len(g_d2d.system) - 1], lf.lfFaceName[:])
+	return true
+}
+
+// DirectWrite alone: IDWriteFactory5 where there is one (in-memory fonts), else IDWriteFactory.
+@(private)
+dwrite_start :: proc() -> bool {
+	if g_d2d.dwrite != nil do return true
+	if DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, &IID_IDWriteFactory5, (^rawptr)(&g_d2d.dwrite)) >= 0 {
+		g_d2d.dwrite5 = true
+		return true
+	}
+	return DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, &IID_IDWriteFactory, (^rawptr)(&g_d2d.dwrite)) >= 0
+}
+
+// The style's format: the loaded font's own collection and family (font_windows.odin), or the
+// theme's family among the system's.
+@(private)
+text_format :: proc(style: Text_Style) -> ^Text_Format {
+	key := Text_Key{font = style.font, size = f32(style.size), italic = style.italic}
+	switch text_weight(style.weight, false) {
+	case .Default:  key.weight = style.font != nil ? u32(style.font.weight) : 400
+	case .Regular:  key.weight = 400
+	case .Medium:   key.weight = 500
+	case .Semibold: key.weight = 600
+	case .Bold:     key.weight = 700
+	}
+	if f := style.font; f != nil do key.italic ||= f.italic
+	if t, ok := &g_d2d.formats[key]; ok do return t
+	family := cstring16(&g_d2d.system[0])
+	collection: ^IDWriteFontCollection
+	if f := style.font; f != nil {
+		if dw := font_dwrite(f); dw != nil && dw.collection != nil {
+			family = cstring16(raw_data(dw.family))
+			collection = dw.collection
+		}
+	}
+	slant := u32(key.italic ? DWRITE_FONT_STYLE_ITALIC : DWRITE_FONT_STYLE_NORMAL)
+	t: Text_Format
+	locale := [1]u16{}
+	if g_d2d.dwrite->CreateTextFormat(family, collection, key.weight, slant, DWRITE_FONT_STRETCH_NORMAL, key.size, cstring16(&locale[0]), &t.format) < 0 do return nil
+	t.format->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP)
+	// The face's metrics, from the collection the format resolves the family in.
+	coll := collection
+	if coll == nil do g_d2d.dwrite->GetSystemFontCollection(&coll, false)
+	t.ascent, t.descent = key.size * 0.9, key.size * 0.25 // when the family is not found
+	index: u32
+	exists: win.BOOL
+	if coll != nil && coll->FindFamilyName(family, &index, &exists) >= 0 && exists {
+		fam: ^IDWriteFontFamily
+		if coll->GetFontFamily(index, &fam) >= 0 {
+			font: ^IDWriteFont
+			if fam->GetFirstMatchingFont(key.weight, DWRITE_FONT_STRETCH_NORMAL, slant, &font) >= 0 {
+				m: DWRITE_FONT_METRICS
+				font->GetMetrics(&m)
+				em := f32(m.design_units_per_em)
+				if em > 0 do t.ascent, t.descent = f32(m.ascent) * key.size / em, f32(m.descent) * key.size / em
+				com_release(font)
+			}
+			com_release(fam)
+		}
+	}
+	if collection == nil do com_release(coll)
+	t.format->SetLineSpacing(DWRITE_LINE_SPACING_METHOD_UNIFORM, t.ascent + t.descent, t.ascent)
+	g_d2d.formats[key] = t
+	return &g_d2d.formats[key]
+}
+
+// A loaded font goes: the formats over it go too.
+@(private)
+text_formats_drop :: proc(f: ^Font) {
+	gone := make([dynamic]Text_Key, context.temp_allocator)
+	for key, t in g_d2d.formats do if key.font == f {
+		com_release(t.format)
+		append(&gone, key)
+	}
+	for key in gone do delete_key(&g_d2d.formats, key)
+}
+
+
 @(private)
 _canvas_init :: proc(h: ^Canvas_Handle) {
 	wnd := win.CreateWindowExW(0, wstr(CLASS_CANVAS), nil, win.WS_CHILD | win.WS_VISIBLE,
@@ -142,25 +276,61 @@ _canvas_init :: proc(h: ^Canvas_Handle) {
 
 	c := scope_new_in(Windows_Canvas)
 	h.extra = c
-	GdipCreateSolidFill(0, &c.brush)
-	GdipCreatePen1(0, 1, GP_UNIT_WORLD, &c.pen)
-	c.pen_width = 1
-	c.pen_cap = GP_LINE_CAP_FLAT // the pen's defaults
-	c.pen_join = GP_LINE_JOIN_MITER
-	c.clips = make([dynamic]Windows_Clip, scope_allocator(h.scope))
 	scope_on_dispose(canvas_dispose, h)
+	d2d_start()
 }
 
 // Runs from WM_NV_DESTROY after the window is gone; GDI objects do not depend on it.
 @(private)
 canvas_dispose :: proc(data: rawptr) {
-	c := (^Windows_Canvas)((^Canvas_Handle)(data).extra)
-	GdipDeletePen(c.pen)
-	GdipDeleteBrush(c.brush)
-	canvas_buffer_free(c)
+	h := (^Canvas_Handle)(data)
+	hires_drop_canvas(win.HWND(h.view))
+	canvas_buffer_free((^Windows_Canvas)(h.extra))
 }
 
-// A top-down 32-bit DIB section for a back buffer. GDI+ draws straight into a DIB's pixels; on a
+@(private)
+canvas_buffer_free :: proc "contextless" (c: ^Windows_Canvas) {
+	if c.mem == nil do return
+	win.SelectObject(c.mem, c.old)
+	win.DeleteObject(win.HGDIOBJ(c.bmp))
+	win.DeleteDC(c.mem)
+	c.mem, c.bmp, c.old, c.size = nil, nil, nil, {}
+}
+
+// The shared target and what was made on it.
+@(private)
+d2d_target_free :: proc() {
+	for _, b in g_d2d.bitmaps do com_release(b.bitmap)
+	clear(&g_d2d.bitmaps)
+	com_release(g_d2d.brush)
+	com_release(g_d2d.dc)
+	com_release(g_d2d.target)
+	g_d2d.brush, g_d2d.dc, g_d2d.target = nil, nil, nil
+}
+
+// The shared target, made at the first paint and after a device loss: the GPU where there is one.
+@(private)
+d2d_target :: proc() -> ^ID2D1DCRenderTarget {
+	if g_d2d.target != nil do return g_d2d.target
+	if !d2d_start() do return nil
+	props := D2D1_RENDER_TARGET_PROPERTIES{
+		pixel_format = {DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_IGNORE}, // opaque: ClearType text
+		dpi_x = f32(g_windows.dpi), dpi_y = f32(g_windows.dpi),
+	}
+	if g_d2d.factory->CreateDCRenderTarget(&props, &g_d2d.target) < 0 do return nil
+	white := D2D1_COLOR_F{1, 1, 1, 1}
+	if (^ID2D1RenderTarget)(g_d2d.target)->CreateSolidColorBrush(&white, nil, &g_d2d.brush) < 0 {
+		d2d_target_free()
+		return nil
+	}
+	g_d2d.brush_argb = 0xFFFFFFFF
+	(^win.IUnknown)(g_d2d.target)->QueryInterface(&IID_ID2D1DeviceContext, (^rawptr)(&g_d2d.dc))
+	if g_d2d.bitmaps == nil do g_d2d.bitmaps = make(map[u64]Canvas_Bitmap, nv_heap())
+	g_d2d.dpi = g_windows.dpi
+	return g_d2d.target
+}
+
+// A top-down 32-bit DIB section: a canvas's back buffer, and the GDI+ widgets'.
 // device-dependent bitmap (CreateCompatibleBitmap) it has to fetch and store them through GDI
 // around every anti-aliased primitive, which costs far more than the drawing.
 @(private)
@@ -175,15 +345,6 @@ dib_section :: proc "contextless" (width, height: i32) -> win.HBITMAP {
 }
 
 @(private)
-canvas_buffer_free :: proc "contextless" (c: ^Windows_Canvas) {
-	if c.mem == nil do return
-	win.SelectObject(c.mem, c.old)
-	win.DeleteObject(win.HGDIOBJ(c.bmp))
-	win.DeleteDC(c.mem)
-	c.mem, c.bmp, c.old, c.size = nil, nil, nil, {}
-}
-
-@(private)
 _canvas_redraw :: proc(h: ^Canvas_Handle) {
 	// From its own on_draw (an animation: a spinner) the next frame comes from a timer, which
 	// Windows delivers only once no window waits for WM_PAINT. Invalidated at once, the canvas
@@ -191,6 +352,7 @@ _canvas_redraw :: proc(h: ^Canvas_Handle) {
 	// (the bar's title and buttons), which then never painted while it animated.
 	if c := (^Windows_Canvas)(h.extra); c != nil && c.painting {
 		win.SetTimer(win.HWND(h.view), CANVAS_FRAME_TIMER, 16, nil)
+		hires_add(16, {canvas = win.HWND(h.view)}) // SetTimer alone comes every 33 ms
 		return
 	}
 	win.InvalidateRect(win.HWND(h.view), nil, false)
@@ -211,40 +373,25 @@ with_pen :: proc "contextless" (c: Color, width: f64) -> GpPen {
 	return pen
 }
 
-// The canvas's brush / pen, recolored (and the pen resized and its caps / join set) only when the
-// value changed. Caps only show on open figures, so the rectangles and ellipses leave them as they
-// are; joins only on corners (rects: miter, polylines: round).
 @(private)
-brush_for :: proc "contextless" (p: ^Painter, color: Color) -> GpBrush {
-	c := (^Windows_Canvas)(p.h.extra)
-	if argb := color_argb(color); argb != c.brush_argb {
-		GdipSetSolidFillColor(c.brush, argb)
-		c.brush_argb = argb
+target_of :: #force_inline proc "contextless" (p: ^Painter) -> ^ID2D1RenderTarget {
+	return (^ID2D1RenderTarget)(p.native)
+}
+
+// The shared brush, recolored only when the colour changed.
+@(private)
+brush_for :: proc "contextless" (p: ^Painter, color: Color) -> ^ID2D1Brush {
+	if argb := color_argb(color); argb != g_d2d.brush_argb {
+		col := D2D1_COLOR_F{color.r, color.g, color.b, color.a}
+		g_d2d.brush->SetColor(&col)
+		g_d2d.brush_argb = argb
 	}
-	return c.brush
+	return (^ID2D1Brush)(g_d2d.brush)
 }
 
 @(private)
-pen_for :: proc "contextless" (p: ^Painter, color: Color, width: f64, ends: Maybe(i32) = nil, join: Maybe(i32) = nil) -> GpPen {
-	c := (^Windows_Canvas)(p.h.extra)
-	if want, ok := ends.?; ok && want != c.pen_cap {
-		GdipSetPenStartCap(c.pen, want)
-		GdipSetPenEndCap(c.pen, want)
-		c.pen_cap = want
-	}
-	if want, ok := join.?; ok && want != c.pen_join {
-		GdipSetPenLineJoin(c.pen, want)
-		c.pen_join = want
-	}
-	if argb := color_argb(color); argb != c.pen_argb {
-		GdipSetPenColor(c.pen, argb)
-		c.pen_argb = argb
-	}
-	if w := f32(width); w != c.pen_width {
-		GdipSetPenWidth(c.pen, w)
-		c.pen_width = w
-	}
-	return c.pen
+rect_f :: #force_inline proc "contextless" (x, y, w, h: f64) -> D2D1_RECT_F {
+	return {f32(x), f32(y), f32(x + w), f32(y + h)}
 }
 
 // The edges on whole pixels: anti-aliased, a fractional edge half-covers its pixel, and where two
@@ -259,72 +406,199 @@ _fill_rect :: proc(p: ^Painter, x, y, w, h: f64, color: Color) {
 	}
 	sx, sw := snap(x, w)
 	sy, sh := snap(y, h)
-	GdipFillRectangle(p.native, brush_for(p, color), f32(sx), f32(sy), f32(sw), f32(sh))
+	r := rect_f(sx, sy, sw, sh)
+	target_of(p)->FillRectangle(&r, brush_for(p, color))
 }
 
 @(private)
 _stroke_rect :: proc(p: ^Painter, x, y, w, h: f64, color: Color, width: f64) {
-	GdipDrawRectangle(p.native, pen_for(p, color, width, join = GP_LINE_JOIN_MITER), f32(x), f32(y), f32(w), f32(h))
+	r := rect_f(x, y, w, h)
+	target_of(p)->DrawRectangle(&r, brush_for(p, color), f32(width), nil)
 }
 
 @(private)
 _draw_line :: proc(p: ^Painter, x0, y0, x1, y1: f64, color: Color, width: f64) {
-	GdipDrawLine(p.native, pen_for(p, color, width, GP_LINE_CAP_ROUND), f32(x0), f32(y0), f32(x1), f32(y1))
+	target_of(p)->DrawLine({f32(x0), f32(y0)}, {f32(x1), f32(y1)}, brush_for(p, color), f32(width), g_d2d.line)
 }
 
 @(private)
 _fill_ellipse :: proc(p: ^Painter, x, y, w, h: f64, color: Color) {
-	GdipFillEllipse(p.native, brush_for(p, color), f32(x), f32(y), f32(w), f32(h))
+	e := D2D1_ELLIPSE{{f32(x + w / 2), f32(y + h / 2)}, f32(w / 2), f32(h / 2)}
+	target_of(p)->FillEllipse(&e, brush_for(p, color))
 }
 
 @(private)
 _stroke_ellipse :: proc(p: ^Painter, x, y, w, h: f64, color: Color, width: f64) {
-	GdipDrawEllipse(p.native, pen_for(p, color, width), f32(x), f32(y), f32(w), f32(h))
+	e := D2D1_ELLIPSE{{f32(x + w / 2), f32(y + h / 2)}, f32(w / 2), f32(h / 2)}
+	target_of(p)->DrawEllipse(&e, brush_for(p, color), f32(width), nil)
 }
 
+// A path geometry and its open sink; the caller closes the sink and releases both.
+@(private)
+path_open :: proc() -> (geo: ^ID2D1PathGeometry, sink: ^ID2D1GeometrySink, ok: bool) {
+	if g_d2d.factory->CreatePathGeometry(&geo) < 0 do return
+	if geo->Open(&sink) < 0 {
+		com_release(geo)
+		return nil, nil, false
+	}
+	return geo, sink, true
+}
+
+// Degrees clockwise from 3 o'clock, butt ends; a whole turn is the circle.
 @(private)
 _stroke_arc :: proc(p: ^Painter, cx, cy, radius, start, sweep: f64, color: Color, width: f64) {
-	d := f32(2 * radius)
-	GdipDrawArc(p.native, pen_for(p, color, width, GP_LINE_CAP_FLAT), f32(cx - radius), f32(cy - radius), d, d, f32(start), f32(sweep))
+	if sweep == 0 || radius <= 0 do return
+	if abs(sweep) >= 360 {
+		_stroke_ellipse(p, cx - radius, cy - radius, 2 * radius, 2 * radius, color, width)
+		return
+	}
+	geo, sink, ok := path_open()
+	if !ok do return
+	at :: proc(cx, cy, r, deg: f64) -> D2D1_POINT_2F {
+		a := deg * math.PI / 180
+		return {f32(cx + r * math.cos(a)), f32(cy + r * math.sin(a))}
+	}
+	sink->BeginFigure(at(cx, cy, radius, start), D2D1_FIGURE_BEGIN_HOLLOW)
+	arc := D2D1_ARC_SEGMENT{
+		point = at(cx, cy, radius, start + sweep), size = {f32(radius), f32(radius)},
+		sweep = sweep > 0 ? D2D1_SWEEP_DIRECTION_CLOCKWISE : D2D1_SWEEP_DIRECTION_COUNTER_CLOCKWISE,
+		arc_size = abs(sweep) > 180 ? D2D1_ARC_SIZE_LARGE : D2D1_ARC_SIZE_SMALL,
+	}
+	sink->AddArc(&arc)
+	sink->EndFigure(D2D1_FIGURE_END_OPEN)
+	sink->Close()
+	com_release(sink)
+	target_of(p)->DrawGeometry((^ID2D1Geometry)(geo), brush_for(p, color), f32(width), nil)
+	com_release(geo)
 }
 
-// GDI ignores the GDI+ transform, so text is placed in px. The HDC from GdipGetDC has the
-// default TA_TOP | TA_LEFT alignment, so (x, y) is the top-left of the line. The font comes from
-// the style_font cache (the message font or the loaded face, at the style's size).
+// One open figure: butt ends, round joins.
+@(private)
+_stroke_polyline :: proc(p: ^Painter, points: [][2]f64, color: Color, width: f64) {
+	geo, sink, ok := path_open()
+	if !ok do return
+	pts := make([]D2D1_POINT_2F, len(points), context.temp_allocator)
+	for q, i in points do pts[i] = {f32(q.x), f32(q.y)}
+	sink->BeginFigure(pts[0], D2D1_FIGURE_BEGIN_HOLLOW)
+	sink->AddLines(raw_data(pts[1:]), u32(len(pts) - 1))
+	sink->EndFigure(D2D1_FIGURE_END_OPEN)
+	sink->Close()
+	com_release(sink)
+	target_of(p)->DrawGeometry((^ID2D1Geometry)(geo), brush_for(p, color), f32(width), g_d2d.open)
+	com_release(geo)
+}
+
+@(private)
+_fill_polygon :: proc(p: ^Painter, points: [][2]f64, color: Color) {
+	geo, sink, ok := path_open()
+	if !ok do return
+	pts := make([]D2D1_POINT_2F, len(points), context.temp_allocator)
+	for q, i in points do pts[i] = {f32(q.x), f32(q.y)}
+	sink->SetFillMode(D2D1_FILL_MODE_WINDING)
+	sink->BeginFigure(pts[0], D2D1_FIGURE_BEGIN_FILLED)
+	sink->AddLines(raw_data(pts[1:]), u32(len(pts) - 1))
+	sink->EndFigure(D2D1_FIGURE_END_CLOSED)
+	sink->Close()
+	com_release(sink)
+	target_of(p)->FillGeometry((^ID2D1Geometry)(geo), brush_for(p, color), nil)
+	com_release(geo)
+}
+
+// (x, y) is the top-left of the line box: the uniform line spacing puts the baseline the ascent
+// below it. The layout box is wide enough for any line; NO_WRAP keeps it one.
 @(private)
 _draw_text :: proc(p: ^Painter, text: string, x, y: f64, style: Text_Style) {
-	hfont := style_font(style, g_windows.font)
-
-	dc: win.HDC
-	GdipGetDC(p.native, &dc)
-	defer GdipReleaseDC(p.native, dc)
-	saved: i32 // the DC's state before the clip, 0 without one
-	if c := (^Windows_Canvas)(p.h.extra); len(c.clips) > 0 {
-		r := c.clips[len(c.clips) - 1].rect
-		saved = win.SaveDC(dc)
-		IntersectClipRect(dc, r.left, r.top, r.right, r.bottom)
-	}
-	defer if saved != 0 do win.RestoreDC(dc, saved) // the back buffer's DC outlives the paint
-	old := win.SelectObject(dc, win.HGDIOBJ(hfont))
-	defer win.SelectObject(dc, old)
-	win.SetBkMode(dc, .TRANSPARENT)
-	c := color_argb(style.color)
-	win.SetTextColor(dc, win.RGB(c >> 16 & 0xff, c >> 8 & 0xff, c & 0xff)) // GDI text has no alpha
-	w := wstr(text)
-	win.TextOutW(dc, px(x), px(y), w, i32(len(string16_of(w))))
+	if text == "" do return
+	t := text_format(style)
+	if t == nil do return
+	w := win.utf8_to_utf16(text, context.temp_allocator)
+	r := D2D1_RECT_F{f32(x), f32(y), f32(x) + 1e6, f32(y) + t.ascent + t.descent}
+	target_of(p)->DrawText(raw_data(w), u32(len(w)), t.format, &r, brush_for(p, style.color), D2D1_DRAW_TEXT_OPTIONS_NONE, DWRITE_MEASURING_MODE_NATURAL)
 }
 
-// GDI's extent of the same font _draw_text selects: the advance and the line height (tmHeight).
+// The same under a rotation about (x, y), clockwise for a positive angle.
+@(private)
+_draw_text_rotated :: proc(p: ^Painter, text: string, x, y, angle: f64, style: Text_Style) {
+	rt := target_of(p)
+	old: D2D1_MATRIX_3X2_F
+	rt->GetTransform(&old)
+	cs, sn := math.cos(angle), math.sin(angle)
+	m := D2D1_MATRIX_3X2_F{f32(cs), f32(sn), f32(-sn), f32(cs), f32(x - x * cs + y * sn), f32(y - x * sn - y * cs)}
+	rt->SetTransform(&m)
+	_draw_text(p, text, x, y, style)
+	rt->SetTransform(&old)
+}
+
+// The advance (trailing spaces included) and the line box's height, as _draw_text lays it out.
 @(private)
 _measure_text :: proc(p: ^Painter, text: string, style: Text_Style) -> (width, height: f64) {
-	dc: win.HDC
-	GdipGetDC(p.native, &dc)
-	defer GdipReleaseDC(p.native, dc)
-	sz := text_size(dc, style_font(style, g_windows.font), text)
-	return dp(sz.cx), dp(sz.cy)
+	t := text_format(style)
+	if t == nil do return 0, 0
+	height = f64(t.ascent + t.descent)
+	if text == "" do return 0, height
+	w := win.utf8_to_utf16(text, context.temp_allocator)
+	layout: ^IDWriteTextLayout
+	if g_d2d.dwrite->CreateTextLayout(raw_data(w), u32(len(w)), t.format, 1e6, 1e6, &layout) < 0 do return 0, height
+	m: DWRITE_TEXT_METRICS
+	layout->GetMetrics(&m)
+	com_release(layout)
+	return f64(m.width_including_trailing_whitespace), height
 }
 
-// px → dp, the inverse of `px`.
+// Aliased: the clip's edge cuts whole pixels, as GDI+'s did.
+@(private)
+_clip_push :: proc(p: ^Painter, x, y, w, h: f64) {
+	r := rect_f(x, y, w, h)
+	target_of(p)->PushAxisAlignedClip(&r, D2D1_ANTIALIAS_MODE_ALIASED)
+}
+
+@(private)
+_clip_pop :: proc(p: ^Painter) {
+	target_of(p)->PopAxisAlignedClip()
+}
+
+// The bitmap uploaded to the shared target: once, again when its pixels changed
+// (bitmap_set_rgba), premultiplied from GDI+'s decode.
+@(private)
+canvas_bitmap :: proc(b: ^Bitmap) -> ^ID2D1Bitmap {
+	id, gen, ok := bitmap_id(b)
+	if !ok do return nil
+	rt := (^ID2D1RenderTarget)(g_d2d.target)
+	cb, has := &g_d2d.bitmaps[id]
+	if has && cb.gen == gen {
+		cb.used = g_d2d.paints
+		return cb.bitmap
+	}
+	rect := GpRect{0, 0, i32(b.width), i32(b.height)}
+	data: GpBitmapData
+	if GdipBitmapLockBits(b.native, &rect, GP_IMAGE_LOCK_READ, GP_PIXEL_FORMAT_32BPP_PARGB, &data) != 0 do return nil
+	defer GdipBitmapUnlockBits(b.native, &data)
+	if has && cb.size == {b.width, b.height} {
+		cb.bitmap->CopyFromMemory(nil, data.scan0, u32(data.stride))
+		cb.gen, cb.used = gen, g_d2d.paints
+		return cb.bitmap
+	}
+	if has do com_release(cb.bitmap)
+	props := D2D1_BITMAP_PROPERTIES{{DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED}, 96, 96}
+	bmp: ^ID2D1Bitmap
+	if rt->CreateBitmap({u32(b.width), u32(b.height)}, data.scan0, u32(data.stride), &props, &bmp) < 0 {
+		if has do delete_key(&g_d2d.bitmaps, id)
+		return nil
+	}
+	g_d2d.bitmaps[id] = {bmp, gen, g_d2d.paints, {b.width, b.height}}
+	return bmp
+}
+
+// Stretched over the rect, cubic where the target is a device context (Windows 8+).
+@(private)
+_draw_image :: proc(p: ^Painter, b: ^Bitmap, x, y, w, h: f64) {
+	bmp := canvas_bitmap(b)
+	if bmp == nil do return
+	dest := rect_f(x, y, w, h)
+	if g_d2d.dc != nil do g_d2d.dc->DrawBitmap1(bmp, &dest, 1, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC, nil, nil)
+	else do target_of(p)->DrawBitmap(bmp, &dest, 1, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, nil)
+}
+
 // The keyboard's Shift, Ctrl, Alt and Windows keys now.
 @(private)
 canvas_mods :: proc "contextless" () -> Modifiers {
@@ -341,6 +615,15 @@ dp :: proc "contextless" (v: i32) -> f64 {
 	return f64(v) * 96 / f64(g_windows.dpi)
 }
 
+// The window's background (its container's colour, else the theme's), as the paint's clear colour.
+@(private)
+canvas_background :: proc(hwnd: win.HWND) -> D2D1_COLOR_F {
+	lb: win.LOGBRUSH
+	win.GetObjectW(win.HANDLE(background_brush_of(win.GetParent(hwnd))), size_of(lb), &lb)
+	c := u32(lb.lbColor)
+	return {f32(c & 0xff) / 255, f32(c >> 8 & 0xff) / 255, f32(c >> 16 & 0xff) / 255, 1}
+}
+
 @(private)
 canvas_paint :: proc(hwnd: win.HWND, h: ^Canvas_Handle) {
 	ps: win.PAINTSTRUCT
@@ -349,6 +632,12 @@ canvas_paint :: proc(hwnd: win.HWND, h: ^Canvas_Handle) {
 	rc: win.RECT
 	win.GetClientRect(hwnd, &rc)
 	if rc.right <= 0 || rc.bottom <= 0 do return
+	if g_d2d.drawing { // a paint from inside another's on_draw: the shared target is busy
+		win.InvalidateRect(hwnd, nil, false)
+		return
+	}
+	rt := (^ID2D1RenderTarget)(d2d_target())
+	if rt == nil do return
 
 	c := (^Windows_Canvas)(h.extra)
 	if c.mem == nil || c.size != {rc.right, rc.bottom} {
@@ -358,23 +647,35 @@ canvas_paint :: proc(hwnd: win.HWND, h: ^Canvas_Handle) {
 		c.old = win.SelectObject(c.mem, win.HGDIOBJ(c.bmp))
 		c.size = {rc.right, rc.bottom}
 	}
-	win.FillRect(c.mem, &rc, background_brush_of(win.GetParent(hwnd)))
-
-	// A Graphics per paint: cheap, and a kept one would accumulate clip and transform state.
-	clear(&c.clips) // the core pops what on_draw left pushed
-	g: GpGraphics
-	GdipCreateFromHDC(c.mem, &g)
-	GdipSetSmoothingMode(g, GP_SMOOTHING_ANTIALIAS)
-	GdipSetPixelOffsetMode(g, GP_PIXEL_OFFSET_HALF)
-	GdipSetInterpolationMode(g, GP_INTERPOLATION_HIGH_QUALITY_BICUBIC)
-	scale := f32(g_windows.dpi) / 96
-	GdipScaleWorldTransform(g, scale, scale, GP_MATRIX_ORDER_PREPEND)
+	if g_d2d.dpi != g_windows.dpi {
+		rt->SetDpi(f32(g_windows.dpi), f32(g_windows.dpi))
+		g_d2d.dpi = g_windows.dpi
+	}
+	if g_d2d.target->BindDC(c.mem, &rc) < 0 do return
+	g_d2d.drawing = true
+	rt->BeginDraw()
+	bg := canvas_background(hwnd)
+	rt->Clear(&bg)
+	g_d2d.paints += 1
 	c.painting = true
-	canvas_draw_notify(h, g, dp(rc.right), dp(rc.bottom), c.mem)
+	canvas_draw_notify(h, g_d2d.target, dp(rc.right), dp(rc.bottom))
 	c.painting = false
-	GdipDeleteGraphics(g)
-
+	hr := rt->EndDraw(nil, nil) // the pixels are in the back buffer once it returns
+	g_d2d.drawing = false
+	if hr == D2DERR_RECREATE_TARGET {
+		d2d_target_free()
+		win.InvalidateRect(hwnd, nil, false)
+		return
+	}
 	win.BitBlt(dc, 0, 0, rc.right, rc.bottom, c.mem, 0, 0, win.SRCCOPY)
+	// Bitmaps not drawn for a while, or freed, go.
+	gone := make([dynamic]u64, context.temp_allocator)
+	for id, b in g_d2d.bitmaps {
+		if bitmap_live(id) && g_d2d.paints - b.used < 600 do continue
+		com_release(b.bitmap)
+		append(&gone, id)
+	}
+	for id in gone do delete_key(&g_d2d.bitmaps, id)
 }
 
 @(private)
@@ -397,6 +698,7 @@ canvas_proc :: proc "system" (hwnd: win.HWND, msg: win.UINT, wparam: win.WPARAM,
 	case win.WM_TIMER:
 		if wparam == CANVAS_FRAME_TIMER {
 			win.KillTimer(hwnd, CANVAS_FRAME_TIMER)
+			hires_drop_canvas(hwnd)
 			win.InvalidateRect(hwnd, nil, false)
 			return 0
 		}
@@ -448,43 +750,4 @@ canvas_proc :: proc "system" (hwnd: win.HWND, msg: win.UINT, wparam: win.WPARAM,
 		return 0
 	}
 	return win.DefWindowProcW(hwnd, msg, wparam, lparam)
-}
-
-// One open figure: butt ends, round joins.
-@(private)
-_stroke_polyline :: proc(p: ^Painter, points: [][2]f64, color: Color, width: f64) {
-	pts := make([]GpPointF, len(points), context.temp_allocator)
-	for q, i in points do pts[i] = {f32(q.x), f32(q.y)}
-	pen := pen_for(p, color, width, GP_LINE_CAP_FLAT, GP_LINE_JOIN_ROUND)
-	GdipDrawLines(p.native, pen, raw_data(pts), i32(len(pts)))
-}
-
-@(private)
-_fill_polygon :: proc(p: ^Painter, points: [][2]f64, color: Color) {
-	pts := make([]GpPointF, len(points), context.temp_allocator)
-	for q, i in points do pts[i] = {f32(q.x), f32(q.y)}
-	GdipFillPolygon(p.native, brush_for(p, color), raw_data(pts), i32(len(pts)), GP_FILL_MODE_WINDING)
-}
-
-// The clip rect is in world units (dp), so the transform applies; the px copy clips GDI text.
-@(private)
-_clip_push :: proc(p: ^Painter, x, y, w, h: f64) {
-	c := (^Windows_Canvas)(p.h.extra)
-	state: u32
-	GdipSaveGraphics(p.native, &state)
-	GdipSetClipRect(p.native, f32(x), f32(y), f32(w), f32(h), GP_COMBINE_INTERSECT)
-	r := win.RECT{px(x), px(y), px(x + w), px(y + h)}
-	if n := len(c.clips); n > 0 {
-		o := c.clips[n - 1].rect
-		r = {max(r.left, o.left), max(r.top, o.top), min(r.right, o.right), min(r.bottom, o.bottom)}
-		r.right, r.bottom = max(r.right, r.left), max(r.bottom, r.top)
-	}
-	append(&c.clips, Windows_Clip{state, r})
-}
-
-@(private)
-_clip_pop :: proc(p: ^Painter) {
-	c := (^Windows_Canvas)(p.h.extra)
-	if len(c.clips) == 0 do return
-	GdipRestoreGraphics(p.native, builtin.pop(&c.clips).state)
 }

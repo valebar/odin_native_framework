@@ -75,6 +75,7 @@ foreign nv_js {
 	js_clip_push      :: proc(x, y, w, h: f64) ---
 	js_clip_pop       :: proc() ---
 	js_draw_text      :: proc(text: string, x, y, size: f64, weight: i32, italic: b32, font: i32, argb: u32) ---
+	js_draw_text_rotated :: proc(text: string, x, y, angle, size: f64, weight: i32, italic: b32, font: i32, argb: u32) ---
 	js_measure_text   :: proc(text: string, size: f64, weight: i32, italic: b32, font: i32) -> f64 ---
 	js_text_height    :: proc(size: f64, weight: i32, italic: b32, font: i32) -> f64 ---
 	js_draw_image     :: proc(bitmap: i32, x, y, w, h: f64) ---

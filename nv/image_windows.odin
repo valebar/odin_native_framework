@@ -19,8 +19,40 @@ foreign import wininet "system:Wininet.lib"
 @(private) INTERNET_OPEN_TYPE_PRECONFIG :: 0
 @(private) INTERNET_FLAG_NO_UI          :: 0x0000_0200
 
-@(private) GP_PIXEL_FORMAT_32BPP_ARGB :: i32(0x0026200A)
-@(private) GP_IMAGE_LOCK_WRITE        :: u32(2)
+@(private) GP_PIXEL_FORMAT_32BPP_ARGB  :: i32(0x0026200A)
+@(private) GP_PIXEL_FORMAT_32BPP_PARGB :: i32(0x000E200B)
+@(private) GP_IMAGE_LOCK_READ          :: u32(1)
+@(private) GP_IMAGE_LOCK_WRITE         :: u32(2)
+
+// A bitmap's id (never reused) and the generation of its pixels, for the canvases' uploads
+// (canvas_windows.odin): a freed bitmap's address may come back with other pixels.
+@(private) g_bitmap_ids: struct {
+	next: u64,
+	of:   map[^Bitmap][2]u64, // id, generation
+	live: map[u64]^Bitmap,
+}
+
+@(private)
+bitmap_register :: proc(b: ^Bitmap) {
+	if g_bitmap_ids.of == nil {
+		g_bitmap_ids.of = make(map[^Bitmap][2]u64, nv_heap())
+		g_bitmap_ids.live = make(map[u64]^Bitmap, nv_heap())
+	}
+	g_bitmap_ids.next += 1
+	g_bitmap_ids.of[b] = {g_bitmap_ids.next, 0}
+	g_bitmap_ids.live[g_bitmap_ids.next] = b
+}
+
+@(private)
+bitmap_id :: proc(b: ^Bitmap) -> (id, gen: u64, ok: bool) {
+	v, has := g_bitmap_ids.of[b]
+	return v[0], v[1], has
+}
+
+@(private)
+bitmap_live :: proc(id: u64) -> bool {
+	return id in g_bitmap_ids.live
+}
 
 @(private) GpRect :: struct { x, y, w, h: i32 }
 
@@ -59,11 +91,16 @@ _bitmap_decode :: proc(b: ^Bitmap, data: []u8) -> bool {
 	GdipGetImageHeight(img, &h)
 	b.native, b.extra = img, stream
 	b.width, b.height = int(w), int(h)
+	bitmap_register(b)
 	return true
 }
 
 @(private)
 _bitmap_free :: proc(b: ^Bitmap) {
+	if v, ok := g_bitmap_ids.of[b]; ok {
+		delete_key(&g_bitmap_ids.live, v[0])
+		delete_key(&g_bitmap_ids.of, b)
+	}
 	GdipDisposeImage(b.native)
 	if b.extra != nil do (^win.IUnknown)(b.extra)->Release() // a bitmap from pixels has no stream
 }
@@ -77,11 +114,13 @@ _bitmap_rgba :: proc(b: ^Bitmap, pixels: []u8) -> bool {
 		return false
 	}
 	b.native = img
+	bitmap_register(b)
 	return true
 }
 
 @(private)
 _bitmap_set_rgba :: proc(b: ^Bitmap, pixels: []u8) -> bool {
+	if v, ok := &g_bitmap_ids.of[b]; ok do v[1] += 1
 	return bitmap_write_rgba(b.native, b.width, b.height, pixels)
 }
 
@@ -102,11 +141,11 @@ bitmap_write_rgba :: proc "contextless" (img: GpImage, w, h: int, pixels: []u8) 
 	return GdipBitmapUnlockBits(img, &data) == 0
 }
 
-// The interpolation and pixel offset modes are set once per Graphics (canvas_paint /
-// image_paint); the half-pixel offset also keeps a seam off the image's edges.
+// The Image widget's draw (the canvas's is canvas_windows.odin's): the interpolation and pixel
+// offset modes are set on its Graphics; the half-pixel offset also keeps a seam off the edges.
 @(private)
-_draw_image :: proc(p: ^Painter, b: ^Bitmap, x, y, w, h: f64) {
-	GdipDrawImageRect(p.native, b.native, f32(x), f32(y), f32(w), f32(h))
+gdip_draw_image :: proc(g: GpGraphics, b: ^Bitmap, x, y, w, h: f64) {
+	GdipDrawImageRect(g, b.native, f32(x), f32(y), f32(w), f32(h))
 }
 
 @(private)
@@ -159,8 +198,7 @@ image_paint :: proc(hwnd: win.HWND, h: ^Image_Handle) {
 		scale := f32(g_windows.dpi) / 96
 		GdipScaleWorldTransform(g, scale, scale, GP_MATRIX_ORDER_PREPEND)
 		r := image_fit_rect(h.image.fit, h.bitmap, dp(rc.right), dp(rc.bottom))
-		p := Painter{native = g, dc = mem}
-		_draw_image(&p, h.bitmap, r[0], r[1], r[2], r[3])
+		gdip_draw_image(g, h.bitmap, r[0], r[1], r[2], r[3])
 		GdipDeleteGraphics(g)
 	}
 
